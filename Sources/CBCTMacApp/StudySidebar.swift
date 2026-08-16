@@ -58,11 +58,11 @@ struct StudySidebar: View {
     @ViewBuilder
     private func phantomTree(volume: Volume) -> some View {
         TreeRow(
-            icon: "person.crop.square", title: "FANTOCCIO_SINTETICO", indent: 0,
+            icon: "person.crop.square", title: "PAZIENTE", indent: 0,
             isSelected: false, isBold: true)
-        TreeRow(icon: "calendar", title: "Generato in memoria", indent: 1, isSelected: false)
+        TreeRow(icon: "calendar", title: "Studio aperto", indent: 1, isSelected: false)
         TreeRow(
-            icon: "cube", title: "Cubo 20 mm e sfere", indent: 2, isSelected: true,
+            icon: "cube", title: model.studyName, indent: 2, isSelected: true,
             tint: Palette.accent)
 
         let geometry = volume.geometry

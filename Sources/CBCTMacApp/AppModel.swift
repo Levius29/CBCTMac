@@ -418,6 +418,67 @@ final class AppModel {
         case failed(String)
     }
 
+    /// Apre una cartella di file DICOM.
+    ///
+    /// La scansione legge i soli metadati, quindi l'albero delle serie compare subito anche su
+    /// cartelle da migliaia di file; i pixel si leggono solo per la serie scelta.
+    func loadStudy(from directory: URL) async {
+        loadingMessage = "Scansione della cartella…"
+        loadIssues = []
+
+        let outcome = await Task.detached(priority: .userInitiated) { () -> StudyOutcome in
+            do {
+                let scan = try DICOMScanner.scan(directory: directory, progress: nil)
+
+                // Si sceglie la serie di immagini con più slice: su un export CBCT è
+                // praticamente sempre il volume, mentre le altre sono scout e localizzatori.
+                let candidates = scan.patients
+                    .flatMap(\.studies)
+                    .flatMap(\.series)
+                    .filter { $0.isImageSeries && $0.instances.count > 1 }
+
+                guard let series = candidates.max(by: { $0.instances.count < $1.instances.count })
+                else {
+                    return .failed("Nessuna serie di immagini trovata nella cartella.")
+                }
+
+                let result = try VolumeBuilder.build(series: series)
+                var messages = result.warnings
+                messages.append(contentsOf: result.geometryIssues.map(\.localizedDescription))
+                messages.append(contentsOf: scan.failures.map { "\($0.url.lastPathComponent): \($0.reason)" })
+
+                return .loaded(result.volume, messages, series.description ?? "Serie CBCT")
+            } catch let error as VolumeBuildError {
+                return .failed(error.localizedDescription)
+            } catch let error as DICOMParsingError {
+                return .failed(error.localizedDescription)
+            } catch {
+                return .failed(String(describing: error))
+            }
+        }.value
+
+        switch outcome {
+        case .failed(let message):
+            loadingMessage = nil
+            loadIssues = [message]
+        case .loaded(let volume, let messages, let name):
+            adopt(volume: volume)
+            // Gli avvisi si impostano **dopo** `adopt`, che azzera lo stato: altrimenti
+            // sparirebbero proprio quando servono.
+            loadIssues = messages
+            studyName = name
+            loadingMessage = nil
+        }
+    }
+
+    private enum StudyOutcome: Sendable {
+        case loaded(Volume, [String], String)
+        case failed(String)
+    }
+
+    /// Nome della serie aperta, per il titolo della finestra e la barra laterale.
+    private(set) var studyName: String = "Fantoccio sintetico"
+
     /// Adotta un volume: costruisce la texture, imposta mirino, finestra e inquadrature.
     func adopt(volume: Volume) {
         self.volume = volume

@@ -1,3 +1,4 @@
+import AppKit
 import DICOMCore
 import SwiftUI
 import VolumeKit
@@ -49,7 +50,23 @@ struct ContentView: View {
 
     private var windowTitle: String {
         guard model.volume != nil else { return "CBCTMac" }
-        return "CBCTMac — Fantoccio sintetico"
+        return "CBCTMac — \(model.studyName)"
+    }
+
+    /// Sceglie una cartella e ne carica lo studio.
+    ///
+    /// Si apre una **cartella** e non un file: un CBCT è una serie di centinaia di file, e
+    /// chiedere all'utente di selezionarli tutti sarebbe un dispetto.
+    private func openStudyFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Apri studio"
+        panel.message = "Scegli la cartella che contiene le immagini DICOM"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { await model.loadStudy(from: url) }
     }
 
     // MARK: Toolbar
@@ -67,14 +84,11 @@ struct ContentView: View {
 
         ToolbarItem {
             Button {
-                // Il parser DICOM non c'è ancora: il pulsante resta per fissare la posizione
-                // nella toolbar, ma dichiara di non essere pronto invece di fallire in
-                // silenzio quando l'utente lo preme.
+                openStudyFolder()
             } label: {
                 Label("Apri", systemImage: "folder")
             }
-            .disabled(true)
-            .help("Apertura di studi DICOM non ancora disponibile")
+            .help("Apri una cartella con uno studio DICOM")
         }
 
         ToolbarItem {
