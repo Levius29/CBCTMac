@@ -1,0 +1,39 @@
+## Swift / SPM
+.build/
+.swiftpm/
+Package.resolved
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+## Xcode
+*.xcuserstate
+*.xcscmblueprint
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Dipendenze native (si compilano localmente, non si versionano i binari)
+Vendor/dcmtk/build/
+Vendor/dcmtk/**/*.a
+Vendor/dcmtk/**/*.xcframework
+
+## Dati clinici — non deve MAI finire nulla di questo in un commit
+*.dcm
+*.DCM
+*.dicom
+DICOMDIR
+TestData/
+Phantoms/
+!Tools/PhantomGenerator/**
+
+## macOS
+.DS_Store
+._*
+
+## Editor
+.vscode/
+.idea/
+*.swp
