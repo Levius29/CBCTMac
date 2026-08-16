@@ -31,6 +31,7 @@ let package = Package(
         .library(name: "DICOMCore", targets: ["DICOMCore"]),
         .library(name: "MeasureKit", targets: ["MeasureKit"]),
         .library(name: "VolumeKit", targets: ["VolumeKit"]),
+        .library(name: "DentalKit", targets: ["DentalKit"]),
         .executable(name: "CBCTMacApp", targets: ["CBCTMacApp"]),
     ],
     targets: [
@@ -49,13 +50,21 @@ let package = Package(
             resources: [.process("Shaders")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Curva dell'arcata, panorex e sezioni trasversali. La geometria e' Swift puro e si
+        // testa ovunque; il solo kernel panoramico e' protetto dalla guardia Metal.
+        .target(
+            name: "DentalKit",
+            dependencies: ["DICOMCore", "VolumeKit"],
+            resources: [.process("Shaders")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Applicazione come eseguibile SPM: consente `swift run CBCTMacApp` senza dover
         // generare un progetto Xcode, il che accorcia parecchio il ciclo di prova.
         // Per la distribuzione servira' un vero target app con bundle e Info.plist, da creare
         // in Xcode piu' avanti — vedi README.
         .executableTarget(
             name: "CBCTMacApp",
-            dependencies: ["DICOMCore", "MeasureKit", "VolumeKit"],
+            dependencies: ["DICOMCore", "MeasureKit", "VolumeKit", "DentalKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
@@ -71,6 +80,11 @@ let package = Package(
         .testTarget(
             name: "VolumeKitTests",
             dependencies: ["VolumeKit", "DICOMCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "DentalKitTests",
+            dependencies: ["DentalKit", "DICOMCore", "VolumeKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

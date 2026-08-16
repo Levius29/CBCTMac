@@ -50,6 +50,7 @@ struct CBCTMacApp: App {
         case .single: return "1"
         case .grid2x2: return "2"
         case .onePlusThree: return "3"
+        case .panoramic: return "4"
         }
     }
 }

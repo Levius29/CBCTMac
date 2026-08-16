@@ -43,9 +43,13 @@ struct ViewportGrid: View {
                     }
                     .frame(width: 260)
                 }
+
+            case .panoramic:
+                // Ha una disposizione tutta sua, con il proprio riempimento.
+                PanoramicWorkspace(model: model)
             }
         }
-        .padding(Metrics.viewportGap)
+        .padding(model.layout == .panoramic ? 0 : Metrics.viewportGap)
         .background(Palette.viewportBackground)
     }
 
@@ -75,6 +79,15 @@ struct ViewportContainer: View {
         GeometryReader { geometry in
             ZStack {
                 metalContent
+
+                // La curva dell'arcata si vede e si corregge sull'assiale, dove il suo
+                // andamento corrisponde a quello che si ha davanti agli occhi.
+                if slot == .axial, model.archCurve.isUsable {
+                    ArchCurveOverlay(
+                        model: model,
+                        plane: model.planes[slot],
+                        pixelSize: pixelSize)
+                }
 
                 if slot.anatomicalPlane != nil {
                     CrosshairOverlay(

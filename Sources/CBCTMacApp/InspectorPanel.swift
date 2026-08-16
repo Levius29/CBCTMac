@@ -21,7 +21,11 @@ struct InspectorPanel: View {
                 // I controlli seguono il riquadro attivo: finestra e livello non hanno senso
                 // sul 3D, dove conta la transfer function, e viceversa. Mostrarli entrambi
                 // sempre riempirebbe l'ispettore di comandi inerti.
-                if model.focusedSlot == .volume3D {
+                if model.layout == .panoramic {
+                    visualizationSection
+                    Divider().overlay(Palette.separator)
+                    archSection
+                } else if model.focusedSlot == .volume3D {
                     renderingSection
                     Divider().overlay(Palette.separator)
                     orientationSection
@@ -108,6 +112,85 @@ struct InspectorPanel: View {
         thickness <= 0
             ? "Slice singola"
             : String(format: "%.1f mm", thickness).replacingOccurrences(of: ".", with: ",")
+    }
+
+    // MARK: Arcata, panorex e sezioni
+
+    private var archSection: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing + 2) {
+            SectionHeader("PANOREX")
+
+            LabeledSlider(
+                label: "Spessore", value: $model.panoramicSlabThicknessMM,
+                range: 0...40, format: "%.0f")
+
+            LabeledSlider(
+                label: "Altezza", value: $model.panoramicHeightMM,
+                range: 30...120, format: "%.0f")
+
+            LabeledControl("Proiezione") {
+                Menu(model.panoramicProjection.localizedName) {
+                    ForEach(SlabProjection.allCases, id: \.self) { projection in
+                        Button(projection.localizedName) { model.panoramicProjection = projection }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+
+            Text(
+                "Uno spessore sotto i 10 mm mostra una fetta sola e i denti fuori dalla curva "
+                    + "spariscono; sopra i 30 tutto si sovrappone."
+            )
+            .font(Typography.label)
+            .foregroundStyle(Palette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Divider().overlay(Palette.separator)
+            SectionHeader("SEZIONI TRASVERSALI")
+
+            LabeledControl("Intervallo") {
+                Menu(
+                    String(format: "%.1f mm", model.crossSectionIntervalMM)
+                        .replacingOccurrences(of: ".", with: ",")
+                ) {
+                    ForEach([0.5, 1.0, 1.5, 2.0, 3.0, 5.0], id: \.self) { interval in
+                        Button(
+                            String(format: "%.1f mm", interval)
+                                .replacingOccurrences(of: ".", with: ",")
+                        ) {
+                            model.crossSectionIntervalMM = interval
+                            model.rebuildCrossSections()
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+
+            LabeledSlider(
+                label: "Larghezza", value: $model.crossSectionWidthMM,
+                range: 10...60, format: "%.0f")
+
+            LabeledSlider(
+                label: "Altezza", value: $model.crossSectionHeightMM,
+                range: 20...80, format: "%.0f")
+
+            HStack {
+                Text("Sezioni")
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.textPrimary)
+                Spacer()
+                Text("\(model.crossSections.count)")
+                    .font(Typography.numeric)
+                    .foregroundStyle(Palette.textSecondary)
+            }
+
+            Button {
+                model.rebuildCrossSections()
+            } label: {
+                Label("Rigenera sezioni", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity)
+            }
+        }
     }
 
     // MARK: Rendering 3D

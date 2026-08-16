@@ -1,4 +1,5 @@
 import DICOMCore
+import DentalKit
 import MeasureKit
 import Metal
 import Observation
@@ -55,12 +56,16 @@ enum ViewportLayout: String, CaseIterable, Hashable, Sendable {
     case single
     case grid2x2
     case onePlusThree
+    /// Panorex in alto e griglia di sezioni trasversali sotto. È la disposizione con cui si
+    /// valuta la cresta e si pianifica un impianto.
+    case panoramic
 
     var localizedName: String {
         switch self {
         case .single: return "Singolo"
         case .grid2x2: return "Griglia 2×2"
         case .onePlusThree: return "Uno grande e tre"
+        case .panoramic: return "Panorex e sezioni"
         }
     }
 
@@ -69,6 +74,7 @@ enum ViewportLayout: String, CaseIterable, Hashable, Sendable {
         case .single: return "square"
         case .grid2x2: return "square.grid.2x2"
         case .onePlusThree: return "rectangle.split.2x2"
+        case .panoramic: return "rectangle.grid.1x2"
         }
     }
 }
@@ -157,6 +163,72 @@ final class AppModel {
     var hoverPositionMM: Vec3?
     var hoverDensity: Double?
 
+    // MARK: Arcata, panorex e sezioni
+
+    /// Curva dell'arcata. Da qui derivano sia il panorex sia le sezioni trasversali.
+    var archCurve = ArchCurve(controlPointsMM: [])
+
+    /// Vero mentre l'utente sta correggendo la curva sull'assiale.
+    var isEditingArch = false
+
+    var panoramicHeightMM: Double = 70
+    var panoramicSlabThicknessMM: Double = 20
+    var panoramicProjection: SlabProjection = .maximum
+
+    var crossSectionIntervalMM: Double = 1.0
+    var crossSectionWidthMM: Double = 30
+    var crossSectionHeightMM: Double = 45
+    var crossSectionThicknessMM: Double = 0
+
+    /// Prima sezione mostrata nella griglia. La griglia ne mostra poche per volta e si scorre.
+    var crossSectionPageStart: Int = 0
+
+    /// Quota verticale su cui si centrano panorex e sezioni.
+    /// Segue il mirino, così spostandosi sull'assiale le sezioni restano centrate sulla cresta.
+    var archVerticalCentreMM: Double = 0
+
+    var panoramicLayout: PanoramicLayout {
+        PanoramicLayout(
+            curve: archCurve,
+            heightMM: panoramicHeightMM,
+            verticalCentreMM: archVerticalCentreMM,
+            slabThicknessMM: panoramicSlabThicknessMM,
+            projection: panoramicProjection)
+    }
+
+    var crossSectionLayout: CrossSectionLayout {
+        CrossSectionLayout(
+            curve: archCurve,
+            intervalMM: crossSectionIntervalMM,
+            widthMM: crossSectionWidthMM,
+            heightMM: crossSectionHeightMM,
+            verticalCentreMM: archVerticalCentreMM,
+            thicknessMM: crossSectionThicknessMM)
+    }
+
+    /// Sezioni calcolate, ricostruite quando la curva o i parametri cambiano.
+    ///
+    /// Non è una proprietà calcolata: generarle richiede di ricampionare la spline, e farlo a
+    /// ogni ridisegno di ogni riquadro renderebbe il trascinamento della curva una melassa.
+    private(set) var crossSections: [CrossSection] = []
+
+    func rebuildCrossSections() {
+        guard archCurve.isUsable else {
+            crossSections = []
+            return
+        }
+        crossSections = crossSectionLayout.sections()
+        crossSectionPageStart = min(crossSectionPageStart, max(0, crossSections.count - 1))
+    }
+
+    /// Reimposta la curva sull'arcata predefinita ricavata dal volume.
+    func resetArchCurve() {
+        guard let geometry = volume?.geometry else { return }
+        archCurve = ArchCurve.defaultArch(for: geometry)
+        archVerticalCentreMM = crosshairMM.z
+        rebuildCrossSections()
+    }
+
     // MARK: Rendering 3D
 
     var camera = VolumeCamera()
@@ -189,6 +261,7 @@ final class AppModel {
     let device: MTLDevice?
     private(set) var mprRenderer: MPRRenderer?
     private(set) var raycaster: VolumeRaycaster?
+    private(set) var panoramicRenderer: PanoramicRenderer?
     private(set) var metalError: String?
 
     // MARK: Versione
@@ -203,6 +276,7 @@ final class AppModel {
             do {
                 self.mprRenderer = try MPRRenderer(device: device)
                 self.raycaster = try VolumeRaycaster(device: device)
+                self.panoramicRenderer = try PanoramicRenderer(device: device)
             } catch {
                 self.metalError = String(describing: error)
             }
@@ -271,6 +345,7 @@ final class AppModel {
         histogram = volume.rawHistogram(binCount: 256)
 
         resetPlanes()
+        resetArchCurve()
         annotations = []
         roiStatistics = [:]
         selectedAnnotationID = nil
