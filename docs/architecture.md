@@ -96,13 +96,25 @@ non la distanza fra i centri ricostruiti.
 Il volume esiste in due copie con due scopi distinti, ed è sbagliato usarne una al posto
 dell'altra.
 
-**GPU — `MTLTextureType.type3D`, formato `.r16Float`, `storageModeShared`.**
-Il formato in virgola mobile non è un vezzo: il **filtraggio trilineare hardware non funziona
-sulle texture a formato intero** (`.r16Sint` / `.r16Uint`). Senza filtraggio hardware ogni MPR
-obliquo, il panorex e il raycasting sarebbero a blocchi o richiederebbero interpolazione
-manuale nello shader, molto più lenta. `Float16` ha 11 bit di mantissa: sufficienti per dati
-CBCT a 12–16 bit una volta normalizzati. Su Apple Silicon `storageModeShared` sfrutta la
-memoria unificata, niente copia CPU→GPU.
+**GPU — `MTLTextureType.type3D`, formato `.r16Unorm`, `storageModeShared`.**
+
+Il vincolo di partenza è che il **filtraggio trilineare hardware non funziona sui formati
+interi** (`.r16Sint` / `.r16Uint`). Senza di esso ogni MPR obliquo, il panorex e il raycasting
+verrebbero a blocchi, oppure imporrebbero un'interpolazione manuale nello shader, molto più
+lenta. Serve quindi un formato filtrabile.
+
+`.r16Unorm` è quello giusto. Interi a 16 bit senza segno presentati allo shader come float in
+[0, 1]: sedici bit pieni, **nessuna perdita di precisione**, filtraggio hardware disponibile.
+
+`.r16Float` sarebbe la scelta sbagliata, e per un motivo non ovvio: `Float16` ha 11 bit di
+mantissa, quindi rappresenta esattamente gli interi solo fino a 2048. Da lì in su compaiono
+buchi — passo 2 fino a 4096, passo 4 fino a 8192 — e i valori CBCT cadono proprio in
+quell'intervallo. Si perderebbero i bit bassi senza alcun segno visibile sull'immagine.
+
+Conversione, esatta e reversibile: `Int16` → `UInt16` sommando 32768 in fase di upload; nello
+shader si recupera il valore grezzo con `raw = sampled · 65535 − 32768`.
+
+Su Apple Silicon `storageModeShared` sfrutta la memoria unificata: niente copia CPU→GPU.
 
 **CPU — `[Int16]` grezzi, più `rescaleSlope` / `rescaleIntercept`.**
 **Tutte le statistiche ROI si calcolano qui.** Leggere le statistiche dalla texture filtrata
