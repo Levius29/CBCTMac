@@ -1,8 +1,8 @@
 # Parser DICOM pure Swift — Design
 
-**Data:** 16 agosto 2026  
-**Stato:** approvato da Francesco  
-**Branch di base:** `claude/mac-cbct-dental-app-n84glw`  
+**Data:** 16 agosto 2026
+**Stato:** approvato da Francesco
+**Branch di base:** `claude/mac-cbct-dental-app-n84glw`
 **Branch di lavoro:** `codex/pure-swift-dicom-parser`
 
 ## Fonti normative
