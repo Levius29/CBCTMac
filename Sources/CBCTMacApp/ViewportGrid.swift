@@ -139,12 +139,39 @@ struct ViewportContainer: View {
                 onDrawableSize: { pixelSize = $0 }
             )
         } else {
-            // Il rendering 3D arriva subito dopo l'MPR: il riquadro esiste già così il layout
-            // è quello definitivo e non va rifatto quando il raycaster è pronto.
-            PlaceholderViewport(
-                message: "Rendering 3D in arrivo",
-                detail: "Raycasting con transfer function variabile")
+            VStack(spacing: 0) {
+                ZStack(alignment: .topTrailing) {
+                    volume3D
+                    OrientationCube(camera: model.camera)
+                        .padding(Metrics.spacing)
+                        .padding(.top, Metrics.viewportBorderWidth)
+                }
+                // L'editor della transfer function sta sotto il rendering, non in una finestra
+                // separata: si regola guardando il risultato cambiare.
+                TransferFunctionEditor(model: model)
+            }
         }
+    }
+
+    private var volume3D: some View {
+        Volume3DViewportView(
+            camera: model.camera,
+            volumeTexture: model.volumeTexture,
+            raycaster: model.raycaster,
+            transferFunction: model.transferFunction,
+            quality: model.effectiveQuality,
+            lighting: model.lighting,
+            onOrbit: { delta in
+                model.focusedSlot = slot
+                model.orbit(byPixels: delta)
+            },
+            onMagnify: { factor in
+                model.zoom3D(by: factor)
+            },
+            onInteractionChanged: { active in
+                model.isInteractingWith3D = active
+            }
+        )
     }
 
     // MARK: Conversioni
@@ -289,26 +316,3 @@ struct ViewportContainer: View {
     }
 }
 
-// MARK: - Segnaposto
-
-struct PlaceholderViewport: View {
-    let message: String
-    let detail: String
-
-    var body: some View {
-        ZStack {
-            Palette.viewportBackground
-            VStack(spacing: Metrics.spacing) {
-                Image(systemName: "cube.transparent")
-                    .font(.system(size: 32))
-                    .foregroundStyle(Palette.textSecondary.opacity(0.4))
-                Text(message)
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.textSecondary)
-                Text(detail)
-                    .font(Typography.label)
-                    .foregroundStyle(Palette.textSecondary.opacity(0.6))
-            }
-        }
-    }
-}

@@ -18,7 +18,16 @@ struct InspectorPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Metrics.spacingLarge) {
-                visualizationSection
+                // I controlli seguono il riquadro attivo: finestra e livello non hanno senso
+                // sul 3D, dove conta la transfer function, e viceversa. Mostrarli entrambi
+                // sempre riempirebbe l'ispettore di comandi inerti.
+                if model.focusedSlot == .volume3D {
+                    renderingSection
+                    Divider().overlay(Palette.separator)
+                    orientationSection
+                } else {
+                    visualizationSection
+                }
                 Divider().overlay(Palette.separator)
                 measurementsSection
             }
@@ -99,6 +108,83 @@ struct InspectorPanel: View {
         thickness <= 0
             ? "Slice singola"
             : String(format: "%.1f mm", thickness).replacingOccurrences(of: ".", with: ",")
+    }
+
+    // MARK: Rendering 3D
+
+    private var renderingSection: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing + 2) {
+            SectionHeader("RENDERING 3D")
+
+            LabeledControl("Preset") {
+                Menu(model.transferPresetName) {
+                    ForEach(TransferFunction.presets, id: \.name) { preset in
+                        Button(preset.name) { model.applyTransferPreset(named: preset.name) }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+
+            LabeledControl("Qualità") {
+                Menu(model.renderQuality.localizedName) {
+                    ForEach(RenderQuality.allCases, id: \.self) { quality in
+                        Button(quality.localizedName) { model.renderQuality = quality }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+
+            LabeledSlider(
+                label: "Illuminazione", value: $model.lighting.diffuse,
+                range: 0...1.5, format: "%.2f")
+            LabeledSlider(
+                label: "Ambiente", value: $model.lighting.ambient,
+                range: 0...1, format: "%.2f")
+            LabeledSlider(
+                label: "Opacità", value: $model.transferFunction.opacityScale,
+                range: 0...3, format: "%.2f")
+        }
+    }
+
+    private var orientationSection: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing) {
+            SectionHeader("ORIENTAMENTO")
+            HStack(spacing: Metrics.spacingSmall) {
+                orientationButton("Anteriore", "person.crop.rectangle") {
+                    model.camera = model.camera.facingAnterior()
+                }
+                orientationButton("Laterale", "person.crop.circle") {
+                    model.camera = model.camera.facingLateral()
+                }
+                orientationButton("Superiore", "circle.dashed") {
+                    model.camera = model.camera.facingSuperior()
+                }
+            }
+            Button {
+                if let geometry = model.volume?.geometry {
+                    model.camera = VolumeCamera.fitted(to: geometry)
+                }
+            } label: {
+                Label("Adatta alla finestra", systemImage: "arrow.up.left.and.arrow.down.right")
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private func orientationButton(
+        _ title: String, _ symbol: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: Metrics.spacingSmall) {
+                Image(systemName: symbol).font(.system(size: 16))
+                Text(title).font(Typography.label)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Metrics.spacing)
+            .background(Palette.chromeElevated, in: .rect(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Palette.textPrimary)
     }
 
     // MARK: Misure

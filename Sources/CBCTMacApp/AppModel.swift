@@ -157,10 +157,38 @@ final class AppModel {
     var hoverPositionMM: Vec3?
     var hoverDensity: Double?
 
+    // MARK: Rendering 3D
+
+    var camera = VolumeCamera()
+    var transferFunction: TransferFunction = .bone
+    var transferPresetName: String = "Osso"
+    var renderQuality: RenderQuality = .standard
+    var lighting: LightingParameters = .standard
+
+    /// Istogramma dei valori grezzi, per lo sfondo dell'editor di transfer function.
+    ///
+    /// Calcolato una volta all'apertura del volume e conservato: scorrere quattordici milioni
+    /// di voxel a ogni ridisegno dell'editor renderebbe intrattabile il trascinamento di un
+    /// punto di controllo.
+    private(set) var histogram: [Int] = []
+
+    /// Vero mentre l'utente sta ruotando il volume.
+    ///
+    /// Durante la rotazione si scende a qualità ridotta: un volume da quattordici milioni di
+    /// voxel non si attraversa a piena risoluzione restando fluidi, e su un'immagine in
+    /// movimento il dettaglio non si coglie mentre uno scatto sì.
+    var isInteractingWith3D = false
+
+    /// Qualità effettiva, che tiene conto dell'interazione in corso.
+    var effectiveQuality: RenderQuality {
+        isInteractingWith3D ? .interactive : renderQuality
+    }
+
     // MARK: Metal
 
     let device: MTLDevice?
     private(set) var mprRenderer: MPRRenderer?
+    private(set) var raycaster: VolumeRaycaster?
     private(set) var metalError: String?
 
     // MARK: Versione
@@ -174,6 +202,7 @@ final class AppModel {
         if let device {
             do {
                 self.mprRenderer = try MPRRenderer(device: device)
+                self.raycaster = try VolumeRaycaster(device: device)
             } catch {
                 self.metalError = String(describing: error)
             }
@@ -238,6 +267,8 @@ final class AppModel {
         // Il mirino parte dal centro del volume, che è l'inquadratura naturale all'apertura.
         crosshairMM = volume.geometry.centerMM
         windowLevel = WindowLevel.automatic(from: volume)
+        camera = VolumeCamera.fitted(to: volume.geometry)
+        histogram = volume.rawHistogram(binCount: 256)
 
         resetPlanes()
         annotations = []
@@ -303,6 +334,34 @@ final class AppModel {
         guard var plane = planes[slot] else { return }
         plane.centerMM = plane.centerMM + offset
         planes[slot] = plane
+    }
+
+    // MARK: Navigazione 3D
+
+    /// Ruota la camera. Lo spostamento arriva in pixel e si converte in radianti.
+    func orbit(byPixels delta: CGSize) {
+        // Circa mezzo giro per 400 pixel di trascinamento: abbastanza reattivo da girare il
+        // cranio con un gesto, abbastanza lento da fermarsi dove si vuole.
+        let scale = Double.pi / 400.0
+        camera = camera.orbited(
+            deltaAzimuth: Double(delta.width) * scale,
+            deltaElevation: Double(-delta.height) * scale)
+    }
+
+    func zoom3D(by factor: Double) {
+        camera = camera.zoomed(by: factor)
+    }
+
+    func applyTransferPreset(named name: String) {
+        guard let preset = TransferFunction.presets.first(where: { $0.name == name }) else {
+            return
+        }
+        // L'opacità globale impostata dall'utente sopravvive al cambio di preset: è una
+        // regolazione di gusto sulla resa, non parte della scelta del tessuto.
+        var function = preset.value
+        function.opacityScale = transferFunction.opacityScale
+        transferFunction = function
+        transferPresetName = name
     }
 
     /// Sposta il mirino su un punto, mantenendolo dentro il volume.

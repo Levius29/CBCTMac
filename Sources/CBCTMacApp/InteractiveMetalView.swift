@@ -31,6 +31,15 @@ final class InteractiveMetalView: MTKView {
     /// Doppio clic: ingrandisce il riquadro a piena finestra.
     var onDoubleClick: (() -> Void)?
 
+    /// Inizio e fine di un trascinamento.
+    ///
+    /// Servono al riquadro 3D per abbassare la qualità mentre si ruota e rialzarla al rilascio.
+    /// Il segnale deve arrivare dal pulsante del mouse e non da un timer di inattività: con un
+    /// timer la prima frazione di secondo di rotazione girerebbe comunque a piena qualità, che
+    /// è esattamente il momento in cui la fluidità conta di più.
+    var onDragBegan: (() -> Void)?
+    var onDragEnded: (() -> Void)?
+
     // MARK: Configurazione
 
     /// Origine in alto a sinistra, come la texture. Senza questo l'asse verticale sarebbe
@@ -97,11 +106,16 @@ final class InteractiveMetalView: MTKView {
             onDoubleClick?()
         } else {
             onClick?(pixelLocation(of: event))
+            onDragBegan?()
         }
     }
 
     override func mouseDragged(with event: NSEvent) {
         onDrag?(pixelLocation(of: event), pixelDelta(of: event))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onDragEnded?()
     }
 
     override func rightMouseDragged(with event: NSEvent) {
