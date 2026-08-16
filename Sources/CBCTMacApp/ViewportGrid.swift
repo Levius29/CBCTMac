@@ -102,6 +102,11 @@ struct ViewportContainer: View {
                         pointSize: geometry.size,
                         pixelSize: pixelSize,
                         pendingStartMM: pendingStartMM)
+
+                    ImplantOverlay(
+                        model: model,
+                        slot: slot,
+                        plane: model.planes[slot])
                 }
 
                 ViewportChrome(model: model, slot: slot, pointSize: geometry.size)
@@ -267,6 +272,19 @@ struct ViewportContainer: View {
                 anchorMM: patient,
                 text: "Nota")
             model.addAnnotation(.text(note))
+
+        case .implant:
+            // L'asse predefinito è verticale verso il basso. Su una cresta inclinata andrà
+            // corretto, ma partire dalla verticale è più prevedibile che indovinare
+            // un'inclinazione dalla vista corrente.
+            model.addImplant(at: patient)
+
+        case .nerve:
+            if model.tracingNerveID == nil {
+                // Il lato si deduce dal segno di L: destra del paziente è x negativo in LPS.
+                model.beginTracingNerve(side: patient.x < 0 ? .right : .left)
+            }
+            model.addNerveNode(at: patient)
         }
     }
 

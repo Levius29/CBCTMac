@@ -1,0 +1,337 @@
+import DICOMCore
+import ImplantKit
+import SwiftUI
+import VolumeKit
+
+// Impianti e canale alveolare disegnati sopra le viste 2D.
+//
+// Come le annotazioni, sono elementi di interfaccia disegnati in SwiftUI sopra la texture, non
+// dentro lo shader: si modificano senza ricompilare Metal e il testo resta nitido.
+//
+// Il criterio di visibilità è la distanza dal piano. Un impianto che sta dieci millimetri più
+// in là non si nasconde di colpo — sfuma — perché sparire di netto renderebbe difficile
+// ritrovarlo, mentre mostrarlo pieno farebbe credere che intersechi la slice corrente.
+
+struct ImplantOverlay: View {
+
+    let model: AppModel
+    let slot: ViewportSlot
+    let plane: MPRPlane?
+
+    var body: some View {
+        Canvas { context, size in
+            guard let plane = adjusted(for: size) else { return }
+            let width = Int(size.width)
+            let height = Int(size.height)
+
+            // Prima il nervo, poi gli impianti: se si sovrappongono conta di più vedere dove
+            // finisce l'impianto rispetto al canale.
+            for canal in model.nerveCanals where canal.isVisible {
+                drawNerve(canal, in: &context, plane: plane, width: width, height: height)
+            }
+            for implant in model.implants where implant.isVisible {
+                drawImplant(
+                    implant, in: &context, plane: plane, width: width, height: height,
+                    isSelected: implant.id == model.selectedImplantID)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func adjusted(for size: CGSize) -> MPRPlane? {
+        guard let plane, size.width > 0, size.height > 0 else { return nil }
+        return plane.matchingAspect(pixelWidth: Int(size.width), pixelHeight: Int(size.height))
+    }
+
+    private func pointsPerMM(_ plane: MPRPlane, width: Int) -> Double {
+        guard plane.widthMM > 0 else { return 1 }
+        return Double(width) / plane.widthMM
+    }
+
+    // MARK: Impianto
+
+    private func drawImplant(
+        _ implant: ImplantPlacement,
+        in context: inout GraphicsContext,
+        plane: MPRPlane,
+        width: Int,
+        height: Int,
+        isSelected: Bool
+    ) {
+        let profile = implant.model.profile
+        guard profile.count >= 2 else { return }
+
+        // Distanza media dal piano, per l'opacità.
+        let platformProjection = plane.pixelPosition(
+            ofPatient: implant.platformMM, pixelWidth: width, pixelHeight: height)
+        let apexProjection = plane.pixelPosition(
+            ofPatient: implant.apexMM, pixelWidth: width, pixelHeight: height)
+        let meanDistance =
+            (abs(platformProjection.distanceMM) + abs(apexProjection.distanceMM)) / 2
+
+        // Oltre metà diametro dal piano l'impianto non lo interseca più: si sfuma su un raggio
+        // in modo che resti riconoscibile senza sembrare presente nella slice.
+        let fadeOverMM = implant.model.diameterMM
+        let opacity = max(0.0, min(1.0, 1.0 - meanDistance / max(fadeOverMM, 0.001)))
+        guard opacity > 0.03 else { return }
+
+        // Silhouette: per ogni quota del profilo, due punti a ±raggio lungo la perpendicolare
+        // all'asse proiettato. È la sagoma che si vede in radiologia, ed è corretta finché
+        // l'asse non punta verso l'osservatore — nel qual caso la sagoma degenera comunque in
+        // un cerchio e la sfumatura la rende poco visibile.
+        let axisInPlane = projectedAxisDirection(implant, plane: plane)
+        let perpendicular = CGPoint(x: -axisInPlane.y, y: axisInPlane.x)
+        let scale = pointsPerMM(plane, width: width)
+
+        var leftSide: [CGPoint] = []
+        var rightSide: [CGPoint] = []
+
+        for point in profile {
+            let centre = implant.axisPoint(atZ: point.zMM)
+            let projected = plane.pixelPosition(
+                ofPatient: centre, pixelWidth: width, pixelHeight: height)
+            let origin = CGPoint(x: projected.x, y: projected.y)
+            let offset = CGFloat(point.radiusMM * scale)
+
+            leftSide.append(
+                CGPoint(
+                    x: origin.x + perpendicular.x * offset,
+                    y: origin.y + perpendicular.y * offset))
+            rightSide.append(
+                CGPoint(
+                    x: origin.x - perpendicular.x * offset,
+                    y: origin.y - perpendicular.y * offset))
+        }
+
+        var outline = Path()
+        outline.move(to: leftSide[0])
+        for point in leftSide.dropFirst() { outline.addLine(to: point) }
+        for point in rightSide.reversed() { outline.addLine(to: point) }
+        outline.closeSubpath()
+
+        // Il colore segue il livello di sicurezza: un impianto troppo vicino al nervo si
+        // riconosce senza dover leggere l'ispettore.
+        let level = model.safetyReports[implant.id]?.worstLevel
+        let strokeColor: Color =
+            switch level {
+            case .danger: Palette.danger
+            case .caution: Palette.caution
+            default: Color(hexString: implant.colorHex) ?? Palette.textPrimary
+            }
+
+        context.fill(outline, with: .color(strokeColor.opacity(0.18 * opacity)))
+        context.stroke(
+            outline, with: .color(strokeColor.opacity(0.95 * opacity)),
+            lineWidth: isSelected ? 2 : 1.4)
+
+        // Asse prolungato oltre la piattaforma: mostra dove l'impianto emergerebbe, che è la
+        // verifica protesica che conta quanto la posizione nell'osso.
+        let emergence = implant.emergencePoint(extensionMM: 6)
+        let emergenceProjection = plane.pixelPosition(
+            ofPatient: emergence, pixelWidth: width, pixelHeight: height)
+        var axisPath = Path()
+        axisPath.move(to: CGPoint(x: platformProjection.x, y: platformProjection.y))
+        axisPath.addLine(to: CGPoint(x: emergenceProjection.x, y: emergenceProjection.y))
+        context.stroke(
+            axisPath,
+            with: .color(strokeColor.opacity(0.6 * opacity)),
+            style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+        guard isSelected else { return }
+        let label = String(
+            format: "Ø%.1f × %.0f", implant.model.diameterMM, implant.model.lengthMM
+        ).replacingOccurrences(of: ".", with: ",")
+        drawLabel(
+            label, at: CGPoint(x: platformProjection.x, y: platformProjection.y),
+            in: &context, color: strokeColor, opacity: opacity)
+    }
+
+    /// Direzione dell'asse proiettata sul piano, normalizzata in coordinate pixel.
+    private func projectedAxisDirection(_ implant: ImplantPlacement, plane: MPRPlane) -> CGPoint {
+        let along = implant.axis
+        let x = along.dot(plane.rightMM)
+        let y = along.dot(plane.downMM)
+        let length = (x * x + y * y).squareRoot()
+        guard length > 1e-9 else { return CGPoint(x: 0, y: 1) }
+        return CGPoint(x: x / length, y: y / length)
+    }
+
+    // MARK: Nervo
+
+    private func drawNerve(
+        _ canal: NerveCanal,
+        in context: inout GraphicsContext,
+        plane: MPRPlane,
+        width: Int,
+        height: Int
+    ) {
+        guard canal.isUsable else { return }
+        let colour = Color(hexString: canal.colorHex) ?? Palette.danger
+        let scale = pointsPerMM(plane, width: width)
+        let samples = canal.resampled(spacingMM: 0.5)
+
+        // Tracciato completo, sfumato con la distanza: dà il senso del percorso anche quando il
+        // canale non attraversa questa slice.
+        var path = Path()
+        var started = false
+        for sample in samples {
+            let projected = plane.pixelPosition(
+                ofPatient: sample.positionMM, pixelWidth: width, pixelHeight: height)
+            let point = CGPoint(x: projected.x, y: projected.y)
+            if started { path.addLine(to: point) } else {
+                path.move(to: point)
+                started = true
+            }
+        }
+        context.stroke(path, with: .color(colour.opacity(0.35)), lineWidth: 1)
+
+        // Sezione del canale dove interseca davvero il piano: è l'informazione che serve
+        // guardando una sezione trasversale, dove il canale compare come un cerchio scuro.
+        for sample in samples {
+            let projected = plane.pixelPosition(
+                ofPatient: sample.positionMM, pixelWidth: width, pixelHeight: height)
+            let distance = abs(projected.distanceMM)
+            guard distance < sample.radiusMM else { continue }
+
+            // Raggio apparente della circonferenza di intersezione fra il tubo e il piano.
+            let apparent = (sample.radiusMM * sample.radiusMM - distance * distance).squareRoot()
+            let radius = CGFloat(apparent * scale)
+            guard radius > 0.5 else { continue }
+
+            let rect = CGRect(
+                x: projected.x - radius, y: projected.y - radius,
+                width: radius * 2, height: radius * 2)
+            context.stroke(Path(ellipseIn: rect), with: .color(colour.opacity(0.9)), lineWidth: 1.5)
+        }
+
+        // Nodi tracciati, visibili solo mentre si sta tracciando.
+        guard model.tracingNerveID == canal.id else { return }
+        for node in canal.nodes {
+            let projected = plane.pixelPosition(
+                ofPatient: node.positionMM, pixelWidth: width, pixelHeight: height)
+            guard abs(projected.distanceMM) < 3 else { continue }
+            let rect = CGRect(x: projected.x - 4, y: projected.y - 4, width: 8, height: 8)
+            context.fill(Path(ellipseIn: rect), with: .color(colour))
+            context.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: 1)
+        }
+    }
+
+    // MARK: Etichette
+
+    private func drawLabel(
+        _ text: String,
+        at point: CGPoint,
+        in context: inout GraphicsContext,
+        color: Color,
+        opacity: Double
+    ) {
+        let resolved = context.resolve(
+            Text(text).font(Typography.numericSmall).foregroundStyle(color.opacity(opacity)))
+        let size = resolved.measure(in: CGSize(width: 300, height: 60))
+        let origin = CGPoint(x: point.x + 10, y: point.y - size.height / 2)
+
+        let background = CGRect(
+            x: origin.x - 3, y: origin.y - 2, width: size.width + 6, height: size.height + 4)
+        context.fill(
+            Path(roundedRect: background, cornerRadius: 3),
+            with: .color(.black.opacity(0.55 * opacity)))
+        context.draw(resolved, at: origin, anchor: .topLeading)
+    }
+}
+
+// MARK: - Semaforo di sicurezza
+
+/// Riepilogo delle distanze dalle strutture da rispettare.
+///
+/// Sta nell'ispettore con i pallini colorati perché è l'informazione che si controlla di
+/// continuo mentre si sposta un impianto: doverla cercare in un pannello separato la
+/// renderebbe una verifica finale invece che una guida durante il gesto.
+struct SafetyPanel: View {
+
+    let report: SafetyReport?
+    let implant: ImplantPlacement?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing) {
+            SectionHeader("SICUREZZA")
+
+            if let report, !report.findings.isEmpty {
+                ForEach(report.findings) { finding in
+                    HStack(spacing: Metrics.spacing) {
+                        Circle()
+                            .fill(Color(hexString: finding.level.colorHex) ?? Palette.textSecondary)
+                            .frame(width: 9, height: 9)
+                        Text(finding.structureName)
+                            .font(Typography.body)
+                            .foregroundStyle(Palette.textPrimary)
+                            .lineLimit(1)
+                        Spacer(minLength: Metrics.spacing)
+                        Text(finding.formattedDistance)
+                            .font(Typography.numeric)
+                            .foregroundStyle(
+                                finding.level == .safe
+                                    ? Palette.textSecondary
+                                    : Color(hexString: finding.level.colorHex) ?? Palette.textPrimary
+                            )
+                    }
+                }
+            } else {
+                Text("Nessuna struttura tracciata da controllare. Traccia il canale alveolare "
+                    + "per attivare gli allarmi di prossimità.")
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let angulation = report?.angulationDegrees {
+                HStack {
+                    Text("Angolazione")
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.textPrimary)
+                    Spacer()
+                    Text(
+                        String(format: "%.1f°", angulation)
+                            .replacingOccurrences(of: ".", with: ",")
+                    )
+                    .font(Typography.numeric)
+                    .foregroundStyle(Palette.textSecondary)
+                }
+            }
+
+            if let deviation = report?.maxParallelismDeviationDegrees {
+                HStack {
+                    Text("Parallelismo")
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.textPrimary)
+                    Spacer()
+                    Text(
+                        String(format: "±%.1f°", deviation)
+                            .replacingOccurrences(of: ".", with: ",")
+                    )
+                    .font(Typography.numeric)
+                    .foregroundStyle(deviation > 15 ? Palette.caution : Palette.textSecondary)
+                }
+            }
+
+            if let density = report?.density {
+                Divider().overlay(Palette.separator)
+                SectionHeader("DENSITÀ OSSEA")
+                ForEach(density.bands, id: \.name) { band in
+                    HStack {
+                        Text(band.name)
+                            .font(Typography.body)
+                            .foregroundStyle(Palette.textPrimary)
+                        Spacer()
+                        Text(band.summary)
+                            .font(Typography.numeric)
+                            .foregroundStyle(Palette.textSecondary)
+                    }
+                }
+                Text(density.overall.unit.explanation)
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}

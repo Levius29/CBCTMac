@@ -1,5 +1,6 @@
 import AppKit
 import DICOMCore
+import ImplantKit
 import MeasureKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -21,7 +22,17 @@ struct InspectorPanel: View {
                 // I controlli seguono il riquadro attivo: finestra e livello non hanno senso
                 // sul 3D, dove conta la transfer function, e viceversa. Mostrarli entrambi
                 // sempre riempirebbe l'ispettore di comandi inerti.
-                if model.layout == .panoramic {
+                // Con uno strumento implantare attivo, o con un impianto selezionato, i
+                // controlli che servono sono quelli, non finestra e livello.
+                if model.activeTool == .implant || model.activeTool == .nerve
+                    || model.selectedImplant != nil
+                {
+                    implantSection
+                    Divider().overlay(Palette.separator)
+                    SafetyPanel(
+                        report: model.selectedImplantID.flatMap { model.safetyReports[$0] },
+                        implant: model.selectedImplant)
+                } else if model.layout == .panoramic {
                     visualizationSection
                     Divider().overlay(Palette.separator)
                     archSection
@@ -112,6 +123,131 @@ struct InspectorPanel: View {
         thickness <= 0
             ? "Slice singola"
             : String(format: "%.1f mm", thickness).replacingOccurrences(of: ".", with: ",")
+    }
+
+    // MARK: Impianti e nervo
+
+    private var implantSection: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing + 2) {
+            SectionHeader("IMPIANTO")
+
+            if let implant = model.selectedImplant {
+                LabeledControl("Diametro") {
+                    Menu(
+                        String(format: "%.1f mm", implant.model.diameterMM)
+                            .replacingOccurrences(of: ".", with: ",")
+                    ) {
+                        ForEach(ImplantModel.commonDiameters, id: \.self) { diameter in
+                            Button(
+                                String(format: "%.1f mm", diameter)
+                                    .replacingOccurrences(of: ".", with: ",")
+                            ) {
+                                model.updateSelectedImplant { placement in
+                                    placement.model = ImplantModel(
+                                        manufacturer: placement.model.manufacturer,
+                                        line: placement.model.line,
+                                        diameterMM: diameter,
+                                        lengthMM: placement.model.lengthMM)
+                                }
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                }
+
+                LabeledControl("Lunghezza") {
+                    Menu(
+                        String(format: "%.0f mm", implant.model.lengthMM)
+                    ) {
+                        ForEach(ImplantModel.commonLengths, id: \.self) { length in
+                            Button(String(format: "%.1f mm", length)) {
+                                model.updateSelectedImplant { placement in
+                                    placement.model = ImplantModel(
+                                        manufacturer: placement.model.manufacturer,
+                                        line: placement.model.line,
+                                        diameterMM: placement.model.diameterMM,
+                                        lengthMM: length)
+                                }
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                }
+
+                HStack {
+                    Text("Etichetta")
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.textPrimary)
+                        .frame(width: 78, alignment: .leading)
+                    Text(implant.label)
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.textSecondary)
+                    Spacer()
+                }
+
+                Button(role: .destructive) {
+                    model.removeSelectedImplant()
+                } label: {
+                    Label("Elimina impianto", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                Text("Scegli lo strumento Impianto dalla toolbar e fai clic sulla cresta per "
+                    + "collocarne uno.")
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider().overlay(Palette.separator)
+            SectionHeader("CANALE ALVEOLARE")
+
+            if model.nerveCanals.isEmpty {
+                Text("Nessun canale tracciato. Senza, gli allarmi di prossimità non possono "
+                    + "essere calcolati.")
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(model.nerveCanals) { canal in
+                    HStack(spacing: Metrics.spacing) {
+                        Circle()
+                            .fill(Color(hexString: canal.colorHex) ?? Palette.danger)
+                            .frame(width: 9, height: 9)
+                        Text(canal.side.localizedName)
+                            .font(Typography.body)
+                            .foregroundStyle(Palette.textPrimary)
+                        Spacer()
+                        Text("\(canal.nodes.count) punti")
+                            .font(Typography.numericSmall)
+                            .foregroundStyle(Palette.textSecondary)
+                    }
+                }
+            }
+
+            if model.tracingNerveID != nil {
+                Button {
+                    model.finishTracingNerve()
+                } label: {
+                    Label("Termina tracciamento", systemImage: "checkmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+            }
+
+            Text(
+                "Soglie: critico sotto \(formatted(model.safetyThresholds.dangerMM)), "
+                    + "attenzione sotto \(formatted(model.safetyThresholds.cautionMM)). "
+                    + "Sono valori impostabili, non prescrizioni."
+            )
+            .font(Typography.label)
+            .foregroundStyle(Palette.textSecondary.opacity(0.8))
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func formatted(_ millimetres: Double) -> String {
+        String(format: "%.1f mm", millimetres).replacingOccurrences(of: ".", with: ",")
     }
 
     // MARK: Arcata, panorex e sezioni

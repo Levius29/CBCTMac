@@ -1,5 +1,6 @@
 import DICOMCore
 import DentalKit
+import ImplantKit
 import MeasureKit
 import Metal
 import Observation
@@ -26,6 +27,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
     case ellipseROI
     case sphereROI
     case text
+    case implant
+    case nerve
 
     var localizedName: String {
         switch self {
@@ -35,6 +38,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .ellipseROI: return "ROI ellittica"
         case .sphereROI: return "ROI sferica"
         case .text: return "Testo"
+        case .implant: return "Impianto"
+        case .nerve: return "Traccia nervo"
         }
     }
 
@@ -46,6 +51,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .ellipseROI: return "oval"
         case .sphereROI: return "circle.circle"
         case .text: return "textformat"
+        case .implant: return "screwdriver"
+        case .nerve: return "point.topleft.down.curvedto.point.bottomright.up"
         }
     }
 }
@@ -227,6 +234,92 @@ final class AppModel {
         archCurve = ArchCurve.defaultArch(for: geometry)
         archVerticalCentreMM = crosshairMM.z
         rebuildCrossSections()
+    }
+
+    // MARK: Nervo e impianti
+
+    var nerveCanals: [NerveCanal] = []
+    var implants: [ImplantPlacement] = []
+    var selectedImplantID: UUID?
+    /// Canale in corso di tracciamento; `nil` quando non si sta tracciando.
+    var tracingNerveID: UUID?
+
+    var implantCatalog: [ImplantModel] = ImplantModel.genericCatalog()
+    /// Modello scelto per il prossimo impianto inserito.
+    var pendingImplantModel: ImplantModel = .default
+
+    /// Rapporti di sicurezza, uno per impianto.
+    ///
+    /// Ricalcolati quando qualcosa cambia, non a ogni ridisegno: l'analisi campiona centinaia
+    /// di punti sulla superficie implantare contro ogni canale, ed è lavoro da CPU.
+    private(set) var safetyReports: [UUID: SafetyReport] = [:]
+
+    var safetyThresholds: SafetyThresholds = .nerve
+
+    var selectedImplant: ImplantPlacement? {
+        guard let id = selectedImplantID else { return nil }
+        return implants.first { $0.id == id }
+    }
+
+    func recomputeSafety() {
+        var reports: [UUID: SafetyReport] = [:]
+        for implant in implants {
+            reports[implant.id] = SafetyAnalyzer.analyze(
+                implant: implant,
+                nerves: nerveCanals,
+                otherImplants: implants,
+                volume: volume,
+                thresholds: safetyThresholds)
+        }
+        safetyReports = reports
+    }
+
+    func addImplant(at pointMM: Vec3, axis: Vec3 = Vec3(0, 0, -1)) {
+        // La piattaforma va dove l'utente ha cliccato e l'impianto scende da lì: è il gesto
+        // atteso, perché si sceglie il punto di emergenza guardando la cresta.
+        let placement = ImplantPlacement(
+            model: pendingImplantModel,
+            platformMM: pointMM,
+            axis: axis,
+            label: "Impianto \(implants.count + 1)")
+        implants.append(placement)
+        selectedImplantID = placement.id
+        recomputeSafety()
+    }
+
+    func updateSelectedImplant(_ transform: (inout ImplantPlacement) -> Void) {
+        guard let id = selectedImplantID,
+            let index = implants.firstIndex(where: { $0.id == id })
+        else { return }
+        transform(&implants[index])
+        recomputeSafety()
+    }
+
+    func removeSelectedImplant() {
+        guard let id = selectedImplantID else { return }
+        implants.removeAll { $0.id == id }
+        safetyReports.removeValue(forKey: id)
+        selectedImplantID = nil
+        recomputeSafety()
+    }
+
+    func beginTracingNerve(side: MandibularSide) {
+        let canal = NerveCanal(side: side)
+        nerveCanals.append(canal)
+        tracingNerveID = canal.id
+    }
+
+    func addNerveNode(at pointMM: Vec3) {
+        guard let id = tracingNerveID,
+            let index = nerveCanals.firstIndex(where: { $0.id == id })
+        else { return }
+        nerveCanals[index].addNode(NerveNode(positionMM: pointMM))
+        recomputeSafety()
+    }
+
+    func finishTracingNerve() {
+        tracingNerveID = nil
+        recomputeSafety()
     }
 
     // MARK: Rendering 3D

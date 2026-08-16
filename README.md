@@ -18,9 +18,10 @@ In sviluppo iniziale. Fase 1 — il visore — in corso.
 
 | Fase | Contenuto | Stato |
 |---|---|---|
-| 1 | Import DICOM, MPR ortogonale, misure e annotazioni | in corso |
-| 2 | Panorex e sezioni trasversali d'arcata | da fare |
-| 3 | Tracciamento nervo alveolare, pianificazione implantare, allarmi di prossimità | da fare |
+| 1 | MPR ortogonale, misure, annotazioni, rendering 3D | scritta, mai compilata |
+| 1b | Parser DICOM per aprire file veri | in corso |
+| 2 | Panorex e sezioni trasversali d'arcata | scritta, mai compilata |
+| 3 | Nervo alveolare, pianificazione implantare, allarmi di prossimità | scritta, mai compilata |
 | 4 | Import scansione intraorale e fusione con il volume | da fare |
 | 5 | Dime chirurgiche ed endodontiche per stampa 3D | da fare |
 | 6 | Segmentazione AI on-device (Core ML) | da fare |
@@ -37,14 +38,18 @@ In sviluppo iniziale. Fase 1 — il visore — in corso.
 Sources/
   DICOMCore/    parsing DICOM, geometria del volume, decoding pixel, fantoccio sintetico
   MeasureKit/   annotazioni, misure, statistiche ROI, documento .cbctplan
-  VolumeKit/    Metal: MPR, slab, transfer function (raycasting in arrivo)
+  VolumeKit/    Metal: MPR, slab, raycasting 3D, transfer function
+  DentalKit/    curva d'arcata, panorex, sezioni trasversali
+  ImplantKit/   canale alveolare, impianti, allarmi di prossimità, densità ossea
   CBCTMacApp/   applicazione SwiftUI
 Tools/          generatore e verificatore di fantocci, in Python senza dipendenze
 docs/           architettura, specifica grafica, mockup, brief per Codex
 ```
 
-`DICOMCore` e `MeasureKit` sono Swift puro senza dipendenze di piattaforma: niente `simd`,
-niente Metal. Compilano e si testano anche su Linux, quindi `swift test` gira senza Xcode.
+`DICOMCore`, `MeasureKit` e `ImplantKit` sono Swift puro senza dipendenze di piattaforma:
+niente `simd`, niente Metal. In `DentalKit` e `VolumeKit` solo i file dei renderer sono
+protetti da una guardia Metal, mentre la geometria resta portabile. Il risultato è che
+`swift test` gira ovunque, anche su Linux, e copre tutta la matematica che conta.
 
 ## Compilazione ed esecuzione
 

@@ -32,6 +32,7 @@ let package = Package(
         .library(name: "MeasureKit", targets: ["MeasureKit"]),
         .library(name: "VolumeKit", targets: ["VolumeKit"]),
         .library(name: "DentalKit", targets: ["DentalKit"]),
+        .library(name: "ImplantKit", targets: ["ImplantKit"]),
         .executable(name: "CBCTMacApp", targets: ["CBCTMacApp"]),
     ],
     targets: [
@@ -58,13 +59,20 @@ let package = Package(
             resources: [.process("Shaders")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Nervo alveolare, impianti e analisi di sicurezza. Nessuna dipendenza da Metal:
+        // e' tutta geometria, e si verifica per intero con `swift test`.
+        .target(
+            name: "ImplantKit",
+            dependencies: ["DICOMCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Applicazione come eseguibile SPM: consente `swift run CBCTMacApp` senza dover
         // generare un progetto Xcode, il che accorcia parecchio il ciclo di prova.
         // Per la distribuzione servira' un vero target app con bundle e Info.plist, da creare
         // in Xcode piu' avanti — vedi README.
         .executableTarget(
             name: "CBCTMacApp",
-            dependencies: ["DICOMCore", "MeasureKit", "VolumeKit", "DentalKit"],
+            dependencies: ["DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
@@ -85,6 +93,11 @@ let package = Package(
         .testTarget(
             name: "DentalKitTests",
             dependencies: ["DentalKit", "DICOMCore", "VolumeKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "ImplantKitTests",
+            dependencies: ["ImplantKit", "DICOMCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
