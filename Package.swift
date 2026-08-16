@@ -31,6 +31,7 @@ let package = Package(
         .library(name: "DICOMCore", targets: ["DICOMCore"]),
         .library(name: "MeasureKit", targets: ["MeasureKit"]),
         .library(name: "VolumeKit", targets: ["VolumeKit"]),
+        .executable(name: "CBCTMacApp", targets: ["CBCTMacApp"]),
     ],
     targets: [
         .target(
@@ -46,6 +47,15 @@ let package = Package(
             name: "VolumeKit",
             dependencies: ["DICOMCore"],
             resources: [.process("Shaders")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Applicazione come eseguibile SPM: consente `swift run CBCTMacApp` senza dover
+        // generare un progetto Xcode, il che accorcia parecchio il ciclo di prova.
+        // Per la distribuzione servira' un vero target app con bundle e Info.plist, da creare
+        // in Xcode piu' avanti — vedi README.
+        .executableTarget(
+            name: "CBCTMacApp",
+            dependencies: ["DICOMCore", "MeasureKit", "VolumeKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
