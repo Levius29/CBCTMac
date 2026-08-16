@@ -247,6 +247,32 @@ is minutes per iteration. Implement a **uniform spatial hash grid** (cell size �
 neighbouring cells. A KD-tree is also acceptable; the grid is simpler and adequate for point
 clouds of roughly uniform density, which dental surfaces are.
 
+#### Reaching `maxIterations` is not a failure
+
+**Return the result with `converged == false`. Do not throw.**
+
+Hitting the iteration limit is ordinary: ICP routinely oscillates in the last fraction of a
+micron without ever meeting the tolerance, while the alignment itself is excellent. Throwing
+would discard both the transform and the RMS — exactly the two things the caller needs in order
+to judge the fit. Whether a registration is good enough is a clinical decision made by looking
+at the residual, not one an iteration counter can make. The presence of `converged` and
+`iterations` in `RegistrationResult` already assumes this: if the function always threw on
+non-convergence, `converged` could never be `false` and the field would be dead.
+
+The risk of silently accepting a bad alignment is real, but it belongs to the UI, which must
+show the RMS prominently and warn above a threshold — not to an exception that hides the number.
+
+**Do throw `didNotConverge` when the fit is genuinely unusable**, which is a different
+situation from merely slow:
+
+- fewer than 3 correspondences survive trimming and the distance cutoff, so no transform can be
+  solved at all;
+- the RMS increases for 5 consecutive iterations, which means divergence rather than slow
+  progress.
+
+In both cases include the iteration count and the last RMS in the error, so the caller can tell
+the two apart.
+
 ### Deliverable 5 — `Sources/MeshKit/RegionMask.swift`
 
 ```swift
