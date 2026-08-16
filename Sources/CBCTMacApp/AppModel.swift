@@ -195,22 +195,31 @@ final class AppModel {
 
         // Fuori dal main actor: sono quattordici milioni di voxel, e bloccare la UI mentre si
         // generano si vedrebbe.
-        let result = await Task.detached(priority: .userInitiated) { () -> Result<Volume, Error> in
+        //
+        // L'esito passa da un enum `Sendable` invece che da `Result<Volume, Error>`: `any Error`
+        // non è `Sendable`, quindi in modalità Swift 6 non attraversa il confine dell'attore.
+        // Il messaggio si estrae subito, dove l'errore è ancora a portata di mano.
+        let outcome = await Task.detached(priority: .userInitiated) { () -> PhantomOutcome in
             do {
-                return .success(try SyntheticVolume.makePhantom())
+                return .loaded(try SyntheticVolume.makePhantom())
             } catch {
-                return .failure(error)
+                return .failed(String(describing: error))
             }
         }.value
 
-        switch result {
-        case .failure(let error):
+        switch outcome {
+        case .failed(let message):
             loadingMessage = nil
-            loadIssues = ["Generazione fallita: \(error)"]
-        case .success(let volume):
+            loadIssues = ["Generazione del fantoccio fallita: \(message)"]
+        case .loaded(let volume):
             adopt(volume: volume)
             loadingMessage = nil
         }
+    }
+
+    private enum PhantomOutcome: Sendable {
+        case loaded(Volume)
+        case failed(String)
     }
 
     /// Adotta un volume: costruisce la texture, imposta mirino, finestra e inquadrature.

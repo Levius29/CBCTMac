@@ -35,26 +35,46 @@ In sviluppo iniziale. Fase 1 — il visore — in corso.
 
 ```
 Sources/
-  DICOMCore/    parsing DICOM, geometria del volume, decoding pixel
-  MeasureKit/   annotazioni, misure, statistiche ROI
-  VolumeKit/    Metal: MPR, slab, raycasting, transfer function
-  DCMTKBridge/  decoding delle sintassi compresse (rimandato, vedi il suo README)
-App/            applicazione SwiftUI
-Tools/          generatore di fantocci sintetici per la verifica
-docs/           architettura, specifica grafica, requisiti, analisi dei rischi
+  DICOMCore/    parsing DICOM, geometria del volume, decoding pixel, fantoccio sintetico
+  MeasureKit/   annotazioni, misure, statistiche ROI, documento .cbctplan
+  VolumeKit/    Metal: MPR, slab, transfer function (raycasting in arrivo)
+  CBCTMacApp/   applicazione SwiftUI
+Tools/          generatore e verificatore di fantocci, in Python senza dipendenze
+docs/           architettura, specifica grafica, mockup, brief per Codex
 ```
 
-`DICOMCore` e `MeasureKit` sono Swift puro senza dipendenze di piattaforma: compilano e si
-testano anche su Linux, quindi `swift test` gira senza Xcode.
+`DICOMCore` e `MeasureKit` sono Swift puro senza dipendenze di piattaforma: niente `simd`,
+niente Metal. Compilano e si testano anche su Linux, quindi `swift test` gira senza Xcode.
 
-## Compilazione
+## Compilazione ed esecuzione
 
 ```sh
-swift build          # i moduli condivisi
-swift test           # test di DICOMCore e MeasureKit
+swift build
+swift run CBCTMacApp
+swift test
 ```
 
-L'applicazione richiede Xcode, che apre il package come dipendenza locale.
+All'avvio l'applicazione genera un **fantoccio sintetico** — un cubo da 20,00 mm con sfere di
+densità note — perché il parser DICOM non c'è ancora. Serve ad avere subito qualcosa di reale
+da disegnare, e a verificare le misure contro valori esatti senza toccare dati di pazienti.
+
+> **Nota.** Il codice non è ancora mai stato compilato: è stato scritto in un ambiente Linux
+> privo di toolchain Swift. Al primo `swift build` sono da attendersi errori da sistemare.
+
+L'eseguibile SPM va bene per lo sviluppo. Per la distribuzione servirà un vero target app in
+Xcode, con bundle e `Info.plist`.
+
+### Verificare le misure
+
+```sh
+python3 Tools/PhantomGenerator/make_phantom.py --output /tmp/phantom
+python3 Tools/PhantomGenerator/verify_phantom.py /tmp/phantom
+```
+
+I due script generano e rileggono una serie DICOM equivalente al fantoccio, con parser
+indipendenti l'uno dall'altro. Stampano i valori attesi: spigolo del cubo 20,00 mm,
+intercapedine fra lastrine 10,00 mm, densità 1200 GV nel cubo e 400 / 2800 / 60 GV nelle sfere.
+Se l'applicazione mostra numeri diversi, l'errore è nella catena delle coordinate.
 
 ## Documentazione
 
