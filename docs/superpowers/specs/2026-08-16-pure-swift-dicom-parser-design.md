@@ -107,6 +107,10 @@ lunghezze non validi. Ogni descrizione è in italiano e include il nome del file
 sono inclusi quando esistono. Anche `parse(url:)` converte gli errori di lettura in un errore
 che nomina il percorso.
 
+Gli errori di accesso o enumerazione della directory vengono analogamente convertiti in un
+errore dello scanner che include il percorso interessato: nessun errore Foundation privo del
+nome del file o della directory attraversa l'API pubblica.
+
 ### Scanner
 
 `DICOMScanner` visita ricorsivamente i file regolari e usa sempre `metadataOnly`. Un file che
@@ -134,7 +138,10 @@ un secondo momento.
 
 Lo sviluppo segue cicli red–green–refactor. `DICOMByteStreamBuilder` costruisce ogni stream in
 memoria con metodi espliciti per endianess, header Explicit/Implicit, sequenze, item e
-PixelData. Non vengono aggiunti fixture DICOM al repository.
+PixelData. Non vengono aggiunti fixture DICOM al repository. I test dello scanner possono
+scrivere questi stessi stream in una directory temporanea creata durante il test e rimossa al
+termine: i byte continuano a essere generati in memoria e nessun dato clinico o fixture viene
+versionato.
 
 I test coprono almeno:
 
