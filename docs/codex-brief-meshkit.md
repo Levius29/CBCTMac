@@ -273,6 +273,11 @@ situation from merely slow:
 In both cases include the iteration count and the last RMS in the error, so the caller can tell
 the two apart.
 
+If `PointRegistration.align` itself throws inside an iteration — the surviving correspondences
+happen to be collinear, say — let that error propagate as `degenerateConfiguration` rather than
+recasting it as `didNotConverge`. The two describe different failures and the caller may want to
+react differently: one means the geometry is unusable, the other that the search went nowhere.
+
 ### Deliverable 5 — `Sources/MeshKit/RegionMask.swift`
 
 ```swift
@@ -292,6 +297,30 @@ public struct RegionMask: Sendable {
 Its purpose, which belongs in the doc comment: metal artefacts from crowns and fillings are the
 single most common cause of a bad CBCT-to-scan registration. The user brushes those regions out
 before registering, and this is what records the brushing.
+
+### Non-finite coordinates: a crash, not just bad data
+
+A malformed PLY or OBJ can contain `nan` or `inf` coordinates, and STL can too — a Float32 bit
+pattern of `0x7FC00000` is a perfectly well-formed 4 bytes that reads as NaN. Range-checking the
+bytes does not catch this, because it is a *value* problem rather than a *length* problem.
+
+It matters more than it looks, because **`Int(Double.nan)` traps in Swift** — it is a runtime
+crash, not a nil. Any spatial grid that computes a cell index as `Int(coordinate / cellSize)`
+therefore crashes the moment a NaN vertex reaches it, which happens in `welded()` and again in
+ICP. That contradicts the rule that malformed input must never crash.
+
+Two guards, both required:
+
+1. **At import**, reject vertices whose coordinates are not finite. Use `Vec3.isFinite`. Throw
+   `malformed` naming the file and the offending vertex index; do not silently substitute zero,
+   which would place a phantom vertex at the origin and quietly distort every subsequent
+   measurement.
+2. **In the spatial grid**, compute cell indices with `Int(exactly:)` — or check `isFinite`
+   before converting — and skip any point that fails. A guard in one place only is not enough:
+   meshes also arrive from `Mesh.init` called by application code, not just from the parsers.
+
+Add tests for both: a PLY carrying a NaN coordinate must throw rather than crash, and a `Mesh`
+constructed in memory with a NaN vertex must survive `welded()` without trapping.
 
 ### Deliverable 6 — Tests in `Tests/MeshKitTests/`
 
