@@ -23,6 +23,12 @@ import PackageDescription
 // DCMTK non compare qui: la Fase 1 gestisce in Swift puro il DICOM non compresso, che copre la
 // gran parte degli export CBCT, e il decoder sta dietro il protocollo `PixelDecoder` così
 // DCMTK si innesta più avanti senza toccare altro.
+//
+// Nessun target dichiara `swiftSettings: [.swiftLanguageMode(.v6)]`. Sarebbe ridondante, perché
+// con `swift-tools-version: 6.0` la modalità Swift 6 è già il default ovunque, e non è
+// innocuo: quell'API non esiste nel PackageDescription dei Command Line Tools più datati, dove
+// il manifest smette di compilare. Ripeterla su ogni target appesantiva anche l'inferenza al
+// punto da mandare in timeout il type-check dell'intera espressione `Package(...)`.
 
 // MARK: - Applicazione, solo su macOS
 //
@@ -42,8 +48,7 @@ import PackageDescription
             name: "CBCTMacApp",
             dependencies: [
                 "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
-            ],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            ]
         )
     ]
 #else
@@ -51,99 +56,68 @@ import PackageDescription
     let appTargets: [Target] = []
 #endif
 
+// MARK: - Moduli
+//
+// Estratti in una costante con tipo esplicito, e non scritti dentro `Package(...)`: annotare il
+// tipo toglie al compilatore un'inferenza costosa su un array lungo concatenato, che è ciò che
+// gli faceva superare il limite di tempo del type-check.
+
+let libraryProducts: [Product] = [
+    .library(name: "DICOMCore", targets: ["DICOMCore"]),
+    .library(name: "MeasureKit", targets: ["MeasureKit"]),
+    .library(name: "MeshKit", targets: ["MeshKit"]),
+    .library(name: "VolumeKit", targets: ["VolumeKit"]),
+    .library(name: "DentalKit", targets: ["DentalKit"]),
+    .library(name: "ImplantKit", targets: ["ImplantKit"]),
+]
+
+let moduleTargets: [Target] = [
+    .target(name: "DICOMCore"),
+    .target(name: "MeasureKit", dependencies: ["DICOMCore"]),
+    .target(name: "MeshKit", dependencies: ["DICOMCore"]),
+    .target(
+        name: "VolumeKit",
+        dependencies: ["DICOMCore"],
+        resources: [.process("Shaders")]
+    ),
+    // Curva dell'arcata, panorex e sezioni trasversali. La geometria è Swift puro e si testa
+    // ovunque; il solo kernel panoramico è protetto dalla guardia Metal.
+    .target(
+        name: "DentalKit",
+        dependencies: ["DICOMCore", "VolumeKit"],
+        resources: [.process("Shaders")]
+    ),
+    // Nervo alveolare, impianti e analisi di sicurezza. Nessuna dipendenza da Metal:
+    // è tutta geometria, e si verifica per intero con `swift test`.
+    .target(name: "ImplantKit", dependencies: ["DICOMCore"]),
+]
+
+let testTargets: [Target] = [
+    .testTarget(name: "DICOMCoreTests", dependencies: ["DICOMCore"]),
+    .testTarget(name: "MeasureKitTests", dependencies: ["MeasureKit", "DICOMCore"]),
+    .testTarget(name: "MeshKitTests", dependencies: ["MeshKit", "DICOMCore"]),
+    .testTarget(name: "VolumeKitTests", dependencies: ["VolumeKit", "DICOMCore"]),
+    .testTarget(name: "DentalKitTests", dependencies: ["DentalKit", "DICOMCore", "VolumeKit"]),
+    .testTarget(name: "ImplantKitTests", dependencies: ["ImplantKit", "DICOMCore"]),
+    // Contratto delle API usate dall'applicazione.
+    //
+    // L'app non compila su Linux, perché importa SwiftUI, AppKit e Metal. Le sue chiamate verso
+    // i moduli condivisi però si possono verificare lo stesso: questo target le ripete con le
+    // stesse firme, quindi se compila ogni punto di chiamata dell'app verso i moduli è corretto.
+    // Resta fuori solo il codice di piattaforma vero e proprio.
+    .testTarget(
+        name: "AppContractTests",
+        dependencies: [
+            "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
+        ]
+    ),
+]
+
 // MARK: - Pacchetto
 
 let package = Package(
     name: "CBCTMac",
-    platforms: [
-        .macOS(.v14)
-    ],
-    products: [
-        .library(name: "DICOMCore", targets: ["DICOMCore"]),
-        .library(name: "MeasureKit", targets: ["MeasureKit"]),
-        .library(name: "MeshKit", targets: ["MeshKit"]),
-        .library(name: "VolumeKit", targets: ["VolumeKit"]),
-        .library(name: "DentalKit", targets: ["DentalKit"]),
-        .library(name: "ImplantKit", targets: ["ImplantKit"]),
-    ] + appProducts,
-    targets: [
-        .target(
-            name: "DICOMCore",
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .target(
-            name: "MeasureKit",
-            dependencies: ["DICOMCore"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .target(
-            name: "MeshKit",
-            dependencies: ["DICOMCore"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .target(
-            name: "VolumeKit",
-            dependencies: ["DICOMCore"],
-            resources: [.process("Shaders")],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        // Curva dell'arcata, panorex e sezioni trasversali. La geometria è Swift puro e si
-        // testa ovunque; il solo kernel panoramico è protetto dalla guardia Metal.
-        .target(
-            name: "DentalKit",
-            dependencies: ["DICOMCore", "VolumeKit"],
-            resources: [.process("Shaders")],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        // Nervo alveolare, impianti e analisi di sicurezza. Nessuna dipendenza da Metal:
-        // è tutta geometria, e si verifica per intero con `swift test`.
-        .target(
-            name: "ImplantKit",
-            dependencies: ["DICOMCore"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .testTarget(
-            name: "DICOMCoreTests",
-            dependencies: ["DICOMCore"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .testTarget(
-            name: "MeasureKitTests",
-            dependencies: ["MeasureKit", "DICOMCore"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .testTarget(
-            name: "MeshKitTests",
-            dependencies: ["MeshKit", "DICOMCore"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .testTarget(
-            name: "VolumeKitTests",
-            dependencies: ["VolumeKit", "DICOMCore"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .testTarget(
-            name: "DentalKitTests",
-            dependencies: ["DentalKit", "DICOMCore", "VolumeKit"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        // Contratto delle API usate dall'applicazione.
-        //
-        // L'app non compila su Linux, perche' importa SwiftUI, AppKit e Metal. Le sue chiamate
-        // **nei moduli condivisi** pero' si possono verificare lo stesso: questo target le
-        // ripete con le stesse firme, quindi se compila ogni punto di chiamata dell'app verso i
-        // moduli e' corretto. Resta fuori solo il codice di piattaforma vero e proprio.
-        .testTarget(
-            name: "AppContractTests",
-            dependencies: [
-                "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
-            ],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .testTarget(
-            name: "ImplantKitTests",
-            dependencies: ["ImplantKit", "DICOMCore"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-    ] + appTargets
+    platforms: [.macOS(.v14)],
+    products: libraryProducts + appProducts,
+    targets: moduleTargets + testTargets + appTargets
 )
