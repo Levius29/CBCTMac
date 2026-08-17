@@ -3,16 +3,17 @@ import PackageDescription
 
 // CBCTMac — moduli condivisi.
 //
-// Tre target, dipendenze solo verso il basso (vedi docs/architecture.md § 2):
+// I target condivisi hanno dipendenze solo verso il basso (vedi docs/architecture.md § 2):
 //
-//   VolumeKit ──┐
-//   MeasureKit ─┴── DICOMCore
+//   VolumeKit  ──┐
+//   MeasureKit ──┼── DICOMCore
+//   MeshKit    ──┘
 //
-// DICOMCore e MeasureKit sono Swift puro senza dipendenze di piattaforma: niente `simd`,
-// niente Metal, niente AppKit. Questo li rende compilabili ed eseguibili anche su Linux,
-// così `swift test` gira in CI e in ambienti senza Xcode. La geometria usa i tipi `Vec3` /
-// `Mat4` in Double definiti in DICOMCore/Geometry; la conversione a `simd_float4x4` avviene
-// solo al confine con Metal, dentro VolumeKit.
+// DICOMCore, MeasureKit e MeshKit sono Swift puro senza dipendenze di piattaforma: niente
+// `simd`, niente Metal, niente AppKit. Questo li rende compilabili ed eseguibili anche su
+// Linux, così `swift test` gira in CI e in ambienti senza Xcode. La geometria usa i tipi
+// `Vec3` / `Mat4` in Double definiti in DICOMCore/Geometry; la conversione a
+// `simd_float4x4` avviene solo al confine con Metal, dentro VolumeKit.
 //
 // VolumeKit contiene codice Metal ed è di fatto Apple-only: tutto il suo contenuto è protetto
 // da `#if canImport(Metal)`, quindi su Linux il target compila a vuoto invece di rompere la
@@ -29,6 +30,7 @@ let package = Package(
     ],
     products: [
         .library(name: "DICOMCore", targets: ["DICOMCore"]),
+        .library(name: "MeshKit", targets: ["MeshKit"]),
         .library(name: "MeasureKit", targets: ["MeasureKit"]),
         .library(name: "VolumeKit", targets: ["VolumeKit"]),
         .library(name: "DentalKit", targets: ["DentalKit"]),
@@ -42,6 +44,11 @@ let package = Package(
         ),
         .target(
             name: "MeasureKit",
+            dependencies: ["DICOMCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "MeshKit",
             dependencies: ["DICOMCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -83,6 +90,11 @@ let package = Package(
         .testTarget(
             name: "MeasureKitTests",
             dependencies: ["MeasureKit", "DICOMCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "MeshKitTests",
+            dependencies: ["MeshKit", "DICOMCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
