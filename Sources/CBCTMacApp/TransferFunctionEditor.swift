@@ -1,3 +1,4 @@
+import Foundation
 import DICOMCore
 import SwiftUI
 import VolumeKit

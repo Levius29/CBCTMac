@@ -87,6 +87,10 @@ public enum VR: String, Sendable {
 public enum DICOMTags: Sendable {
     public static let fileMetaGroupLength = DICOMTag(group: 0x0002, element: 0x0000)
     public static let mediaStorageSOPClassUID = DICOMTag(group: 0x0002, element: 0x0002)
+    /// UID di istanza **nel gruppo meta**. Da non confondere con `sopInstanceUID`, che è
+    /// (0008,0018) e vive nel dataset: scriverne uno al posto dell'altro produce un file che
+    /// un parser rigoroso rifiuta, ed è giusto che lo rifiuti.
+    public static let mediaStorageSOPInstanceUID = DICOMTag(group: 0x0002, element: 0x0003)
     public static let transferSyntaxUID = DICOMTag(group: 0x0002, element: 0x0010)
 
     public static let studyDate = DICOMTag(group: 0x0008, element: 0x0020)

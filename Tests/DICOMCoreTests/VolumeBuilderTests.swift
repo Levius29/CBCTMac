@@ -54,7 +54,7 @@ struct VolumeBuilderTests {
                 tag: DICOMTags.mediaStorageSOPClassUID, vr: .UI,
                 value: meta.paddedUI("1.2.840.10008.5.1.4.1.1.2"))
             meta.appendExplicit(
-                tag: DICOMTags.sopInstanceUID, vr: .UI,
+                tag: DICOMTags.mediaStorageSOPInstanceUID, vr: .UI,
                 value: meta.paddedUI("\(seriesUID).\(k + 1)"))
             meta.appendExplicit(
                 tag: DICOMTags.transferSyntaxUID, vr: .UI,

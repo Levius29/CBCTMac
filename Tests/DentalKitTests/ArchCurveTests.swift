@@ -1,3 +1,4 @@
+import Foundation
 import DICOMCore
 import Testing
 import VolumeKit

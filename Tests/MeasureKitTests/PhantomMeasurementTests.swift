@@ -55,7 +55,8 @@ struct PhantomMeasurementTests {
 
     @Test("Lo spigolo del cubo misura 20,00 mm")
     func cubeEdge() throws {
-        let volume = try makeVolume()
+        // Nessun volume: gli spigoli sono definiti analiticamente, quindi la misura fra due
+        // vertici opposti non dipende dal campionamento e deve tornare al millesimo.
         let half = SyntheticVolume.cubeEdgeMM / 2
 
         // Gli spigoli sono definiti analiticamente, quindi la misura fra due vertici opposti
@@ -161,8 +162,10 @@ struct PhantomMeasurementTests {
     @Test("Il profilo attraverso il cubo mostra le due transizioni")
     func profileAcrossCube() throws {
         let volume = try makeVolume()
+        // Lungo Y e non lungo X: sull'asse X a ±18 mm ci sono le sfere, e il profilo
+        // partirebbe dentro la spongiosa invece che in aria.
         let line = ProfileLine(
-            startMM: Vec3(-20, 0, 0), endMM: Vec3(20, 0, 0), sampleCount: 200)
+            startMM: Vec3(0, -25, 0), endMM: Vec3(0, 25, 0), sampleCount: 200)
         let samples = ROISampler.profile(for: line, in: volume)
 
         #expect(samples.count > 100)
