@@ -76,6 +76,7 @@ let libraryProducts: [Product] = [
     .library(name: "DentalKit", targets: ["DentalKit"]),
     .library(name: "ImplantKit", targets: ["ImplantKit"]),
     .library(name: "GuideKit", targets: ["GuideKit"]),
+    .library(name: "SegmentKit", targets: ["SegmentKit"]),
 ]
 
 let moduleTargets: [Target] = [
@@ -98,6 +99,7 @@ let moduleTargets: [Target] = [
     // è tutta geometria, e si verifica per intero con `swift test`.
     .target(name: "ImplantKit", dependencies: ["DICOMCore"]),
     .target(name: "GuideKit", dependencies: ["DICOMCore", "MeshKit", "ImplantKit"]),
+    .target(name: "SegmentKit", dependencies: ["DICOMCore"]),
 ]
 
 let testTargets: [Target] = [
@@ -111,6 +113,7 @@ let testTargets: [Target] = [
         name: "GuideKitTests",
         dependencies: ["GuideKit", "DICOMCore", "MeshKit", "ImplantKit"]
     ),
+    .testTarget(name: "SegmentKitTests", dependencies: ["SegmentKit", "DICOMCore"]),
     // Contratto delle API usate dall'applicazione.
     //
     // L'app non compila su Linux, perché importa SwiftUI, AppKit e Metal. Le sue chiamate verso
