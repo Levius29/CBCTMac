@@ -70,8 +70,7 @@ public enum VolumeBuildError: Error, Hashable, Sendable {
         case .missingPixelData(let uid):
             return "L'immagine \(uid) non contiene dati pixel."
         case .unsupportedCompression(let syntax):
-            return "Immagini compresse con \(syntax.displayName): il supporto richiede DCMTK, "
-                + "non ancora integrato. La Fase 1 gestisce il DICOM non compresso."
+            return "Immagini compresse con \(syntax.displayName): nessun decoder disponibile."
         case .sliceDecodingFailed(let uid, let reason):
             return "Decodifica fallita per l'immagine \(uid): \(reason)"
         case .inconsistentSliceSize(let expected, let found, let uid):
@@ -90,11 +89,12 @@ public enum VolumeBuilder {
     /// - Parameters:
     ///   - series: la serie, con le istanze in ordine qualunque. L'ordinamento avviene qui,
     ///     tramite `SliceSorter`, e mai per `InstanceNumber`.
-    ///   - decoder: decodificatore dei pixel. Il predefinito gestisce le sintassi non compresse.
+    ///   - decoder: decodificatore dei pixel. Il predefinito gestisce sintassi native, RLE e
+    ///     JPEG Lossless.
     ///   - progress: chiamato dopo ogni slice; utile per una barra di avanzamento.
     public static func build(
         series: ScannedSeries,
-        decoder: PixelDecoder = NativePixelDecoder(),
+        decoder: any PixelDecoder = CompositePixelDecoder(),
         progress: (@Sendable (VolumeLoadProgress) -> Void)? = nil
     ) throws -> VolumeLoadResult {
 
@@ -159,9 +159,6 @@ public enum VolumeBuilder {
                     reason: String(describing: error))
             }
 
-            guard !parsed.isEncapsulatedPixelData else {
-                throw VolumeBuildError.unsupportedCompression(parsed.transferSyntax)
-            }
             guard let pixelElement = parsed.dataset[DICOMTags.pixelData],
                 !pixelElement.value.isEmpty
             else {

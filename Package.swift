@@ -20,9 +20,9 @@ import PackageDescription
 // mentre la geometria resta portabile. Il risultato è che `swift test` gira anche su Linux e
 // copre tutta la matematica che conta.
 //
-// DCMTK non compare qui: la Fase 1 gestisce in Swift puro il DICOM non compresso, che copre la
-// gran parte degli export CBCT, e il decoder sta dietro il protocollo `PixelDecoder` così
-// DCMTK si innesta più avanti senza toccare altro.
+// DCMTK non compare qui: sintassi native, RLE Lossless e JPEG Lossless sono gestite in Swift
+// puro. Il decoder resta dietro `PixelDecoder`, così altri codec si innestano senza toccare il
+// resto dell'applicazione.
 //
 // Nessun target dichiara `swiftSettings: [.swiftLanguageMode(.v6)]`. Sarebbe ridondante, perché
 // dalla tools-version 6.0 in su la modalità Swift 6 è già il default ovunque, e ripeterla su ogni

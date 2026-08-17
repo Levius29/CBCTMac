@@ -2,9 +2,8 @@ import Foundation
 
 // Decodifica dei pixel, dietro un protocollo.
 //
-// La Fase 1 gestisce in Swift puro le sintassi non compresse, che coprono la gran parte degli
-// export CBCT. Le sintassi compresse arriveranno con `DCMTKPixelDecoder`, che si limiterà ad
-// adottare questo stesso protocollo: nessun altro modulo dovrà cambiare.
+// Le sintassi native, RLE Lossless e JPEG Lossless sono gestite in Swift puro. Ogni eventuale
+// decoder futuro adotta lo stesso protocollo, senza propagare dettagli del codec nel volume.
 
 // MARK: - Descrittore
 
@@ -92,19 +91,22 @@ public protocol PixelDecoder: Sendable {
 
 // MARK: - Errori
 
-public enum PixelDecodingError: Error, Hashable, Sendable {
+public enum PixelDecodingError: Error, Hashable, Sendable, LocalizedError {
     case unsupportedTransferSyntax(TransferSyntax)
     case unsupportedBitsAllocated(Int)
     case unsupportedSamplesPerPixel(Int)
     case truncatedPixelData(expected: Int, available: Int)
     case frameIndexOutOfRange(Int, frameCount: Int)
     case invalidDescriptor(String)
+    case malformedCompressedData(String)
+    case ambiguousFrameFragments(sourceName: String, frameCount: Int, fragmentCount: Int)
+    case invalidFrameOffset(sourceName: String, frameIndex: Int, offset: UInt32)
 
     public var localizedDescription: String {
         switch self {
         case .unsupportedTransferSyntax(let ts):
-            return "Sintassi di trasferimento non ancora supportata: \(ts.displayName). "
-                + "Il supporto alle immagini compresse richiede DCMTK (vedi Fase 1.1)."
+            return "Sintassi di trasferimento non supportata dal decoder disponibile: "
+                + "\(ts.displayName)."
         case .unsupportedBitsAllocated(let bits):
             return "BitsAllocated = \(bits) non supportato: attesi 8 o 16."
         case .unsupportedSamplesPerPixel(let n):
@@ -115,7 +117,94 @@ public enum PixelDecodingError: Error, Hashable, Sendable {
             return "Fotogramma \(index) fuori intervallo (\(count) disponibili)."
         case .invalidDescriptor(let detail):
             return "Descrittore pixel non valido: \(detail)."
+        case .malformedCompressedData(let detail):
+            return "Dati pixel compressi non validi: \(detail)."
+        case .ambiguousFrameFragments(let sourceName, let frameCount, let fragmentCount):
+            return "In '\(sourceName)' è impossibile associare \(fragmentCount) frammenti a "
+                + "\(frameCount) fotogrammi senza una Basic Offset Table."
+        case .invalidFrameOffset(let sourceName, let frameIndex, let offset):
+            return "In '\(sourceName)' l'offset \(offset) del fotogramma \(frameIndex) non è "
+                + "valido per la Basic Offset Table."
         }
+    }
+
+    public var errorDescription: String? { localizedDescription }
+}
+
+// MARK: - Normalizzazione condivisa
+
+/// Applica a un flusso di parole già decompresse le stesse regole del decoder nativo.
+///
+/// Tenerle in un solo punto evita che la medesima immagine cambi scala soltanto perché il
+/// produttore ha scelto una sintassi compressa invece di una nativa.
+enum PixelSampleNormalizer {
+    static func validatedPixelCount(_ descriptor: PixelDescriptor) throws -> Int {
+        guard descriptor.columns > 0, descriptor.rows > 0 else {
+            throw PixelDecodingError.invalidDescriptor(
+                "dimensioni \(descriptor.columns)×\(descriptor.rows)")
+        }
+        let (count, overflow) = descriptor.columns.multipliedReportingOverflow(by: descriptor.rows)
+        guard !overflow else {
+            throw PixelDecodingError.invalidDescriptor("numero di pixel troppo grande")
+        }
+        return count
+    }
+
+    static func validate(_ descriptor: PixelDescriptor, frameIndex: Int) throws -> Int {
+        guard descriptor.samplesPerPixel == 1 else {
+            throw PixelDecodingError.unsupportedSamplesPerPixel(descriptor.samplesPerPixel)
+        }
+        guard descriptor.bitsAllocated == 8 || descriptor.bitsAllocated == 16 else {
+            throw PixelDecodingError.unsupportedBitsAllocated(descriptor.bitsAllocated)
+        }
+        guard descriptor.bitsStored > 0,
+              descriptor.bitsStored <= descriptor.bitsAllocated,
+              descriptor.highBit >= descriptor.bitsStored - 1,
+              descriptor.highBit < descriptor.bitsAllocated
+        else {
+            throw PixelDecodingError.invalidDescriptor(
+                "BitsStored \(descriptor.bitsStored), HighBit \(descriptor.highBit), "
+                    + "BitsAllocated \(descriptor.bitsAllocated)")
+        }
+        let frameCount = max(descriptor.frameCount, 1)
+        guard frameIndex >= 0, frameIndex < frameCount else {
+            throw PixelDecodingError.frameIndexOutOfRange(
+                frameIndex, frameCount: descriptor.frameCount)
+        }
+        return try validatedPixelCount(descriptor)
+    }
+
+    static func normalize(_ words: [UInt16], descriptor: PixelDescriptor) -> DecodedFrame {
+        let storedMask: UInt16
+        if descriptor.bitsStored >= 16 {
+            storedMask = UInt16.max
+        } else {
+            storedMask = UInt16((1 << descriptor.bitsStored) - 1)
+        }
+        let needsOffset = !descriptor.isSigned && descriptor.bitsStored >= 16
+        var samples = [Int16]()
+        samples.reserveCapacity(words.count)
+
+        for word in words {
+            let masked = word & storedMask
+            let value: Int32
+            if descriptor.isSigned {
+                let signBit = UInt16(1 << (descriptor.bitsStored - 1))
+                if descriptor.bitsStored < 16, (masked & signBit) != 0 {
+                    value = Int32(Int16(bitPattern: masked | ~storedMask))
+                } else {
+                    value = Int32(Int16(bitPattern: masked))
+                }
+            } else if needsOffset {
+                value = Int32(masked) - 32768
+            } else {
+                value = Int32(masked)
+            }
+            samples.append(Int16(clamping: value))
+        }
+        return DecodedFrame(
+            samples: samples,
+            interceptAdjustment: needsOffset ? 32768 : 0)
     }
 }
 
