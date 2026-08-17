@@ -77,6 +77,7 @@ let libraryProducts: [Product] = [
     .library(name: "ImplantKit", targets: ["ImplantKit"]),
     .library(name: "GuideKit", targets: ["GuideKit"]),
     .library(name: "SegmentKit", targets: ["SegmentKit"]),
+    .library(name: "ArtifactKit", targets: ["ArtifactKit"]),
 ]
 
 let moduleTargets: [Target] = [
@@ -100,6 +101,7 @@ let moduleTargets: [Target] = [
     .target(name: "ImplantKit", dependencies: ["DICOMCore"]),
     .target(name: "GuideKit", dependencies: ["DICOMCore", "MeshKit", "ImplantKit"]),
     .target(name: "SegmentKit", dependencies: ["DICOMCore"]),
+    .target(name: "ArtifactKit", dependencies: ["DICOMCore", "SegmentKit"]),
 ]
 
 let testTargets: [Target] = [
@@ -114,6 +116,10 @@ let testTargets: [Target] = [
         dependencies: ["GuideKit", "DICOMCore", "MeshKit", "ImplantKit"]
     ),
     .testTarget(name: "SegmentKitTests", dependencies: ["SegmentKit", "DICOMCore"]),
+    .testTarget(
+        name: "ArtifactKitTests",
+        dependencies: ["ArtifactKit", "DICOMCore", "SegmentKit"]
+    ),
     // Contratto delle API usate dall'applicazione.
     //
     // L'app non compila su Linux, perché importa SwiftUI, AppKit e Metal. Le sue chiamate verso
