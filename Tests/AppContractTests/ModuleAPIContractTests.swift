@@ -248,6 +248,28 @@ struct ModuleAPIContractTests {
             _ = panoramic.millimetresPerPixel(pixelWidth: 64)
             _ = panoramic.visibleHeightMM(pixelWidth: 64, pixelHeight: 48)
             _ = panoramic.normalOffsetMM
+            // `CrossSectionBrowser` in AppModel: striscia, selezione, ingrandimento.
+            var browser = CrossSectionBrowser(visibleCount: 10)
+            browser.replaceSections(
+                CrossSectionLayout(curve: curve, angleOffsetRadians: 0.1).sections())
+            browser.select(index: 3)
+            browser.select(nearestToArcLengthMM: 12)
+            browser.step(by: 2)
+            browser.scrollWindow(by: -1)
+            browser.zoom = 2
+            _ = browser.visibleSections
+            _ = browser.visibleRange
+            _ = browser.selectedSection
+            _ = browser.selectedIndex
+            _ = browser.effectiveVisibleCount
+            _ = browser.count
+            _ = browser.isEmpty
+            _ = browser.sections
+            _ = browser.visibleArcLengthsMM
+            _ = browser.index(nearestToArcLengthMM: 5)
+            _ = browser.sectionExtentMM(baseWidthMM: 30, baseHeightMM: 45)
+            _ = CrossSectionBrowser.minimumZoom
+            _ = CrossSectionBrowser.maximumZoom
             _ = PanoramicLayout.slabThicknessPresetsMM
             _ = panoramic.slabStep(for: first, sampleCount: 8)
             _ = first.positionMM

@@ -214,7 +214,6 @@ struct PanoramicWorkspace: View {
     @State private var hoverArcLengthMM: Double?
 
     /// Sezioni mostrate contemporaneamente nella griglia.
-    private let visibleSectionCount = 10
 
     var body: some View {
         VStack(spacing: Metrics.viewportGap) {
@@ -334,11 +333,10 @@ struct PanoramicWorkspace: View {
                 onClickArcLength: { arcLength in
                     // Un clic sul panorex porta la griglia alla sezione corrispondente: è il
                     // modo naturale di passare dalla panoramica al punto che interessa.
-                    guard let section = model.crossSectionLayout.section(
-                        nearestToArcLength: arcLength, in: model.crossSections)
-                    else { return }
-                    model.crossSectionPageStart = max(
-                        0, section.index - visibleSectionCount / 2)
+                    // Un clic sul panorex seleziona la sezione corrispondente, e con essa porta
+                    // le altre viste sul punto: è il modo naturale di passare dalla panoramica al
+                    // dente che interessa.
+                    model.selectCrossSection(nearestToArcLengthMM: arcLength)
                 },
                 onDrawableSize: { panoramicPixelSize = $0 },
                 onScrollArc: { model.scrollPanoramic(byArcMM: $0) },
@@ -348,6 +346,10 @@ struct PanoramicWorkspace: View {
                     model.zoomPanoramic(by: factor, atPixelX: x, pixelWidth: width)
                 }
             )
+
+            // Linea di taglio: si trascina lungo l'arcata per scegliere dove tagliare, e si ruota
+            // dalla maniglia in cima per scegliere con che angolo.
+            CrossSectionCutLine(model: model)
 
             // Righello della posizione lungo l'arcata sotto il puntatore.
             //
@@ -459,13 +461,36 @@ struct PanoramicWorkspace: View {
                 .font(Typography.numericSmall)
                 .foregroundStyle(Palette.textSecondary)
 
+                // Inclinazione del taglio, che si regola anche ruotando la linea sul panorex.
+                if abs(model.crossSectionAngleOffset) > 0.001 {
+                    Text(angleLabel)
+                        .font(Typography.numericSmall)
+                        .foregroundStyle(Palette.accent)
+                }
+
                 Spacer()
 
                 Button {
-                    model.crossSectionPageStart = max(
-                        0, model.crossSectionPageStart - visibleSectionCount)
+                    model.crossSectionBrowser.zoom /= 1.5
+                } label: { Image(systemName: "minus.magnifyingglass") }
+                    .disabled(model.crossSectionBrowser.zoom <= CrossSectionBrowser.minimumZoom)
+
+                Text(String(format: "%.1f×", model.crossSectionBrowser.zoom)
+                    .replacingOccurrences(of: ".", with: ","))
+                    .font(Typography.numericSmall)
+                    .foregroundStyle(Palette.textSecondary)
+                    .frame(minWidth: 34)
+
+                Button {
+                    model.crossSectionBrowser.zoom *= 1.5
+                } label: { Image(systemName: "plus.magnifyingglass") }
+                    .disabled(model.crossSectionBrowser.zoom >= CrossSectionBrowser.maximumZoom)
+
+                Button {
+                    model.crossSectionBrowser.scrollWindow(
+                        by: -model.crossSectionBrowser.effectiveVisibleCount)
                 } label: { Image(systemName: "chevron.left") }
-                    .disabled(model.crossSectionPageStart == 0)
+                    .disabled(model.crossSectionBrowser.visibleRange.lowerBound == 0)
 
                 Text(pageLabel)
                     .font(Typography.numericSmall)
@@ -473,13 +498,12 @@ struct PanoramicWorkspace: View {
                     .frame(minWidth: 90)
 
                 Button {
-                    model.crossSectionPageStart = min(
-                        max(0, model.crossSections.count - visibleSectionCount),
-                        model.crossSectionPageStart + visibleSectionCount)
+                    model.crossSectionBrowser.scrollWindow(
+                        by: model.crossSectionBrowser.effectiveVisibleCount)
                 } label: { Image(systemName: "chevron.right") }
                     .disabled(
-                        model.crossSectionPageStart + visibleSectionCount
-                            >= model.crossSections.count)
+                        model.crossSectionBrowser.visibleRange.upperBound
+                            >= model.crossSectionBrowser.count)
             }
             .controlSize(.small)
             .padding(.horizontal, Metrics.spacing)
@@ -491,8 +515,21 @@ struct PanoramicWorkspace: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HStack(spacing: Metrics.viewportGap) {
-                    ForEach(visibleSections) { section in
-                        CrossSectionCell(model: model, section: section)
+                    ForEach(model.crossSectionBrowser.visibleSections) { section in
+                        CrossSectionCell(
+                            model: model,
+                            section: section,
+                            isSelected:
+                                section.index == model.crossSectionBrowser.selectedIndex)
+                    }
+                }
+                // La rotella scorre la striscia, ⌘ rotella la ingrandisce: gli stessi gesti dei
+                // riquadri, così non c'è una convenzione in più da ricordare.
+                .onScrollWheel { steps, zooming in
+                    if zooming {
+                        model.crossSectionBrowser.zoom *= 1 + steps * 0.06
+                    } else {
+                        model.crossSectionBrowser.scrollWindow(by: Int(steps.rounded()))
                     }
                 }
             }
@@ -501,19 +538,22 @@ struct PanoramicWorkspace: View {
         .clipShape(.rect(cornerRadius: Metrics.cornerRadius))
     }
 
-    private var visibleSections: [CrossSection] {
-        let start = min(model.crossSectionPageStart, max(0, model.crossSections.count - 1))
-        let end = min(start + visibleSectionCount, model.crossSections.count)
-        guard start < end else { return [] }
-        return Array(model.crossSections[start..<end])
+    /// `1–10 di 51` **e** la posizione in millimetri: il numero d'ordine dice quante ne restano,
+    /// la posizione dice dove si è sull'arcata. Servono tutt'e due, e prima c'era solo il primo.
+    private var pageLabel: String {
+        let browser = model.crossSectionBrowser
+        guard !browser.isEmpty else { return "—" }
+        let range = browser.visibleRange
+        let position = browser.selectedSection.map {
+            String(format: " · %.1f mm", $0.arcLengthMM)
+                .replacingOccurrences(of: ".", with: ",")
+        } ?? ""
+        return "\(range.lowerBound + 1)–\(range.upperBound) di \(browser.count)\(position)"
     }
 
-    private var pageLabel: String {
-        guard !model.crossSections.isEmpty else { return "—" }
-        let start = model.crossSectionPageStart + 1
-        let end = min(
-            model.crossSectionPageStart + visibleSectionCount, model.crossSections.count)
-        return "\(start)–\(end) di \(model.crossSections.count)"
+    private var angleLabel: String {
+        let degrees = model.crossSectionAngleOffset * 180 / .pi
+        return String(format: "taglio %+.0f°", degrees)
     }
 }
 
@@ -523,20 +563,47 @@ struct CrossSectionCell: View {
 
     let model: AppModel
     let section: CrossSection
+    var isSelected: Bool = false
+
+    /// Piano della sezione con l'ingrandimento della striscia applicato.
+    ///
+    /// L'ingrandimento **restringe il campo**, non stira l'immagine: la scala
+    /// millimetri-per-pixel resta quella, e la barra di scala continua a dire il vero.
+    private var zoomedPlane: MPRPlane {
+        var plane = section.plane
+        let extent = model.crossSectionBrowser.sectionExtentMM(
+            baseWidthMM: model.crossSectionWidthMM,
+            baseHeightMM: model.crossSectionHeightMM)
+        plane.widthMM = extent.widthMM
+        plane.heightMM = extent.heightMM
+        return plane
+    }
 
     var body: some View {
         VStack(spacing: 2) {
             MPRViewportView(
-                plane: section.plane,
+                plane: zoomedPlane,
                 volumeTexture: model.volumeTexture,
                 renderer: model.mprRenderer,
-                windowLevel: model.windowLevel
+                windowLevel: model.windowLevel,
+                onClick: { _ in
+                    // Un clic su una sezione la seleziona e porta le altre viste lì: è il gesto
+                    // con cui si passa dalla striscia al punto da misurare.
+                    model.crossSectionBrowser.select(index: section.index)
+                    model.focusSelectedCrossSection()
+                }
             )
             .clipShape(.rect(cornerRadius: 3))
+            .overlay {
+                // La sezione selezionata è quella che le altre viste stanno mostrando: senza un
+                // segno, la striscia e il resto dell'interfaccia sembrano scollegati.
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(isSelected ? Palette.accent : .clear, lineWidth: 1.5)
+            }
 
             Text(section.label)
                 .font(Typography.numericSmall)
-                .foregroundStyle(Palette.textSecondary)
+                .foregroundStyle(isSelected ? Palette.accent : Palette.textSecondary)
                 .lineLimit(1)
         }
     }

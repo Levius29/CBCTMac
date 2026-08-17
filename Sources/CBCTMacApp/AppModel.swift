@@ -297,8 +297,23 @@ final class AppModel {
     var crossSectionHeightMM: Double = 45
     var crossSectionThicknessMM: Double = 0
 
-    /// Prima sezione mostrata nella griglia. La griglia ne mostra poche per volta e si scorre.
-    var crossSectionPageStart: Int = 0
+    /// Inclinazione del taglio rispetto alla perpendicolare all'arcata, in radianti.
+    ///
+    /// Si regola ruotando la linea disegnata sul panorex. La perpendicolare non è sempre ciò che
+    /// serve: l'asse di un dente incluso o di un impianto già posato si vede bene solo lungo il
+    /// proprio asse.
+    var crossSectionAngleOffset: Double = 0 {
+        didSet {
+            guard crossSectionAngleOffset != oldValue else { return }
+            rebuildCrossSections()
+        }
+    }
+
+    /// Navigazione della striscia: finestra visibile, selezione, ingrandimento.
+    ///
+    /// Tutta la logica sta in `CrossSectionBrowser`, in DentalKit, dove si verifica con i test.
+    /// Qui resta solo la proprietà.
+    var crossSectionBrowser = CrossSectionBrowser(visibleCount: 10)
 
     /// Quota verticale su cui si centrano panorex e sezioni.
     /// Segue il mirino, così spostandosi sull'assiale le sezioni restano centrate sulla cresta.
@@ -371,22 +386,36 @@ final class AppModel {
             widthMM: crossSectionWidthMM,
             heightMM: crossSectionHeightMM,
             verticalCentreMM: archVerticalCentreMM,
-            thicknessMM: crossSectionThicknessMM)
+            thicknessMM: crossSectionThicknessMM,
+            angleOffsetRadians: crossSectionAngleOffset)
     }
 
     /// Sezioni calcolate, ricostruite quando la curva o i parametri cambiano.
     ///
     /// Non è una proprietà calcolata: generarle richiede di ricampionare la spline, e farlo a
     /// ogni ridisegno di ogni riquadro renderebbe il trascinamento della curva una melassa.
-    private(set) var crossSections: [CrossSection] = []
+    var crossSections: [CrossSection] { crossSectionBrowser.sections }
 
     func rebuildCrossSections() {
         guard archCurve.isUsable else {
-            crossSections = []
+            crossSectionBrowser.replaceSections([])
             return
         }
-        crossSections = crossSectionLayout.sections()
-        crossSectionPageStart = min(crossSectionPageStart, max(0, crossSections.count - 1))
+        // `replaceSections` conserva la **posizione lungo l'arcata** e non l'indice: cambiando il
+        // passo la selezione resta sul dente che si stava guardando.
+        crossSectionBrowser.replaceSections(crossSectionLayout.sections())
+    }
+
+    /// Porta il mirino e le altre viste sulla sezione selezionata.
+    func focusSelectedCrossSection() {
+        guard let section = crossSectionBrowser.selectedSection else { return }
+        crosshairMM = section.originMM
+    }
+
+    /// Seleziona la sezione più vicina a una posizione lungo l'arcata, e ci porta le altre viste.
+    func selectCrossSection(nearestToArcLengthMM arcLength: Double) {
+        crossSectionBrowser.select(nearestToArcLengthMM: arcLength)
+        focusSelectedCrossSection()
     }
 
     // MARK: Disegno della curva d'arcata
