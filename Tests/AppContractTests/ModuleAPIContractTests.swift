@@ -233,6 +233,8 @@ struct ModuleAPIContractTests {
             editable.removeAllControlPoints()
             _ = panoramic.millimetresPerPixel(pixelWidth: 64)
             _ = panoramic.visibleHeightMM(pixelWidth: 64, pixelHeight: 48)
+            _ = panoramic.normalOffsetMM
+            _ = PanoramicLayout.slabThicknessPresetsMM
             _ = panoramic.slabStep(for: first, sampleCount: 8)
             _ = first.positionMM
             _ = first.normal

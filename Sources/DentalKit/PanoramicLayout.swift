@@ -45,8 +45,10 @@ public struct PanoramicLayout: Hashable, Sendable {
         projection: SlabProjection = .maximum,
         millimetresPerPixel: Double = 0.2,
         zoom: Double = 1,
-        arcCentreMM: Double? = nil
+        arcCentreMM: Double? = nil,
+        normalOffsetMM: Double = 0
     ) {
+        self.normalOffsetMM = normalOffsetMM.isFinite ? normalOffsetMM : 0
         self.curve = curve
         self.heightMM = max(heightMM, 1)
         self.verticalCentreMM = verticalCentreMM
@@ -123,6 +125,28 @@ public struct PanoramicLayout: Hashable, Sendable {
         copy.arcCentreMM = clampedArcCentreMM + delta
         return copy
     }
+
+    /// Scostamento **vestibolo-linguale** rispetto alla curva, in millimetri.
+    ///
+    /// È l'asse lungo cui si "sfoglia" un'arcata: positivo verso la normale della curva, cioè
+    /// vestibolare; negativo verso il linguale. La curva disegnata resta dov'è — questo sposta il
+    /// piano che si campiona, non la curva.
+    ///
+    /// Serve perché una curva d'arcata è un'approssimazione: passa per i punti che si sono posati,
+    /// e i denti stanno un po' più fuori o un po' più dentro. Con uno slab spesso si vede tutto
+    /// sovrapposto e nulla con nitidezza; con uno slab sottile si vede una fetta sola, e per
+    /// trovare l'apice di una radice bisogna poter attraversare l'arcata in profondità. È il gesto
+    /// che nei visori commerciali sta sulla rotella, e l'etichetta mostra lo scostamento corrente.
+    public var normalOffsetMM: Double = 0
+
+    /// Spessori proposti per lo slab, dal più sottile al più spesso.
+    ///
+    /// Coprono i due modi di guardare un panorex: sotto il millimetro si legge una fetta quasi
+    /// singola, utile per l'apice di una radice; sopra i dieci si somma l'intera arcata e si ha
+    /// l'immagine d'insieme a cui somiglia una panoramica tradizionale.
+    public static let slabThicknessPresetsMM: [Double] = [
+        0.15, 0.45, 0.75, 1.1, 1.9, 2.9, 4.0, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0,
+    ]
 
     /// Ingrandimento orizzontale. A 1 l'arcata intera riempie la larghezza del riquadro.
     ///
@@ -223,7 +247,13 @@ public struct PanoramicLayout: Hashable, Sendable {
             - up * sample.positionMM.dot(up)
             + up * verticalCentreMM
         let scale = millimetresPerPixel(pixelWidth: pixelWidth)
-        return columnCentre + up * (scale * Double(max(pixelHeight, 1) - 1) * 0.5)
+        // Lo scostamento vestibolo-linguale sposta il piano campionato lungo la normale della
+        // curva. La normale è orizzontale per costruzione — perpendicolare alla tangente e
+        // all'asse verticale — quindi non disturba la centratura in altezza appena calcolata.
+        let depth = normalOffsetMM.isFinite ? normalOffsetMM : 0
+        return columnCentre
+            + up * (scale * Double(max(pixelHeight, 1) - 1) * 0.5)
+            + sample.normal * depth
     }
 
     /// Passo dello slab lungo la normale vestibolo-linguale, per una colonna.

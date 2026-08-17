@@ -250,3 +250,88 @@ struct PanoramicNavigationTests {
         #expect(makeCurve().samples(atArcLengthsMM: []).isEmpty)
     }
 }
+
+// MARK: - Scostamento vestibolo-linguale
+
+@Suite("Profondità del panorex")
+struct PanoramicDepthTests {
+
+    private func makeLayout(normalOffsetMM: Double = 0) -> PanoramicLayout {
+        PanoramicLayout(
+            curve: ArchCurve(controlPointsMM: [
+                Vec3(-25, 10, 5), Vec3(-18, -6, 5), Vec3(0, -14, 5),
+                Vec3(18, -6, 5), Vec3(25, 10, 5),
+            ]),
+            heightMM: 70,
+            verticalCentreMM: 5,
+            slabThicknessMM: 20,
+            projection: .maximum,
+            millimetresPerPixel: 0.2,
+            normalOffsetMM: normalOffsetMM)
+    }
+
+    @Test("Lo scostamento sposta il piano lungo la normale, di quanto richiesto")
+    func offsetMovesAlongTheNormal() {
+        let base = makeLayout()
+        let width = 800
+        let height = 300
+        guard let sample = base.columnSamples(pixelWidth: width).first else {
+            Issue.record("nessun campione")
+            return
+        }
+
+        let origin = base.topOfColumn(sample, pixelWidth: width, pixelHeight: height)
+
+        for offset in [-6.0, -1.5, 0.0, 2.5, 8.0] {
+            let shifted = makeLayout(normalOffsetMM: offset)
+            let moved = shifted.topOfColumn(sample, pixelWidth: width, pixelHeight: height)
+            let displacement = moved - origin
+
+            // Lo spostamento è esattamente `offset` millimetri lungo la normale del campione.
+            #expect(abs(displacement.length - abs(offset)) < 1e-9, "scostamento \(offset)")
+            if offset != 0 {
+                let direction = displacement.normalized ?? .zero
+                let expected = offset > 0 ? sample.normal : sample.normal * -1
+                #expect(direction.isApproximatelyEqual(to: expected, tolerance: 1e-9))
+            }
+        }
+    }
+
+    @Test("Lo scostamento non tocca la quota verticale")
+    func offsetLeavesTheVerticalCentreAlone() {
+        // La normale è orizzontale per costruzione, e questo lo verifica: sfogliare l'arcata in
+        // profondità non deve far salire o scendere l'immagine.
+        let width = 800
+        let height = 301
+        let base = makeLayout()
+        guard let sample = base.columnSamples(pixelWidth: width).first else {
+            Issue.record("nessun campione")
+            return
+        }
+        let step = base.downStepMM(pixelWidth: width)
+
+        for offset in [-8.0, 0.0, 8.0] {
+            let layout = makeLayout(normalOffsetMM: offset)
+            let top = layout.topOfColumn(sample, pixelWidth: width, pixelHeight: height)
+            let middle = top + step * (Double(height - 1) * 0.5)
+            #expect(abs(middle.z - 5) < 1e-9, "scostamento \(offset): quota \(middle.z)")
+        }
+    }
+
+    @Test("Uno scostamento non finito vale zero")
+    func nonFiniteOffsetIsIgnored() {
+        #expect(makeLayout(normalOffsetMM: .nan).normalOffsetMM == 0)
+        #expect(makeLayout(normalOffsetMM: .infinity).normalOffsetMM == 0)
+    }
+
+    @Test("Gli spessori proposti coprono dalla fetta singola all'arcata intera")
+    func slabPresetsSpanTheUsefulRange() {
+        let presets = PanoramicLayout.slabThicknessPresetsMM
+        #expect(presets.count >= 10)
+        #expect(presets == presets.sorted())
+        // Sotto il millimetro serve per l'apice di una radice, sopra i dieci per l'insieme.
+        #expect(presets.first! < 0.5)
+        #expect(presets.last! >= 40)
+        #expect(presets.allSatisfy { $0 > 0 })
+    }
+}

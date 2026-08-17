@@ -285,6 +285,13 @@ final class AppModel {
     /// Lunghezza d'arco al centro del panorex. `nil` significa il centro della curva.
     var panoramicArcCentreMM: Double?
 
+    /// Scostamento vestibolo-linguale del panorex rispetto alla curva, in millimetri.
+    ///
+    /// È l'asse su cui si "sfoglia" l'arcata in profondità, e sta sulla rotella. Una curva
+    /// d'arcata è un'approssimazione: i denti stanno un po' più fuori o un po' più dentro, e per
+    /// trovare l'apice di una radice con uno slab sottile bisogna poterla attraversare.
+    var panoramicNormalOffsetMM: Double = 0
+
     var crossSectionIntervalMM: Double = 1.0
     var crossSectionWidthMM: Double = 30
     var crossSectionHeightMM: Double = 45
@@ -305,7 +312,8 @@ final class AppModel {
             slabThicknessMM: panoramicSlabThicknessMM,
             projection: panoramicProjection,
             zoom: panoramicZoom,
-            arcCentreMM: panoramicArcCentreMM)
+            arcCentreMM: panoramicArcCentreMM,
+            normalOffsetMM: panoramicNormalOffsetMM)
     }
 
     // MARK: Navigazione del panorex
@@ -336,10 +344,21 @@ final class AppModel {
         panoramicArcCentreMM = zoomed.clampedArcCentreMM
     }
 
-    /// Riporta il panorex a inquadrare l'arcata intera.
+    /// Sfoglia l'arcata in profondità, in millimetri vestibolo-linguali.
+    ///
+    /// Il limite è la metà dello spessore di slab più un margine: oltre, si esce dai dati che lo
+    /// slab già somma, e l'immagine si svuota senza che sia chiaro perché. Meglio arrestarsi.
+    func movePanoramicDepth(byMM delta: Double) {
+        guard delta.isFinite else { return }
+        let limit = max(panoramicSlabThicknessMM, 4) * 1.5
+        panoramicNormalOffsetMM = min(max(panoramicNormalOffsetMM + delta, -limit), limit)
+    }
+
+    /// Riporta il panorex a inquadrare l'arcata intera, in profondità e in posizione.
     func resetPanoramicView() {
         panoramicZoom = 1
         panoramicArcCentreMM = nil
+        panoramicNormalOffsetMM = 0
         if let vertical = archCurve.averageVerticalMM {
             archVerticalCentreMM = vertical
         }

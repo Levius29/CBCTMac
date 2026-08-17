@@ -28,6 +28,8 @@ struct PanoramicViewportView: NSViewRepresentable {
 
     /// Scorrimento lungo l'arcata, in millimetri di lunghezza d'arco.
     var onScrollArc: (Double) -> Void = { _ in }
+    /// Scorrimento in profondità, vestibolo-linguale, in millimetri.
+    var onScrollDepth: (Double) -> Void = { _ in }
     /// Spostamento della quota verticale, in millimetri.
     var onScrollVertical: (Double) -> Void = { _ in }
     /// Ingrandimento: fattore e pixel orizzontale su cui ancorarlo.
@@ -92,15 +94,18 @@ struct PanoramicViewportView: NSViewRepresentable {
                     atPixelX: Double(point.x), pixelWidth: Int(view.drawableSize.width)))
         }
 
-        // La rotella percorre l'arcata. È il gesto che l'immagine suggerisce da sé: un panorex è
-        // una striscia lunga, e una striscia si scorre.
-        view.onScroll = { [weak view] steps in
-            guard let view, view.drawableSize.width > 0 else { return }
-            let millimetresPerPixel = layout.millimetresPerPixel(
-                pixelWidth: Int(view.drawableSize.width))
-            // Otto pixel per passo: la stessa quantità di immagine che scorre in una lista, così
-            // il gesto ha il "peso" a cui la mano è abituata.
-            onScrollArc(steps * 8 * millimetresPerPixel)
+        // La rotella **sfoglia l'arcata in profondità**, vestibolo-linguale.
+        //
+        // Non percorre l'arcata, che sarebbe l'associazione ovvia guardando una striscia lunga.
+        // La ragione è che una curva d'arcata è un'approssimazione: i denti stanno un po' più
+        // fuori o un po' più dentro, e con uno slab sottile — quello che serve per vedere l'apice
+        // di una radice — bisogna poter attraversare l'arcata. Percorrerla in lunghezza si fa
+        // trascinando, che è il gesto giusto per una striscia più larga della finestra.
+        //
+        // Un decimo di millimetro per passo: sotto lo spessore di un voxel il gesto sarebbe
+        // inerte, sopra il mezzo millimetro si salterebbe la corticale.
+        view.onScroll = { steps in
+            onScrollDepth(steps * 0.1)
         }
 
         // Trascinamento: orizzontale scorre lungo l'arcata, verticale sposta la quota. Un solo
@@ -305,6 +310,19 @@ struct PanoramicWorkspace: View {
 
     // MARK: Panorex
 
+    /// Scostamento vestibolo-linguale, con il verso scritto invece che affidato al segno.
+    ///
+    /// «−1,5 mm» dice quanto ma non da che parte, e chi guarda deve ricordare la convenzione.
+    /// Scrivere «linguale» toglie l'ambiguità nel punto in cui costerebbe di più: quando si
+    /// valuta lo spessore di corticale prima di posizionare un impianto.
+    private var depthLabel: String {
+        let offset = model.panoramicNormalOffsetMM
+        if abs(offset) < 0.001 { return "Sulla curva" }
+        let side = offset > 0 ? "vestibolare" : "linguale"
+        return String(format: "%.2f mm %@", abs(offset), side)
+            .replacingOccurrences(of: ".", with: ",")
+    }
+
     private var panoramicPanel: some View {
         ZStack {
             PanoramicViewportView(
@@ -324,6 +342,7 @@ struct PanoramicWorkspace: View {
                 },
                 onDrawableSize: { panoramicPixelSize = $0 },
                 onScrollArc: { model.scrollPanoramic(byArcMM: $0) },
+                onScrollDepth: { model.movePanoramicDepth(byMM: $0) },
                 onScrollVertical: { model.movePanoramicVertical(byMM: $0) },
                 onZoom: { factor, x, width in
                     model.zoomPanoramic(by: factor, atPixelX: x, pixelWidth: width)
@@ -366,6 +385,14 @@ struct PanoramicWorkspace: View {
                 }
                 Spacer()
                 HStack {
+                    // Lo scostamento in profondità va mostrato **sempre**, anche a zero: è lo
+                    // stato che dice dove ci si trova nell'arcata, e vederlo solo quando è diverso
+                    // da zero lascerebbe intendere che a zero non esista.
+                    Text(depthLabel)
+                        .foregroundStyle(
+                            abs(model.panoramicNormalOffsetMM) < 0.001
+                                ? Palette.textSecondary : Palette.accent)
+                    Text("·")
                     Text(
                         String(format: "Arcata %.0f mm", model.archCurve.lengthMM)
                     )
