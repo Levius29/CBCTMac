@@ -189,12 +189,30 @@ final class InteractiveMetalView: MTKView {
         return CGPoint(x: inView.x * scale.x, y: inView.y * scale.y)
     }
 
+    /// Spostamento in pixel della texture, **ricavato dalle posizioni** e non da `deltaX`/`deltaY`.
+    ///
+    /// Qui c'era il difetto per cui l'immagine si spostava correttamente a destra e a sinistra e
+    /// al contrario in verticale. La versione precedente usava `event.deltaY` invertendone il
+    /// segno, sulla base del fatto che in AppKit l'asse verticale cresce verso l'alto. Per gli
+    /// eventi di trascinamento non è così: `deltaY` è già positivo verso il basso, quindi
+    /// l'inversione introduceva una negazione di troppo — e solo sulla verticale, perché
+    /// l'orizzontale non ne aveva nessuna.
+    ///
+    /// La correzione non è cambiare quel segno. È **smettere di avere due convenzioni**: lo
+    /// spostamento si calcola come differenza fra due `pixelLocation` successive, cioè passando
+    /// dallo stesso codice che converte una posizione. Così le due grandezze non possono più
+    /// discordare, e nessuno deve ricordarsi da che parte cresce `deltaY`.
     private func pixelDelta(of event: NSEvent) -> CGSize {
-        let scale = pixelsPerPoint
-        // `deltaY` di AppKit cresce verso l'alto; la vista è capovolta, quindi si inverte per
-        // restare coerenti con `pixelLocation`.
-        return CGSize(width: event.deltaX * scale.x, height: -event.deltaY * scale.y)
+        let current = pixelLocation(of: event)
+        defer { lastPixelLocation = current }
+        guard let last = lastPixelLocation else { return .zero }
+        return CGSize(width: current.x - last.x, height: current.y - last.y)
     }
+
+    /// Ultima posizione nota, per calcolare lo spostamento. Va azzerata alla pressione di ogni
+    /// pulsante, altrimenti il primo movimento di un gesto riporterebbe il salto dall'ultimo
+    /// punto del gesto precedente.
+    private var lastPixelLocation: CGPoint?
 
     /// Spostamento in punti, per le soglie percepite e per la rotazione.
     private func pointDelta(of event: NSEvent) -> CGSize {
@@ -250,6 +268,7 @@ final class InteractiveMetalView: MTKView {
         }
 
         pressLocation = pixelLocation(of: event)
+        lastPixelLocation = pressLocation
         accumulatedMovement = 0
         exceededClickSlop = false
         onDragBegan?()
@@ -285,6 +304,11 @@ final class InteractiveMetalView: MTKView {
         onClick?(pressLocation)
     }
 
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        lastPixelLocation = pixelLocation(of: event)
+    }
+
     override func rightMouseDragged(with event: NSEvent) {
         onWindowLevelDrag?(pixelDelta(of: event))
     }
@@ -293,6 +317,7 @@ final class InteractiveMetalView: MTKView {
     // rapida per chi ha un mouse a tre tasti e non vuole tenere premuto un modificatore.
     override func otherMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        lastPixelLocation = pixelLocation(of: event)
         onDragBegan?()
     }
 

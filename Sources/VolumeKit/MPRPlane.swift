@@ -182,6 +182,34 @@ public struct MPRPlane: Hashable, Sendable {
         return copy
     }
 
+    /// Ruota il piano **attorno a un asse qualunque**, cambiandone la normale.
+    ///
+    /// È la ricostruzione obliqua: `rotatedInPlane` gira l'immagine lasciando invariata la fetta
+    /// che si guarda, questa cambia proprio *come il piano taglia il volume*. Serve perché
+    /// l'anatomia non è allineata agli assi della macchina — un ramo mandibolare, l'asse di un
+    /// dente incluso, un condilo si guardano bene solo di sbieco.
+    ///
+    /// L'uso tipico è il trascinamento di una linea del mirino: ruotando la linea coronale sulla
+    /// vista assiale, l'asse di rotazione è la **normale dell'assiale** e il piano che si inclina è
+    /// il coronale. Il perno è il mirino, così il punto che si sta guardando resta inquadrato.
+    ///
+    /// - Note: il piano resta ortonormale per costruzione, perché una rotazione conserva angoli e
+    ///   lunghezze. Rinormalizzare comunque i due assi difende dall'accumulo di errore su decine di
+    ///   rotazioni consecutive, che è esattamente ciò che produce un trascinamento continuo.
+    public func rotated(aboutAxis axis: Vec3, byRadians angle: Double, aboutMM pivot: Vec3)
+        -> MPRPlane
+    {
+        guard angle.isFinite, pivot.isFinite,
+              let rotation = Transform3D.rotation(axis: axis, angle: angle)
+        else { return self }
+
+        var copy = self
+        copy.rightMM = rotation.apply(toVector: rightMM).normalized ?? rightMM
+        copy.downMM = rotation.apply(toVector: downMM).normalized ?? downMM
+        copy.centerMM = pivot + rotation.apply(toVector: centerMM - pivot)
+        return copy
+    }
+
     /// Riporta l'inquadratura a contenere l'intero volume, mantenendo orientamento e centro fetta.
     ///
     /// È la via di ritorno dopo essersi persi ingrandendo, e va sempre offerta: senza, l'unico

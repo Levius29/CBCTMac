@@ -1,3 +1,4 @@
+import Foundation
 import DICOMCore
 import Testing
 
@@ -210,5 +211,89 @@ struct ViewNavigationTests {
         // guarda quelle due, quindi l'inquadratura senza margine deve valere proprio quelle.
         #expect(abs(tight.widthMM - 30) < 1e-6, "larghezza \(tight.widthMM) mm")
         #expect(abs(tight.heightMM - 32) < 1e-6, "altezza \(tight.heightMM) mm")
+    }
+}
+
+// MARK: - Ricostruzione obliqua
+
+@Suite("Rotazione obliqua dei piani")
+struct ObliqueRotationTests {
+
+    private func makePlane() -> MPRPlane {
+        MPRPlane(plane: .coronal, through: Vec3(2, -3, 5), widthMM: 60, heightMM: 40)
+    }
+
+    @Test("Ruotare attorno a un asse cambia la normale, cioè come il piano taglia")
+    func rotationAboutAnAxisChangesTheNormal() {
+        let plane = makePlane()
+        let axis = AnatomicalPlane.axial.normalMM  // asse verticale del paziente
+        let pivot = Vec3(2, -3, 5)
+
+        for degrees in [10.0, 45.0, 90.0] {
+            let rotated = plane.rotated(
+                aboutAxis: axis, byRadians: degrees * .pi / 180, aboutMM: pivot)
+            // È la differenza con `rotatedInPlane`, che la normale la lascia intatta.
+            #expect(!rotated.normalMM.isApproximatelyEqual(to: plane.normalMM, tolerance: 1e-6))
+            // L'angolo fra le due normali è quello richiesto: l'asse è perpendicolare a entrambe.
+            let cosine = min(max(rotated.normalMM.dot(plane.normalMM), -1), 1)
+            let measured = Foundation.acos(cosine) * 180 / .pi
+            #expect(abs(measured - degrees) < 1e-6, "\(degrees)°: misurati \(measured)°")
+        }
+    }
+
+    @Test("Il perno resta fermo")
+    func pivotStaysPut() {
+        let plane = makePlane()
+        let width = 800
+        let height = 600
+        let pivot = plane.patientPoint(
+            atPixelX: 300, y: 200, pixelWidth: width, pixelHeight: height)
+
+        for degrees in [5.0, -30.0, 120.0] {
+            let rotated = plane.rotated(
+                aboutAxis: Vec3(0, 0, 1), byRadians: degrees * .pi / 180, aboutMM: pivot)
+            let position = rotated.pixelPosition(
+                ofPatient: pivot, pixelWidth: width, pixelHeight: height)
+            #expect(abs(position.x - 300) < 1e-8, "\(degrees)°: x = \(position.x)")
+            #expect(abs(position.y - 200) < 1e-8, "\(degrees)°: y = \(position.y)")
+            #expect(abs(position.distanceMM) < 1e-9, "il perno resta **sul** piano")
+        }
+    }
+
+    @Test("Gli assi restano ortonormali anche dopo molte rotazioni")
+    func axesStayOrthonormalUnderRepeatedRotation() {
+        // È il caso reale: un trascinamento continuo produce centinaia di rotazioni piccole in
+        // sequenza, e senza rinormalizzare l'errore si accumula fino a deformare l'immagine.
+        var plane = makePlane()
+        let pivot = Vec3(2, -3, 5)
+        for _ in 0..<500 {
+            plane = plane.rotated(aboutAxis: Vec3(0, 0, 1), byRadians: 0.01, aboutMM: pivot)
+        }
+        #expect(abs(plane.rightMM.length - 1) < 1e-12)
+        #expect(abs(plane.downMM.length - 1) < 1e-12)
+        #expect(abs(plane.rightMM.dot(plane.downMM)) < 1e-9)
+        #expect(abs(plane.normalMM.length - 1) < 1e-12)
+    }
+
+    @Test("Cinquecento rotazioni da 0,01 rad valgono una da 5 rad")
+    func repeatedRotationsCompose() {
+        var stepped = makePlane()
+        let pivot = Vec3(2, -3, 5)
+        for _ in 0..<500 {
+            stepped = stepped.rotated(aboutAxis: Vec3(0, 0, 1), byRadians: 0.01, aboutMM: pivot)
+        }
+        let once = makePlane().rotated(aboutAxis: Vec3(0, 0, 1), byRadians: 5.0, aboutMM: pivot)
+        #expect(stepped.rightMM.isApproximatelyEqual(to: once.rightMM, tolerance: 1e-9))
+        #expect(stepped.centerMM.isApproximatelyEqual(to: once.centerMM, tolerance: 1e-9))
+    }
+
+    @Test("Un asse degenere o un angolo non finito non alterano il piano")
+    func rejectsDegenerateInput() {
+        let plane = makePlane()
+        #expect(plane.rotated(aboutAxis: .zero, byRadians: 1, aboutMM: .zero) == plane)
+        #expect(plane.rotated(aboutAxis: Vec3(0, 0, 1), byRadians: .nan, aboutMM: .zero) == plane)
+        #expect(
+            plane.rotated(aboutAxis: Vec3(0, 0, 1), byRadians: 1, aboutMM: Vec3(.nan, 0, 0))
+                == plane)
     }
 }

@@ -339,15 +339,30 @@ struct ViewportContainer: View {
         model.pan(slot: slot, byMM: offset)
     }
 
-    /// Rotazione nel piano attorno al mirino: ⇧ + trascinamento orizzontale.
+    /// ⇧ + trascinamento: **inclina il taglio**, cioè ruota le linee del mirino.
     ///
-    /// L'angolo viene dallo spostamento orizzontale e non dall'angolo sotteso attorno al perno.
-    /// Il gesto "afferra e gira" sarebbe più naturale ma ha una singolarità: col puntatore sopra
-    /// il perno, uno spostamento di un pixel produce una rotazione arbitraria. Qui la
-    /// corrispondenza è lineare e prevedibile in ogni punto del riquadro.
+    /// Trascinando in orizzontale si ruotano i due piani perpendicolari a questo attorno alla sua
+    /// normale: sull'assiale significa inclinare coronale e sagittale, che è il gesto con cui si
+    /// va a guardare un ramo o l'asse di un dente incluso invece di accontentarsi di una fetta
+    /// ortogonale che li taglia di sbieco.
+    ///
+    /// Il trascinamento **verticale** gira invece l'immagine nel proprio piano, senza cambiare
+    /// fetta: serve a raddrizzare una testa inclinata. Due assi del gesto per due rotazioni
+    /// diverse, e la distinzione è quella che conta — orizzontale cambia *cosa* si taglia,
+    /// verticale cambia *come lo si guarda*.
+    ///
+    /// L'angolo viene dallo spostamento e non dall'angolo sotteso attorno al perno. Il gesto
+    /// "afferra e gira" sarebbe più naturale ma ha una singolarità: col puntatore sopra il perno,
+    /// uno spostamento di un pixel produce una rotazione arbitraria.
     private func handleRotate(_ delta: CGSize) {
-        let angle = Double(delta.width) * InteractiveMetalView.rotationRadiansPerPoint
-        model.rotate(slot: slot, byRadians: angle)
+        let horizontal = Double(delta.width) * InteractiveMetalView.rotationRadiansPerPoint
+        let vertical = Double(delta.height) * InteractiveMetalView.rotationRadiansPerPoint
+
+        if abs(delta.width) >= abs(delta.height) {
+            model.tiltPlanes(perpendicularTo: slot, byRadians: horizontal)
+        } else {
+            model.rotate(slot: slot, byRadians: vertical)
+        }
     }
 
     private func handleWindowLevelDrag(_ delta: CGSize) {

@@ -905,6 +905,31 @@ final class AppModel {
         planes[slot] = plane.rotatedInPlane(byRadians: angle, aboutMM: crosshairMM)
     }
 
+    /// Inclina il taglio: ruota i piani **perpendicolari** a quello mostrato nel riquadro.
+    ///
+    /// È la ricostruzione obliqua, e va distinta da `rotate(slot:byRadians:)`, che gira l'immagine
+    /// lasciando la fetta dov'è. Qui cambia proprio come il volume viene tagliato: trascinando
+    /// sull'assiale si inclinano coronale e sagittale, come ruotare le due linee del mirino.
+    ///
+    /// Serve perché l'anatomia non è allineata agli assi della macchina. Un ramo mandibolare,
+    /// l'asse di un dente incluso, un condilo: nessuno di questi si guarda bene su un piano
+    /// ortogonale, e senza obliquità l'unica alternativa è stimare a occhio su una fetta storta.
+    ///
+    /// Il piano del riquadro su cui si trascina **non** ruota, e non è una dimenticanza: è la
+    /// superficie su cui si sta indicando l'angolo, e vederla girare sotto il dito mentre la si
+    /// usa come riferimento renderebbe il gesto incontrollabile. Gli altri due ruotano insieme,
+    /// dello stesso angolo, quindi restano perpendicolari fra loro.
+    func tiltPlanes(perpendicularTo slot: ViewportSlot, byRadians angle: Double) {
+        guard angle.isFinite, let reference = planes[slot] else { return }
+        let axis = reference.normalMM
+        for other in ViewportSlot.allCases
+        where other != slot && other.anatomicalPlane != nil {
+            guard let plane = planes[other] else { continue }
+            planes[other] = plane.rotated(
+                aboutAxis: axis, byRadians: angle, aboutMM: crosshairMM)
+        }
+    }
+
     /// Riporta un riquadro a inquadrare tutto il volume, senza toccare orientamento né mirino.
     func resetView(slot: ViewportSlot) {
         guard let plane = planes[slot], let geometry = volume?.geometry else { return }

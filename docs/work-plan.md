@@ -201,7 +201,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | Lotto | Contenuto | Autore | Dipende da | Brief |
 |---|---|---|---|---|
 | **0** | ArtifactKit — strie da metallo | Codex | SegmentKit | ✅ **consegnato e verificato** |
-| **A** | Ricampionamento e piano di riformattazione — I2, I3, I4, I5, I8 | Codex | SegmentKit | [scritto](codex-brief-resampler.md) |
+| **A** | Ricampionamento e piano di riformattazione — I2, I3, I4, I5, I8 | Codex | SegmentKit | ✅ **consegnato e verificato** |
 | **B** | Navigazione delle sezioni — G1…G8, D6, D8 | Codex | DentalKit | da scrivere |
 | **C** | Spessore, proiezione e quote per riquadro — D1, D2, D7, E1…E4 | me | — | — |
 | **D** | Geometria delle sovraimpressioni 3D — H2…H6, H10 | Codex | VolumeKit | da scrivere |
@@ -248,7 +248,7 @@ aggiunta dopo.
 Codex, un lotto per volta:
 
 ```
-A → B → D → E → F → O → H → J → L → M → N
+B → D → E → F → O → H → J → L → M → N
 ```
 
 L'ordine non è per peso: **E prima di F, H, J e O** perché tutti e quattro poggiano sul modello
