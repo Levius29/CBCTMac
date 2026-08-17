@@ -60,7 +60,13 @@ struct Volume3DViewportView: NSViewRepresentable {
 
     private func attachHandlers(to view: InteractiveMetalView) {
         view.onDrag = { _, delta in onOrbit(delta) }
-        view.onMagnify = onMagnify
+        // ⌥ e ⇧ sul 3D non hanno un significato proprio: entrambi restano orbita, così un
+        // modificatore premuto per abitudine non blocca il gesto.
+        view.onPan = { delta in onOrbit(delta) }
+        view.onRotate = { delta in onOrbit(delta) }
+        // Il punto d'ancoraggio non serve qui: la camera orbita e ingrandisce attorno al centro
+        // del volume, non attorno al puntatore.
+        view.onZoom = { factor, _ in onMagnify(factor) }
         // La rotella regola lo zoom: sul 3D non ci sono slice da scorrere, e lasciarla inerte
         // sarebbe una piccola frustrazione ripetuta.
         view.onScroll = { steps in onMagnify(1.0 + steps * 0.05) }

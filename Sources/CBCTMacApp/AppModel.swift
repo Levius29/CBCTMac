@@ -87,6 +87,39 @@ enum ViewportLayout: String, CaseIterable, Hashable, Sendable {
 }
 
 /// I quattro riquadri possibili.
+/// Risoluzione di rendering dei riquadri 2D, in frazione di quella nativa.
+///
+/// Su un volume grande, e a piena risoluzione Retina, un riquadro può non stare nel budget di un
+/// fotogramma: lo scorrimento delle fette diventa a scatti. Ridurre la risoluzione restituisce
+/// fluidità e costa nitidezza, ed è un compromesso che ha senso lasciare scegliere invece di
+/// imporre.
+///
+/// La riduzione **non** altera le misure: il fattore fra punti della vista e pixel della texture
+/// viene misurato su `drawableSize`, non assunto. Vedi `InteractiveMetalView.pixelsPerPoint`.
+enum MPRResolution: String, CaseIterable, Hashable, Sendable, Identifiable {
+    case full
+    case threeQuarters
+    case half
+
+    var id: String { rawValue }
+
+    var scale: Double {
+        switch self {
+        case .full: return 1
+        case .threeQuarters: return 0.75
+        case .half: return 0.5
+        }
+    }
+
+    var localizedName: String {
+        switch self {
+        case .full: return "Piena"
+        case .threeQuarters: return "¾"
+        case .half: return "Metà"
+        }
+    }
+}
+
 enum ViewportSlot: String, CaseIterable, Hashable, Sendable, Identifiable {
     case axial
     case coronal
@@ -148,6 +181,8 @@ final class AppModel {
     var windowLevel: DensityWindow = .bone
     var slabThicknessMM: Double = 0
     var projection: SlabProjection = .average
+    /// Risoluzione di rendering dei riquadri 2D. Vedi `MPRResolution`.
+    var mprResolution: MPRResolution = .full
     var layout: ViewportLayout = .grid2x2
     var focusedSlot: ViewportSlot = .axial
     var activeTool: Tool = .navigate
@@ -557,6 +592,62 @@ final class AppModel {
     func zoom(slot: ViewportSlot, factor: Double) {
         guard let plane = planes[slot] else { return }
         planes[slot] = plane.zoomed(by: factor)
+    }
+
+    /// Zoom ancorato a un pixel del riquadro: ciò che sta sotto il puntatore non si muove.
+    ///
+    /// `pixelSize` è la dimensione del drawable, che solo la vista conosce. Se non è ancora nota
+    /// si ricade sullo zoom centrato, che è impreciso ma non sbagliato: succede al più per il
+    /// primo fotogramma dopo l'apertura.
+    func zoom(slot: ViewportSlot, factor: Double, atPixel point: CGPoint, pixelSize: CGSize) {
+        guard let plane = planes[slot] else { return }
+        guard pixelSize.width > 0, pixelSize.height > 0 else {
+            planes[slot] = plane.zoomed(by: factor)
+            return
+        }
+        planes[slot] = plane.zoomed(
+            by: factor,
+            aboutPixelX: Double(point.x),
+            y: Double(point.y),
+            pixelWidth: Int(pixelSize.width),
+            pixelHeight: Int(pixelSize.height))
+    }
+
+    /// Ruota l'inquadratura di un riquadro nel proprio piano, attorno al mirino.
+    ///
+    /// Il perno è il mirino e non il centro del riquadro: si ruota per raddrizzare *quel* punto,
+    /// e ruotare attorno al centro lo porterebbe altrove costringendo a inseguirlo col pan.
+    func rotate(slot: ViewportSlot, byRadians angle: Double) {
+        guard let plane = planes[slot] else { return }
+        planes[slot] = plane.rotatedInPlane(byRadians: angle, aboutMM: crosshairMM)
+    }
+
+    /// Riporta un riquadro a inquadrare tutto il volume, senza toccare orientamento né mirino.
+    func resetView(slot: ViewportSlot) {
+        guard let plane = planes[slot], let geometry = volume?.geometry else { return }
+        planes[slot] = plane.fitted(to: geometry)
+    }
+
+    /// Riporta tutti i riquadri all'orientamento anatomico canonico e all'inquadratura piena.
+    ///
+    /// È la via di uscita quando si è ruotato e ingrandito fino a perdersi. Rimette anche gli assi
+    /// a posto, cosa che `resetView(slot:)` di proposito non fa: lì si vuole tornare a vedere
+    /// tutto conservando il raddrizzamento appena trovato, qui si vuole ricominciare.
+    func resetAllViews() {
+        guard let geometry = volume?.geometry else { return }
+        for slot in ViewportSlot.allCases {
+            guard let anatomical = slot.anatomicalPlane else { continue }
+            let size = geometry.physicalSizeMM
+            let extent = max(size.x, max(size.y, size.z)) * 1.05
+            planes[slot] = MPRPlane(
+                plane: anatomical,
+                through: crosshairMM,
+                widthMM: extent,
+                heightMM: extent,
+                slabThicknessMM: slabThicknessMM,
+                projection: projection
+            ).fitted(to: geometry)
+        }
     }
 
     func pan(slot: ViewportSlot, byMM offset: Vec3) {

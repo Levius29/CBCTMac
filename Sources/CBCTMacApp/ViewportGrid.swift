@@ -110,6 +110,16 @@ struct ViewportContainer: View {
                 }
 
                 ViewportChrome(model: model, slot: slot, pointSize: geometry.size)
+
+                // I pulsanti stanno **sopra** la sovraimpressione, non dentro: quella non riceve
+                // i clic per lasciarli passare all'immagine, questi devono riceverli.
+                VStack {
+                    HStack {
+                        Spacer()
+                        ViewportActions(model: model, slot: slot)
+                    }
+                    Spacer()
+                }
             }
             .clipShape(.rect(cornerRadius: Metrics.cornerRadius))
             .overlay(alignment: .top) {
@@ -139,14 +149,19 @@ struct ViewportContainer: View {
                 volumeTexture: model.volumeTexture,
                 renderer: model.mprRenderer,
                 windowLevel: model.windowLevel,
+                renderScale: model.mprResolution.scale,
                 onScroll: { steps in
                     model.focusedSlot = slot
                     model.scroll(slot: slot, steps: steps)
                 },
-                onMagnify: { factor in
-                    model.zoom(slot: slot, factor: factor)
+                onZoom: { factor, anchor in
+                    model.focusedSlot = slot
+                    model.zoom(
+                        slot: slot, factor: factor, atPixel: anchor, pixelSize: pixelSize)
                 },
                 onDrag: handleDrag,
+                onPan: handlePan,
+                onRotate: handleRotate,
                 onWindowLevelDrag: handleWindowLevelDrag,
                 onClick: handleClick,
                 onHover: handleHover,
@@ -289,13 +304,34 @@ struct ViewportContainer: View {
     }
 
     private func handleDrag(_ point: CGPoint, _ delta: CGSize) {
-        guard model.activeTool == .navigate, let plane = adjustedPlane else { return }
+        // Con uno strumento di misura attivo il trascinamento appartiene allo strumento. La
+        // panoramica resta comunque raggiungibile con ⌥ o col tasto centrale, che passano da
+        // `handlePan` e non guardano lo strumento: un'immagine inchiodata mentre si misura era
+        // la seconda causa di frustrazione dopo lo zoom non ancorato.
+        guard model.activeTool == .navigate else { return }
+        handlePan(delta)
+    }
+
+    /// Panoramica, sempre disponibile: ⌥ + trascinamento, o tasto centrale.
+    private func handlePan(_ delta: CGSize) {
+        guard let plane = adjustedPlane else { return }
         // Il pan si esprime in millimetri, non in pixel: si moltiplica lo spostamento per il
         // passo del pixel, così la panoramica resta coerente a qualunque zoom.
         let rightStep = plane.rightStepMM(pixelWidth: Int(pixelSize.width))
         let downStep = plane.downStepMM(pixelHeight: Int(pixelSize.height))
         let offset = rightStep * Double(-delta.width) + downStep * Double(-delta.height)
         model.pan(slot: slot, byMM: offset)
+    }
+
+    /// Rotazione nel piano attorno al mirino: ⇧ + trascinamento orizzontale.
+    ///
+    /// L'angolo viene dallo spostamento orizzontale e non dall'angolo sotteso attorno al perno.
+    /// Il gesto "afferra e gira" sarebbe più naturale ma ha una singolarità: col puntatore sopra
+    /// il perno, uno spostamento di un pixel produce una rotazione arbitraria. Qui la
+    /// corrispondenza è lineare e prevedibile in ogni punto del riquadro.
+    private func handleRotate(_ delta: CGSize) {
+        let angle = Double(delta.width) * InteractiveMetalView.rotationRadiansPerPoint
+        model.rotate(slot: slot, byRadians: angle)
     }
 
     private func handleWindowLevelDrag(_ delta: CGSize) {

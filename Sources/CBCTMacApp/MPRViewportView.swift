@@ -22,12 +22,17 @@ struct MPRViewportView: NSViewRepresentable {
     let volumeTexture: VolumeTexture?
     let renderer: MPRRenderer?
     let windowLevel: DensityWindow
+    /// Frazione della risoluzione nativa a cui rendere. Vedi `MPRResolution`.
+    var renderScale: Double = 1
 
     // Eventi. Le posizioni sono in **pixel della texture, origine in alto a sinistra**, già
     // convertite da `InteractiveMetalView`.
     var onScroll: (Double) -> Void = { _ in }
-    var onMagnify: (Double) -> Void = { _ in }
+    /// Zoom: fattore e pixel di ancoraggio. Il punto anatomico sotto quel pixel non si muove.
+    var onZoom: (Double, CGPoint) -> Void = { _, _ in }
     var onDrag: (CGPoint, CGSize) -> Void = { _, _ in }
+    var onPan: (CGSize) -> Void = { _ in }
+    var onRotate: (CGSize) -> Void = { _ in }
     var onWindowLevelDrag: (CGSize) -> Void = { _ in }
     var onClick: (CGPoint) -> Void = { _ in }
     var onHover: (CGPoint?) -> Void = { _ in }
@@ -52,7 +57,11 @@ struct MPRViewportView: NSViewRepresentable {
 
         view.isPaused = true
         view.enableSetNeedsDisplay = true
-        view.autoResizeDrawable = true
+        // La dimensione del drawable la calcola la vista, perché deve tenere conto di
+        // `renderScale`. Con `autoResizeDrawable` acceso Metal la fisserebbe alla risoluzione
+        // nativa e la scelta di risoluzione non avrebbe effetto.
+        view.autoResizeDrawable = false
+        view.renderScale = CGFloat(renderScale)
         view.delegate = context.coordinator
 
         context.coordinator.configure(device: view.device)
@@ -68,6 +77,7 @@ struct MPRViewportView: NSViewRepresentable {
         context.coordinator.renderer = renderer
         context.coordinator.windowLevel = windowLevel
         context.coordinator.onDrawableSize = onDrawableSize
+        view.renderScale = CGFloat(renderScale)
 
         // I callback catturano lo stato di SwiftUI e vanno riagganciati a ogni aggiornamento,
         // altrimenti la chiusura resta legata a un valore vecchio.
@@ -78,8 +88,10 @@ struct MPRViewportView: NSViewRepresentable {
 
     private func attachHandlers(to view: InteractiveMetalView) {
         view.onScroll = onScroll
-        view.onMagnify = onMagnify
+        view.onZoom = onZoom
         view.onDrag = onDrag
+        view.onPan = onPan
+        view.onRotate = onRotate
         view.onWindowLevelDrag = onWindowLevelDrag
         view.onClick = onClick
         view.onHover = onHover

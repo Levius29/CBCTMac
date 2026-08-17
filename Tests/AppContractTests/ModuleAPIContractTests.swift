@@ -86,6 +86,16 @@ struct ModuleAPIContractTests {
         _ = adjusted.normalMM
         _ = adjusted.zoomed(by: 1.2)
         _ = adjusted.advanced(byMM: 0.5)
+
+        // Navigazione: `AppModel.zoom(slot:factor:atPixel:pixelSize:)`,
+        // `rotate(slot:byRadians:)`, `resetView(slot:)` e `resetAllViews()`.
+        _ = adjusted.zoomed(
+            by: 1.25, aboutPixelX: 640, y: 360, pixelWidth: 1280, pixelHeight: 720)
+        _ = adjusted.rotatedInPlane(byRadians: 0.1, aboutMM: Vec3(1, 2, 3))
+        _ = adjusted.fitted(to: geometry)
+        _ = adjusted.fitted(to: geometry, marginFraction: 0.04)
+        _ = geometry.physicalSizeMM
+        _ = geometry.boundingBoxCornersMM
         _ = adjusted.widthMM
         _ = adjusted.rightMM
         _ = adjusted.downMM

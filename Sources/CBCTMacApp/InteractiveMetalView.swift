@@ -11,6 +11,32 @@ import MetalKit
 // avviene qui, una volta sola, così chi riceve i callback ragiona nello stesso sistema in cui
 // lavora lo shader. Due passaggi facili da sbagliare, entrambi concentrati in questo file:
 // `isFlipped` per l'asse verticale, e il fattore di scala del display per i pixel.
+//
+// # Mappa dei gesti
+//
+// | Gesto | Effetto |
+// |---|---|
+// | Rotella | scorre le fette lungo la normale |
+// | ⌘ + rotella | zoom **ancorato al puntatore** |
+// | Pinch del trackpad | zoom ancorato al puntatore |
+// | Clic, senza spostamento | sposta il mirino |
+// | Trascinamento sinistro | strumento attivo; con «naviga» sposta l'immagine |
+// | ⌥ + trascinamento sinistro | sposta l'immagine, **sempre** |
+// | ⇧ + trascinamento sinistro | ruota l'immagine nel piano |
+// | Trascinamento centrale | sposta l'immagine, sempre |
+// | Trascinamento destro | finestra e livello |
+// | Doppio clic | ingrandisce il riquadro |
+//
+// Due scelte in questa mappa non sono arbitrarie e vale la pena dire perché.
+//
+// **Il clic non parte alla pressione, ma al rilascio, e solo se il puntatore non si è spostato.**
+// Prima il mirino saltava all'inizio di ogni trascinamento: si premeva per spostare l'immagine e
+// il mirino si teletrasportava, trascinando con sé anche le altre due viste. Distinguere clic e
+// trascinamento con una soglia di pochi punti elimina il problema alla radice.
+//
+// **La modalità di trascinamento si fissa alla pressione, non a ogni evento.** Leggendo i
+// modificatori a ogni `mouseDragged`, rilasciare ⌥ a metà gesto commuterebbe da panoramica a
+// strumento nel mezzo del movimento. Si decide una volta e si tiene fino al rilascio.
 
 final class InteractiveMetalView: MTKView {
 
@@ -18,13 +44,20 @@ final class InteractiveMetalView: MTKView {
 
     /// Rotella. Il valore è in "passi": positivo scorre in avanti lungo la normale.
     var onScroll: ((Double) -> Void)?
-    /// Pinch del trackpad. Il valore è il fattore moltiplicativo.
-    var onMagnify: ((Double) -> Void)?
-    /// Trascinamento con il tasto sinistro: posizione corrente e spostamento, in pixel.
+    /// Zoom: fattore moltiplicativo e **pixel su cui ancorarlo**.
+    ///
+    /// L'ancora è ciò che rende lo zoom prevedibile: il punto anatomico sotto quel pixel non si
+    /// muove. Chi non ne ha bisogno — il riquadro 3D, che orbita attorno al centro — la ignora.
+    var onZoom: ((Double, CGPoint) -> Void)?
+    /// Trascinamento con lo strumento attivo: posizione corrente e spostamento, in pixel.
     var onDrag: ((CGPoint, CGSize) -> Void)?
+    /// Trascinamento di panoramica, indipendente dallo strumento attivo.
+    var onPan: ((CGSize) -> Void)?
+    /// Trascinamento di rotazione nel piano.
+    var onRotate: ((CGSize) -> Void)?
     /// Trascinamento con il tasto destro: spostamento in pixel. Regola finestra e livello.
     var onWindowLevelDrag: ((CGSize) -> Void)?
-    /// Clic singolo.
+    /// Clic singolo, confermato al rilascio senza spostamento apprezzabile.
     var onClick: ((CGPoint) -> Void)?
     /// Movimento del puntatore; `nil` quando esce dalla vista.
     var onHover: ((CGPoint?) -> Void)?
@@ -48,7 +81,42 @@ final class InteractiveMetalView: MTKView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// Frazione della risoluzione nativa a cui rendere: 1 è piena, 0,5 un quarto dei pixel.
+    ///
+    /// Serve sui volumi grandi, dove un riquadro a piena risoluzione Retina può non stare nel
+    /// budget di un fotogramma. Il ridimensionamento lo fa il compositore, quindi non costa nulla
+    /// oltre alla perdita di nitidezza.
+    ///
+    /// - Important: abbassarla cambia il rapporto fra punti della vista e pixel della texture,
+    ///   e quel rapporto è ciò con cui un clic diventa una misura in millimetri. Per questo
+    ///   `pixelsPerPoint` lo **misura** su `drawableSize` invece di assumere
+    ///   `backingScaleFactor`: con una scala diversa da 1 l'assunzione sarebbe falsa e ogni
+    ///   misura risulterebbe scalata dello stesso fattore, in silenzio.
+    var renderScale: CGFloat = 1 {
+        didSet {
+            guard renderScale != oldValue else { return }
+            updateDrawableSize()
+        }
+    }
+
     private var trackingArea: NSTrackingArea?
+
+    override func layout() {
+        super.layout()
+        updateDrawableSize()
+    }
+
+    private func updateDrawableSize() {
+        guard !autoResizeDrawable else { return }
+        let backing = window?.backingScaleFactor ?? 1
+        let scale = max(0.1, min(1, renderScale)) * backing
+        let width = (bounds.width * scale).rounded()
+        let height = (bounds.height * scale).rounded()
+        guard width >= 1, height >= 1 else { return }
+        let size = CGSize(width: width, height: height)
+        guard size != drawableSize else { return }
+        drawableSize = size
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -64,24 +132,73 @@ final class InteractiveMetalView: MTKView {
         trackingArea = area
     }
 
+    // MARK: Stato del gesto in corso
+
+    /// Cosa fa il trascinamento iniziato, deciso alla pressione e non più rinegoziato.
+    private enum DragMode {
+        case tool
+        case pan
+        case rotate
+    }
+
+    private var dragMode: DragMode = .tool
+    private var pressLocation: CGPoint?
+    /// Spostamento accumulato **in punti**, non in pixel: la soglia del clic è una grandezza
+    /// percepita dal dito, non dipendente dalla densità del display.
+    private var accumulatedMovement: CGFloat = 0
+    private var exceededClickSlop = false
+
+    /// Oltre questo spostamento il gesto è un trascinamento e non produrrà un clic.
+    ///
+    /// Tre punti sono abbastanza per assorbire il tremito della mano su un trackpad e abbastanza
+    /// pochi perché un trascinamento voluto venga riconosciuto subito.
+    private static let clickSlopPoints: CGFloat = 3
+
+    /// Radianti per punto di trascinamento orizzontale nella rotazione nel piano.
+    ///
+    /// Circa mezzo giro ogni 400 punti, la stessa sensibilità dell'orbita 3D, così i due gesti
+    /// non hanno "peso" diverso.
+    static let rotationRadiansPerPoint = Double.pi / 400
+
     // MARK: Conversione delle coordinate
+
+    /// Pixel della texture per punto della vista, **misurati** e non assunti.
+    ///
+    /// L'ovvio sarebbe `backingScaleFactor`, e sarebbe giusto solo quando la texture ha
+    /// esattamente la dimensione nativa della vista. Con `renderScale` diversa da 1 non è così, e
+    /// l'errore non si vedrebbe come un difetto grafico: si vedrebbe come misure scalate di un
+    /// fattore costante, che è il modo peggiore di sbagliare, perché sembrano plausibili.
+    private var pixelsPerPoint: (x: CGFloat, y: CGFloat) {
+        let fallback = window?.backingScaleFactor ?? 1.0
+        let x = bounds.width > 0 && drawableSize.width > 0
+            ? drawableSize.width / bounds.width
+            : fallback
+        let y = bounds.height > 0 && drawableSize.height > 0
+            ? drawableSize.height / bounds.height
+            : fallback
+        return (x, y)
+    }
 
     /// Da coordinate finestra a pixel della texture.
     ///
     /// `convert(_:from: nil)` porta nello spazio della vista, che grazie a `isFlipped` ha già
-    /// l'origine in alto a sinistra; resta da moltiplicare per il fattore di scala del display,
-    /// perché su Retina un punto vale due pixel e lo shader lavora in pixel.
+    /// l'origine in alto a sinistra; resta da riportare i punti in pixel della texture.
     private func pixelLocation(of event: NSEvent) -> CGPoint {
         let inView = convert(event.locationInWindow, from: nil)
-        let scale = window?.backingScaleFactor ?? 1.0
-        return CGPoint(x: inView.x * scale, y: inView.y * scale)
+        let scale = pixelsPerPoint
+        return CGPoint(x: inView.x * scale.x, y: inView.y * scale.y)
     }
 
     private func pixelDelta(of event: NSEvent) -> CGSize {
-        let scale = window?.backingScaleFactor ?? 1.0
+        let scale = pixelsPerPoint
         // `deltaY` di AppKit cresce verso l'alto; la vista è capovolta, quindi si inverte per
         // restare coerenti con `pixelLocation`.
-        return CGSize(width: event.deltaX * scale, height: -event.deltaY * scale)
+        return CGSize(width: event.deltaX * scale.x, height: -event.deltaY * scale.y)
+    }
+
+    /// Spostamento in punti, per le soglie percepite e per la rotazione.
+    private func pointDelta(of event: NSEvent) -> CGSize {
+        CGSize(width: event.deltaX, height: -event.deltaY)
     }
 
     // MARK: Eventi
@@ -89,37 +206,102 @@ final class InteractiveMetalView: MTKView {
     override func scrollWheel(with event: NSEvent) {
         // I trackpad producono molti eventi piccoli e continui, i mouse a rotella pochi e
         // discreti. Normalizzare a "passi" evita che sul trackpad le slice sfreccino via.
-        let raw = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 8.0 : event.scrollingDeltaY
+        let raw = event.hasPreciseScrollingDeltas
+            ? event.scrollingDeltaY / 8.0
+            : event.scrollingDeltaY
         guard abs(raw) > 0.001 else { return }
+
+        if event.modifierFlags.contains(.command) {
+            // Zoom con la rotella, ancorato dove sta il puntatore. Il 5% per passo è abbastanza
+            // fine da fermarsi sull'ingrandimento che si vuole.
+            let factor = 1.0 + Double(raw) * 0.05
+            guard factor > 0.05 else { return }
+            onZoom?(factor, pixelLocation(of: event))
+            return
+        }
+
         onScroll?(Double(raw))
     }
 
     override func magnify(with event: NSEvent) {
         let factor = 1.0 + Double(event.magnification)
         guard factor > 0 else { return }
-        onMagnify?(factor)
+        onZoom?(factor, pixelLocation(of: event))
     }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+
         if event.clickCount >= 2 {
             onDoubleClick?()
-        } else {
-            onClick?(pixelLocation(of: event))
-            onDragBegan?()
+            // Un doppio clic non è l'inizio di un trascinamento: azzerare lo stato evita che il
+            // rilascio successivo produca anche un clic singolo sul riquadro appena ingrandito.
+            pressLocation = nil
+            return
         }
+
+        let flags = event.modifierFlags
+        if flags.contains(.shift) {
+            dragMode = .rotate
+        } else if flags.contains(.option) {
+            dragMode = .pan
+        } else {
+            dragMode = .tool
+        }
+
+        pressLocation = pixelLocation(of: event)
+        accumulatedMovement = 0
+        exceededClickSlop = false
+        onDragBegan?()
     }
 
     override func mouseDragged(with event: NSEvent) {
-        onDrag?(pixelLocation(of: event), pixelDelta(of: event))
+        guard pressLocation != nil else { return }
+
+        let points = pointDelta(of: event)
+        accumulatedMovement += abs(points.width) + abs(points.height)
+        if accumulatedMovement > Self.clickSlopPoints {
+            exceededClickSlop = true
+        }
+
+        switch dragMode {
+        case .tool:
+            onDrag?(pixelLocation(of: event), pixelDelta(of: event))
+        case .pan:
+            onPan?(pixelDelta(of: event))
+        case .rotate:
+            onRotate?(points)
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
-        onDragEnded?()
+        defer {
+            pressLocation = nil
+            onDragEnded?()
+        }
+        guard let pressLocation, !exceededClickSlop else { return }
+        // Il clic si riferisce al punto della **pressione**, non del rilascio: se la mano ha
+        // ceduto di un pixel, il mirino va dove si era mirato.
+        onClick?(pressLocation)
     }
 
     override func rightMouseDragged(with event: NSEvent) {
         onWindowLevelDrag?(pixelDelta(of: event))
+    }
+
+    // Tasto centrale: panoramica, sempre disponibile qualunque sia lo strumento attivo. È la via
+    // rapida per chi ha un mouse a tre tasti e non vuole tenere premuto un modificatore.
+    override func otherMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        onDragBegan?()
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        onPan?(pixelDelta(of: event))
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        onDragEnded?()
     }
 
     override func mouseMoved(with event: NSEvent) {

@@ -30,6 +30,9 @@ struct ViewportChrome: View {
                         Text(windowLevelText)
                             .font(Typography.numericSmall)
                             .foregroundStyle(Palette.textSecondary)
+                            // Scende sotto i pulsanti d'angolo di `ViewportActions`, che occupano
+                            // il posto naturale di questa etichetta.
+                            .padding(.top, 24)
                     }
                 }
 

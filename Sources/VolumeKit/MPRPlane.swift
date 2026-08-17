@@ -126,6 +126,85 @@ public struct MPRPlane: Hashable, Sendable {
         return copy
     }
 
+    /// Zoom **ancorato a un pixel**: il punto anatomico sotto quel pixel non si muove.
+    ///
+    /// È la differenza fra un visore usabile e uno da rincorrere. Con lo zoom centrato sul
+    /// riquadro, ingrandire allontana dal cursore ciò che si stava guardando, e ogni ingrandimento
+    /// va corretto a mano con una panoramica; ancorandolo al puntatore il dente sotto il cursore
+    /// resta dov'è e lo zoom diventa un gesto solo.
+    ///
+    /// La correzione è esatta e si ricava in due righe. Con `u` e `v` le coordinate del pixel
+    /// riportate in frazione di finestra e centrate — `u = (x + ½)/larghezza − ½`, e così `v` —
+    /// il punto inquadrato vale `centro + destra·L·u + giù·A·v`. Imporre che resti fermo dopo aver
+    /// scalato `L` e `A` dà direttamente lo spostamento del centro.
+    public func zoomed(
+        by factor: Double,
+        aboutPixelX x: Double,
+        y: Double,
+        pixelWidth: Int,
+        pixelHeight: Int
+    ) -> MPRPlane {
+        guard factor > 0, pixelWidth > 0, pixelHeight > 0 else { return self }
+
+        let u = (x + 0.5) / Double(pixelWidth) - 0.5
+        let v = (y + 0.5) / Double(pixelHeight) - 0.5
+
+        var copy = self
+        copy.widthMM = widthMM / factor
+        copy.heightMM = heightMM / factor
+        copy.centerMM = centerMM
+            + rightMM * (u * (widthMM - copy.widthMM))
+            + downMM * (v * (heightMM - copy.heightMM))
+        return copy
+    }
+
+    /// Ruota l'inquadratura nel proprio piano, attorno a un punto anatomico.
+    ///
+    /// Serve a raddrizzare: una CBCT arriva quasi sempre con la testa inclinata, e allineare il
+    /// piano occlusale all'orizzontale rende leggibili misure che altrimenti vanno lette di
+    /// traverso. La rotazione è **nel piano**, cioè attorno alla normale: non cambia quale fetta
+    /// si sta guardando, solo il suo orientamento a schermo. Per inclinare il piano fuori dal
+    /// proprio asse — la ricostruzione obliqua vera — servirebbe ruotare anche la normale.
+    ///
+    /// Il perno è un punto Patient qualunque: passando il mirino, l'immagine gira attorno al punto
+    /// che interessa invece che attorno al centro del riquadro, che di solito non è dove si guarda.
+    public func rotatedInPlane(byRadians angle: Double, aboutMM pivot: Vec3) -> MPRPlane {
+        guard angle.isFinite, pivot.isFinite,
+              let rotation = Transform3D.rotation(axis: normalMM, angle: angle)
+        else { return self }
+
+        var copy = self
+        copy.rightMM = rotation.apply(toVector: rightMM).normalized ?? rightMM
+        copy.downMM = rotation.apply(toVector: downMM).normalized ?? downMM
+        // Il centro ruota attorno al perno con la stessa rotazione, altrimenti l'immagine
+        // girerebbe restando inquadrata sul vecchio centro e il perno scorrerebbe via.
+        copy.centerMM = pivot + rotation.apply(toVector: centerMM - pivot)
+        return copy
+    }
+
+    /// Riporta l'inquadratura a contenere l'intero volume, mantenendo orientamento e centro fetta.
+    ///
+    /// È la via di ritorno dopo essersi persi ingrandendo, e va sempre offerta: senza, l'unico
+    /// modo di ritrovare l'anatomia è riaprire lo studio.
+    public func fitted(to geometry: VolumeGeometry, marginFraction: Double = 0.04) -> MPRPlane {
+        let corners = geometry.boundingBoxCornersMM
+        guard !corners.isEmpty else { return self }
+
+        var halfWidth = 0.0
+        var halfHeight = 0.0
+        for corner in corners {
+            let relative = corner - centerMM
+            halfWidth = max(halfWidth, abs(relative.dot(rightMM)))
+            halfHeight = max(halfHeight, abs(relative.dot(downMM)))
+        }
+
+        let margin = 1 + max(0, marginFraction)
+        var copy = self
+        copy.widthMM = max(1, halfWidth * 2 * margin)
+        copy.heightMM = max(1, halfHeight * 2 * margin)
+        return copy
+    }
+
     // MARK: Proiezione pixel ↔ millimetri
 
     /// Spostamento in mm corrispondente a un pixel verso destra.
