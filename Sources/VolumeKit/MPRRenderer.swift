@@ -46,7 +46,8 @@ public final class MPRRenderer {
 
         let library: MTLLibrary
         do {
-            library = try device.makeDefaultLibrary(bundle: Bundle.module)
+            library = try MetalShaderLibrary.load(
+                device: device, bundle: Bundle.module, sourceName: "MPR")
         } catch {
             throw MPRRendererError.shaderLibraryUnavailable(underlying: String(describing: error))
         }

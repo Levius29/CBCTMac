@@ -51,7 +51,8 @@ public final class PanoramicRenderer {
 
         let library: MTLLibrary
         do {
-            library = try device.makeDefaultLibrary(bundle: Bundle.module)
+            library = try MetalShaderLibrary.load(
+                device: device, bundle: Bundle.module, sourceName: "Panoramic")
         } catch {
             throw PanoramicRendererError.shaderLibraryUnavailable(
                 underlying: String(describing: error))

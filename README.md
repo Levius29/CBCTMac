@@ -14,17 +14,17 @@ misurazioni, annotazioni e pianificazione implantare.
 
 ## Stato
 
-I moduli condivisi compilano e sono verificati da 158 test. L'applicazione SwiftUI è scritta
-ma non ancora compilata: richiede macOS, e va provata lì.
+I moduli condivisi compilano e sono verificati da 181 test. L'applicazione SwiftUI compila su
+macOS; l'interfaccia non è ancora stata percorsa a mano.
 
 | Fase | Contenuto | Stato |
 |---|---|---|
-| 1 | MPR ortogonale, misure, annotazioni, rendering 3D | scritta, mai compilata |
+| 1 | MPR ortogonale, misure, annotazioni, rendering 3D | compila, da provare a mano |
 | 1b | Parser DICOM, decoder RLE e JPEG Lossless | **compilata e verificata** |
-| 2 | Panorex e sezioni trasversali d'arcata | scritta, mai compilata |
-| 3 | Nervo alveolare, pianificazione implantare, allarmi di prossimità | scritta, mai compilata |
-| 4 | Import mesh STL/PLY/OBJ e registrazione rigida | scritta, mai compilata |
-| 5 | Dime chirurgiche ed endodontiche per stampa 3D | da fare |
+| 2 | Panorex e sezioni trasversali d'arcata | compila, da provare a mano |
+| 3 | Nervo alveolare, pianificazione implantare, allarmi di prossimità | compila, da provare a mano |
+| 4 | Import mesh STL/PLY/OBJ e registrazione rigida | **compilata e verificata** |
+| 5 | Dime chirurgiche ed endodontiche per stampa 3D | **modulo verificato**, manca la UI |
 | 6 | Segmentazione AI on-device (Core ML) | da fare |
 
 ## Requisiti
@@ -43,6 +43,7 @@ Sources/
   DentalKit/    curva d'arcata, panorex, sezioni trasversali
   ImplantKit/   canale alveolare, impianti, allarmi di prossimità, densità ossea
   MeshKit/      import STL/PLY/OBJ, registrazione con Horn, affinamento ICP
+  GuideKit/     campi scalari, marching cubes, dime chirurgiche ed endodontiche
   CBCTMacApp/   applicazione SwiftUI
 Tools/          generatore e verificatore di fantocci, in Python senza dipendenze
 docs/           architettura, specifica grafica, mockup, brief per Codex
@@ -65,14 +66,46 @@ All'avvio l'applicazione genera un **fantoccio sintetico**: un cubo da 20,00 mm 
 densità note. Serve a verificare le misure contro valori esatti senza toccare dati di pazienti,
 e resta utile anche ora che si aprono studi veri.
 
-> **Stato della verifica.** `swift test` copre i moduli condivisi: 158 test in 22 suite, tutti
+> **Stato della verifica.** `swift test` copre i moduli condivisi: 181 test in 27 suite, tutti
 > verdi su Swift 6.2. Il target dell'applicazione è condizionale a macOS e non entra in quella
 > suite, perché importa SwiftUI, AppKit e Metal; le sue chiamate verso i moduli sono però
-> verificate da `AppContractTests`. Il primo `swift build` su macOS può quindi ancora produrre
-> errori, ma solo nel codice di piattaforma.
+> verificate da `AppContractTests`.
+>
+> **Su macOS `swift test` richiede Xcode**, non bastano i Command Line Tools: sette file di test
+> importano `XCTest`, che su macOS vive dentro Xcode e non nella toolchain da riga di comando.
+> `swift build` e `swift run CBCTMacApp` invece non compilano i test e funzionano anche con i soli
+> Command Line Tools.
 
-L'eseguibile SPM va bene per lo sviluppo. Per la distribuzione servirà un vero target app in
-Xcode, con bundle e `Info.plist`.
+### Costruire `CBCTMac.app`
+
+`swift run` avvia un eseguibile nudo: senza identità di bundle le finestre di dialogo dei file si
+comportano in modo irregolare, l'applicazione non compare fra le applicazioni e non può dichiarare
+i tipi di documento che sa aprire. Per un `.app` vero, **senza bisogno di Xcode**:
+
+```sh
+./Tools/make-app-bundle.sh
+open CBCTMac.app
+```
+
+Lo script compila in release, assembla `Contents/`, scrive l'`Info.plist` e firma ad-hoc — su
+Apple Silicon un binario non firmato viene terminato all'avvio. Copia anche i bundle di risorse di
+SwiftPM, che contengono gli shader Metal: senza quelli nessun renderer riesce a nascere.
+
+Per distribuire l'app ad altri servono un Developer ID e la notarizzazione, e per una vera
+distribuzione conviene comunque un target app in Xcode.
+
+> **Nota sugli shader.** SwiftPM **copia** i file `.metal` senza compilarli, quindi il
+> `default.metallib` che `makeDefaultLibrary(bundle:)` pretende non esiste. `MetalShaderLibrary`
+> prova prima la libreria precompilata e, non trovandola, compila il sorgente all'avvio. Costa
+> qualche centinaio di millisecondi una volta sola e rende il pacchetto eseguibile senza la
+> toolchain Metal di Xcode.
+
+### Aprire uno studio DICOM
+
+Il pulsante **Apri** chiede una **cartella**, non un file: una serie CBCT è un insieme di file, e
+lo scanner li ordina proiettandone la posizione sulla normale del piano — mai per
+`InstanceNumber`, che su alcuni apparecchi è semplicemente sbagliato. Sono supportate le sintassi
+native (Explicit e Implicit VR, Little e Big Endian), RLE Lossless e JPEG Lossless.
 
 ### Verificare le misure
 
