@@ -1,132 +1,167 @@
-# Che cosa fa CS 3D Imaging, letto dalle sue schermate
+# CS 3D Imaging, smontato
 
-Analisi di cinque schermate di **CS 3D Imaging v3.10.33** (Carestream), il programma con cui si
-lavora davvero. Non è un elenco di desideri: ogni voce dice cosa fa loro, cosa fa il nostro, e se
-vale la pena — con la stessa disciplina di `docs/competitive-analysis.md`.
+Analisi di cinque schermate di **CS 3D Imaging v3.10.33** (Carestream), pannello per pannello.
+Serve a produrre un piano di lavoro, non un elenco di desideri: la traduzione in lotti sta in
+[`docs/work-plan.md`](work-plan.md).
 
-Le schermate mostrano quattro schede: **Sezionamento ortogonale**, **curvo**, **personalizzato**,
-**obliquo**, più **Rivedi**. Noi copriamo la prima e la seconda; le altre due sono ricostruzioni su
-piano arbitrario, che il nostro motore MPR sa già fare — manca solo l'interfaccia.
-
----
-
-## 1. Le cose che ci mancano e che si usano ogni minuto
-
-### 1.1 Spessore e proiezione **per riquadro**, da un menu di valori fissi
-
-Ogni riquadro ha la propria barra con uno spessore — la tendina mostra 150 µm, 449 µm, 750 µm,
-1,1 mm, 1,9 mm, 2,9 mm, 4,0 mm, 5,0 mm, 10,0 mm, 14,8 mm, 19,9 mm, 29,8 mm, 40,0 mm, 49,9 mm — e
-una proiezione (`AVG`). Da noi spessore e proiezione sono **globali**, nell'ispettore.
-
-È il controllo che si tocca più spesso, ed è per riquadro perché serve così: l'assiale a fetta
-sottile per vedere la corticale, il panorex a 20 mm per l'insieme, la sezione a 1 mm per misurare.
-Con un valore solo condiviso si passa la giornata a cambiarlo avanti e indietro.
-
-**Fatto**: `PanoramicLayout.slabThicknessPresetsMM` con la stessa scala.
-**Da fare**: il controllo per riquadro, e `slabThicknessMM` per `MPRPlane` invece che globale.
-
-### 1.2 Lo scostamento vestibolo-linguale del panorex ✅
-
-Il pannello in alto al centro riporta `−1,5 mm`, `0 µm`, `−150 µm`: è lo scostamento **in
-profondità** rispetto alla curva, non la posizione lungo l'arcata. Sfogliare l'arcata da
-vestibolare a linguale è indispensabile con uno slab sottile, perché una curva d'arcata è
-un'approssimazione e i denti stanno un po' più fuori o un po' più dentro.
-
-**Fatto**: `PanoramicLayout.normalOffsetMM`, sulla rotella, con l'etichetta.
-**Meglio di loro**: l'etichetta scrive il verso — «1,50 mm linguale» invece di «−1,5 mm». Il segno
-da solo obbliga a ricordare una convenzione, e lo si legge nel momento in cui costa di più:
-valutando lo spessore di corticale prima di posizionare un impianto.
-
-### 1.3 Sezioni trasversali con passo e posizione dichiarati
-
-La griglia in basso è `1×5`, con spessore `1,1 mm` e passo `150 µm`, e ogni riquadro porta la
-propria posizione: `71,7 mm`, `72,8`, `73,8`, `74,8`, `75,9`. Sull'assiale, **frecce blu** indicano
-quali sezioni sono mostrate e dove cadono.
-
-Da noi le sezioni ci sono ma numerate `1–10 di 51`, senza posizione in millimetri e senza
-riscontro sull'assiale. Il numero d'ordine non dice niente; la posizione lungo l'arcata sì.
-
-**Da fare**: posizione in mm su ogni sezione, passo configurabile, e i segni sull'assiale.
-
-### 1.4 Il 3D mostra i piani di taglio
-
-Nel riquadro 3D compaiono le cornici colorate dei piani: il **cilindro rosso** che è la banda
-dell'arcata, il **piano azzurro** della sezione corrente, il **rombo giallo** dell'assiale. Con un
-colpo d'occhio si sa dove si sta guardando.
-
-Noi abbiamo il cubo di orientamento, che dice *da che parte* si guarda ma non *dove taglia*.
-
-**Da fare**: disegnare i piani nel raycaster. Costa poco ed è il pezzo che lega le quattro viste.
-
-### 1.5 Maniglie del mirino sui bordi
-
-Nella scheda ortogonale, ai bordi di ogni riquadro ci sono maniglie colorate a T, dello stesso
-colore del piano corrispondente nel 3D: si trascinano per spostare la fetta. È più scopribile del
-nostro «rotella per scorrere», che non si vede finché non lo si prova.
-
-### 1.6 Elenco degli oggetti, con occhio e cestino
-
-Il pannello a sinistra cambia in base a cosa si sta facendo: **Impianto** mostra la lista degli
-impianti con lunghezza e diametro modificabili in linea, un occhio per la visibilità, un quadratino
-di colore, un cestino; **Arcata** fa lo stesso per le curve.
-
-Da noi le annotazioni stanno in un elenco nell'ispettore, ma impianti, nervi e curve no.
-
-### 1.7 Etichette con linea di richiamo
-
-Ogni impianto porta un'etichetta collegata da una linea sottile: `AlphaBiotec / DFI 3.75 /
-L 8,00 mm / Ø 3,85 mm`. Compare **su tutte le viste**, 3D compreso, e non copre l'anatomia perché
-la linea la porta fuori.
-
-### 1.8 Strumento di riformattazione
-
-Una finestra a parte con sagittale, coronale e assiale, un **riquadro di ritaglio** con maniglie
-trascinabili su ogni vista, la scelta della **dimensione del voxel** (150 µm), un nome e una
-descrizione. Produce un volume nuovo, più piccolo e ricampionato.
-
-È esattamente ciò che `SegmentKit.VolumeCrop` sa già fare. Manca l'interfaccia e il
-ricampionamento a un passo diverso.
+Il caso mostrato è una mascella con quattro impianti e artefatti da metallo severi — visibili come
+stelle nell'assiale della quarta schermata. È lo stesso genere di studio su cui lavoriamo.
 
 ---
 
-## 2. Dove possiamo fare meglio, e non per presunzione
+## 1. Impalcatura generale
 
-Tre cose sono conseguenze di scelte già fatte, non ambizioni.
+**Barra dei titoli**: nome del programma a sinistra, **nome del paziente al centro**, icona utente
+e menu a destra. Il nome del paziente al centro non è vezzo: è ciò che si guarda per essere sicuri
+di lavorare sul caso giusto, e sta nel punto di massima attenzione.
+
+**Cinque schede**: `Sezionamento ortogonale`, `Sezionamento curvo`, `Sezionamento personalizzato`,
+`Sezionamento obliquo`, `Rivedi`. Le schede sono **modi di lavoro**, non finestre: ognuna dispone i
+riquadri come serve a quel compito. Noi abbiamo un selettore di layout, che è meno.
+
+Le prime due le copriamo. `personalizzato` e `obliquo` sono ricostruzioni su piano arbitrario — il
+nostro kernel MPR le sa già fare, manca l'interfaccia. `Rivedi` è la relazione finale.
+
+**Colonna di sinistra**, quattro pannelli richiudibili:
+
+| Pannello | Contenuto |
+|---|---|
+| Regolazioni | sei anteprime: preset di rendering, riorientamento del volume, e altro |
+| Strumenti | griglia di icone; alcune con un triangolino, cioè con varianti |
+| *contestuale* | cambia: `Impianto`, `Arcata`… — l'elenco degli oggetti del tipo attivo |
+| Esporta | otto icone: relazione, stampa, appunti, foto, cartella, disco, note, invio |
+| Galleria | richiuso in fondo |
+
+Il pannello contestuale è il pezzo che ci manca di più a livello di impianto: **gli oggetti del
+piano hanno un elenco**, e da lì si accendono, si colorano, si cancellano.
+
+**Barra per riquadro**: ogni vista ha la propria, con salvataggio, adatta alla finestra,
+istantanea, **disposizione** (`1x1`, `1x5`), **spessore** e **proiezione** (`AVG`). Da noi spessore
+e proiezione sono globali nell'ispettore.
+
+**Etichette d'orientamento** ai quattro bordi di ogni riquadro: `A`/`P`, `R`/`L`, `H`/`F`. E
+`FDK` in basso a sinistra, cioè l'algoritmo di ricostruzione: dichiarare da dove vengono i dati.
+
+---
+
+## 2. Scheda «Sezionamento curvo»
+
+Quattro riquadri: assiale con la curva, panorex, coronale, 3D, più la striscia di sezioni.
+
+### 2.1 Assiale con la curva
+
+`61,6 mm` e `zoom: 0,63` in alto a sinistra, in arancio. La quota **in millimetri**, non il numero
+di fetta.
+
+La curva è disegnata come **tre linee**: una bianca centrale e due rosse ai lati. Le rosse sono i
+bordi dello slab, cioè si vede *quanto spesso* è il panorex che si sta guardando. Da noi lo
+spessore è un numero nell'ispettore e non si vede sull'anatomia.
+
+I punti di controllo sono **cerchi bianchi**; in modifica diventano **quadrati rossi** con gli
+estremi bianchi. Due stati visivi distinti per due modi diversi.
+
+Nella terza schermata la curva scende posteriormente fino ai rami mandibolari, **oltre l'arcata
+dentale**. Non è un errore: la si estende per avere sezioni anche dove i denti non ci sono più.
+
+**Frecce blu** partono dalla curva verso l'esterno: indicano quali sezioni trasversali sono
+mostrate in basso e dove cadono. È il legame fra le due viste, e da noi non esiste.
+
+### 2.2 Panorex
+
+`−1,5 mm`, `0 µm`, `−150 µm` a seconda della schermata: lo **scostamento vestibolo-linguale**.
+Già implementato, con il verso scritto per esteso invece del solo segno.
+
+### 2.3 Coronale
+
+Etichetta dell'impianto con linea di richiamo. **Maniglie blu** sopra e sotto, sui bordi: si
+trascinano per spostare la fetta.
+
+### 2.4 Riquadro 3D
+
+Il pezzo più denso di informazione, e il più economico da imitare.
+
+Compaiono le **cornici dei piani di taglio**: un cilindro rosso che è la banda dell'arcata estrusa
+in verticale, un rettangolo azzurro che è la sezione corrente, un rombo giallo che è il piano
+assiale, un rettangolo bianco che è il riquadro di ritaglio. Con un colpo d'occhio si sa dove si
+sta guardando in tutte le altre viste.
+
+Cubo di orientamento in basso a sinistra, con le lettere in arancio. Quello ce l'abbiamo.
+
+### 2.5 Striscia di sezioni trasversali
+
+Disposizione `1x5`, spessore `1,1 mm`, passo `150 µm`. Ogni riquadro porta la **posizione in
+millimetri**: `71,7`, `72,8`, `73,8`, `74,8`, `75,9`. Noi scriviamo `1–10 di 51`, che non dice
+niente: il numero d'ordine non è una grandezza.
+
+L'impianto è disegnato come rettangolo bianco con **punti blu di manipolazione** e una linea gialla
+che prosegue oltre l'apice — l'asse della fresa, cioè dove andrà il foro. Nella sezione più
+distante l'impianto appare inclinato, perché quella sezione lo taglia di sbieco: il disegno
+racconta l'obliquità invece di nasconderla.
+
+---
+
+## 3. Scheda «Sezionamento ortogonale»
+
+Assiale, 3D, coronale, sagittale. Ogni 2D con quota e zoom.
+
+**Maniglie del mirino sui bordi**: marcatori a T colorati — magenta, ciano, giallo — dello stesso
+colore dei piani nel 3D. Si trascinano per spostare la fetta corrispondente. Il colore lega la
+maniglia al piano, e il piano alla vista: tre cose collegate da un solo segno.
+
+Il pannello Strumenti qui è più corto: gli strumenti sono quelli del contesto, non tutti sempre.
+
+---
+
+## 4. Strumento di riformattazione
+
+Finestra a parte. Sagittale, coronale e assiale affiancate, ognuna con un **riquadro di ritaglio**
+bianco con maniglie tonde agli angoli e a metà dei lati. I riquadri sono **collegati**: muovendone
+uno si aggiornano gli altri, perché descrivono un unico parallelepipedo.
+
+Sotto: `☑ Riquadro di ritaglio`, `Dimensione voxel: 150 µm`, `Nome volume`,
+`Descrizione: Volume riformattato`, e i pulsanti `Ripristina` `Esci` `OK` `Salta`.
+
+Produce un **volume nuovo**, più piccolo e ricampionato al passo scelto. È ciò che rende praticabile
+lavorare su una regione a piena risoluzione senza tenere in memoria l'intero FOV.
+
+`SegmentKit.VolumeCrop` fa già il ritaglio. Manca il **ricampionamento** a un passo diverso, e
+l'interfaccia.
+
+---
+
+## 5. Riepilogo dei divari
+
+| # | Cosa | Da noi | Peso |
+|---|---|---|---|
+| 1 | Scostamento vestibolo-linguale | ✅ fatto | — |
+| 2 | Spessore e proiezione **per riquadro**, con preset | globali | **alto** |
+| 3 | Sezioni: posizione in mm, passo, segni sull'assiale | numerate | **alto** |
+| 4 | Piani di taglio disegnati nel 3D | assenti | **alto/costo basso** |
+| 5 | Elenco degli oggetti con occhio, colore, cestino | solo annotazioni | alto |
+| 6 | Etichette con linea di richiamo | assenti | medio |
+| 7 | Riformattazione: ritaglio + ricampionamento | metà fatta | medio |
+| 8 | Bordi dello slab disegnati sulla curva | assenti | medio |
+| 9 | Maniglie del mirino sui bordi | assenti | medio |
+| 10 | Quota in mm invece del numero di fetta | numero | basso/costo nullo |
+| 11 | Schede «personalizzato» e «obliquo» | assenti | basso |
+| 12 | Catalogo impianti con misure reali | generico | vincolo di IP |
+
+---
+
+## 6. Dove restiamo avanti, e perché non è vanto
+
+Quattro cose, tutte conseguenze di scelte fatte all'inizio.
 
 **Le misure sono verificabili da chi le usa.** `Tools/PhantomGenerator` genera una serie DICOM con
 un cubo da 20,00 mm e sfere di densità note, e la rilegge con un parser indipendente. CS non offre
-nulla di simile: ci si fida della validazione del produttore. Per un dispositivo certificato è
-legittimo; non è la stessa cosa.
+nulla di simile: ci si fida della validazione del produttore, il che per un dispositivo certificato
+è legittimo e non è la stessa cosa.
 
-**I valori sono etichettati GV, non HU.** CS scrive `FDK` in ogni riquadro — l'algoritmo di
-ricostruzione — il che è onesto, ma poi tratta i valori come se fossero confrontabili. Noi diciamo
-esplicitamente che non lo sono.
+**I valori sono etichettati GV.** CS scrive `FDK` in ogni riquadro, che è onesto, ma poi presenta i
+valori come confrontabili. Noi diciamo che non lo sono.
 
-**Il verso è scritto, non affidato al segno.** Vale per lo scostamento vestibolo-linguale, e
-varrà per ogni misura orientata.
+**Il verso è scritto, non affidato al segno.** «1,50 mm linguale», non «−1,5 mm».
 
-E una quarta che arriverà con ArtifactKit: **la provenienza del volume**. In CS, se si applica una
-correzione, le misure successive non lo dicono. Da noi un volume corretto sarà marcato come tale e
-una ROI che cade in zona corretta lo dirà.
-
----
-
-## 3. Ordine dei lavori
-
-Ricalcolato su queste schermate. Le voci sono ordinate per quanto si toccano in una giornata di
-lavoro, non per difficoltà.
-
-```
-1. Scostamento vestibolo-linguale del panorex          ✅ fatto
-2. Spessore e proiezione per riquadro, con i preset     ← il controllo più usato
-3. Sezioni: posizione in mm, passo, segni sull'assiale  ← «per i fatti loro», risolto
-4. Piani di taglio disegnati nel 3D                     ← lega le quattro viste
-5. Elenco oggetti: impianti, nervi, curve               ← con occhio, colore, cestino
-6. Etichette con linea di richiamo                      ← su tutte le viste
-7. Strumento di riformattazione                         ← SegmentKit c'è già
-8. Maniglie del mirino sui bordi                        ← scopribilità
-9. Schede "personalizzato" e "obliquo"                  ← il motore MPR c'è già
-```
-
-I punti 2 e 3 sono quelli che cambiano la giornata di chi usa il programma. Il 4 è il più
-economico rispetto a quanto rende. Il 7 non richiede algoritmi nuovi, solo interfaccia.
+**La provenienza del volume**, che arriva con ArtifactKit: un volume corretto sarà marcato come
+tale, e una ROI che cade in zona corretta lo dirà. In CS, applicata una correzione, le misure
+successive non lo dicono.
