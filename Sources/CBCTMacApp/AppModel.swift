@@ -278,6 +278,13 @@ final class AppModel {
     var panoramicSlabThicknessMM: Double = 20
     var panoramicProjection: SlabProjection = .maximum
 
+    /// Ingrandimento del panorex. A 1 l'arcata intera riempie il riquadro.
+    ///
+    /// È il presupposto dello scorrimento: a piena arcata non c'è niente in cui scorrere.
+    var panoramicZoom: Double = 1
+    /// Lunghezza d'arco al centro del panorex. `nil` significa il centro della curva.
+    var panoramicArcCentreMM: Double?
+
     var crossSectionIntervalMM: Double = 1.0
     var crossSectionWidthMM: Double = 30
     var crossSectionHeightMM: Double = 45
@@ -296,7 +303,46 @@ final class AppModel {
             heightMM: panoramicHeightMM,
             verticalCentreMM: archVerticalCentreMM,
             slabThicknessMM: panoramicSlabThicknessMM,
-            projection: panoramicProjection)
+            projection: panoramicProjection,
+            zoom: panoramicZoom,
+            arcCentreMM: panoramicArcCentreMM)
+    }
+
+    // MARK: Navigazione del panorex
+
+    /// Scorre il panorex lungo l'arcata, in millimetri di lunghezza d'arco.
+    ///
+    /// Lo stato che si aggiorna è il centro **limitato**, non quello richiesto: leggendo il valore
+    /// grezzo, trascinare a lungo oltre un capo accumulerebbe un debito invisibile e poi
+    /// servirebbe altrettanto trascinamento per far ripartire l'immagine nell'altro verso. Con il
+    /// valore limitato l'arresto contro il capo è immediato in entrambi i sensi.
+    func scrollPanoramic(byArcMM delta: Double) {
+        guard delta.isFinite, archCurve.isUsable else { return }
+        panoramicArcCentreMM = panoramicLayout.scrolled(byArcMM: delta).clampedArcCentreMM
+    }
+
+    /// Sposta la quota verticale del panorex e delle sezioni.
+    func movePanoramicVertical(byMM delta: Double) {
+        guard delta.isFinite else { return }
+        archVerticalCentreMM += delta
+    }
+
+    /// Ingrandisce il panorex tenendo fermo il punto dell'arcata sotto il pixel indicato.
+    func zoomPanoramic(by factor: Double, atPixelX x: Double, pixelWidth: Int) {
+        guard archCurve.isUsable else { return }
+        let zoomed = panoramicLayout.zoomed(
+            by: factor, aboutPixelX: x, pixelWidth: pixelWidth)
+        panoramicZoom = zoomed.effectiveZoom
+        panoramicArcCentreMM = zoomed.clampedArcCentreMM
+    }
+
+    /// Riporta il panorex a inquadrare l'arcata intera.
+    func resetPanoramicView() {
+        panoramicZoom = 1
+        panoramicArcCentreMM = nil
+        if let vertical = archCurve.averageVerticalMM {
+            archVerticalCentreMM = vertical
+        }
     }
 
     var crossSectionLayout: CrossSectionLayout {

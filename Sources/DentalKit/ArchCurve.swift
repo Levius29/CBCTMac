@@ -161,6 +161,41 @@ public struct ArchCurve: Hashable, Sendable, Codable {
         return resampled(count: count, polyline: points, cumulative: cumulative, total: total)
     }
 
+    /// Campiona la curva a lunghezze d'arco arbitrarie, **in ordine crescente**.
+    ///
+    /// Serve al panorex quando è ingrandito: la finestra visibile è un tratto d'arco e non
+    /// l'arcata intera, quindi le colonne non partono più da zero né arrivano alla fine.
+    ///
+    /// Le lunghezze fuori da `0...lengthMM` vengono limitate agli estremi invece di produrre
+    /// campioni fittizi: così scorrere oltre un capo dell'arcata si ferma contro il capo, che è il
+    /// comportamento di una finestra su un contenuto finito.
+    ///
+    /// - Precondition: `lengthsMM` in ordine non decrescente. La ricerca lungo la poligonale
+    ///   avanza monotòna per restare lineare; con lunghezze fuori ordine riparte da capo, quindi
+    ///   il risultato resta corretto ma il costo diventa quadratico.
+    public func samples(atArcLengthsMM lengthsMM: [Double]) -> [ArchSample] {
+        guard isUsable, !lengthsMM.isEmpty else { return [] }
+        let (points, cumulative) = densePolyline()
+        guard let total = cumulative.last, total > 0 else { return [] }
+
+        var samples: [ArchSample] = []
+        samples.reserveCapacity(lengthsMM.count)
+        var searchIndex = 0
+        var previousLength = -Double.infinity
+
+        for requested in lengthsMM {
+            let target = min(max(requested.isFinite ? requested : 0, 0), total)
+            if target < previousLength { searchIndex = 0 }
+            previousLength = target
+            samples.append(
+                sample(
+                    atArcLength: target, polyline: points, cumulative: cumulative,
+                    searchIndex: &searchIndex))
+        }
+
+        return samples
+    }
+
     private func resampled(
         count: Int, polyline: [Vec3], cumulative: [Double], total: Double
     ) -> [ArchSample] {
@@ -172,38 +207,52 @@ public struct ArchCurve: Hashable, Sendable, Codable {
 
         for step in 0..<count {
             let targetLength = total * Double(step) / Double(count - 1)
-
-            // Avanzamento monotòno lungo la poligonale: la ricerca non riparte da capo a ogni
-            // campione, quindi il costo complessivo resta lineare invece che quadratico.
-            while searchIndex + 1 < cumulative.count, cumulative[searchIndex + 1] < targetLength {
-                searchIndex += 1
-            }
-            let next = min(searchIndex + 1, polyline.count - 1)
-
-            let span = cumulative[next] - cumulative[searchIndex]
-            let local = span > 1e-12 ? (targetLength - cumulative[searchIndex]) / span : 0
-            let position = polyline[searchIndex].lerp(to: polyline[next], t: local)
-
-            // Tangente per differenze centrali sulla poligonale: più stabile della derivata
-            // analitica della spline vicino ai punti di controllo, dove la curvatura salta.
-            let before = polyline[max(searchIndex - 1, 0)]
-            let after = polyline[min(next + 1, polyline.count - 1)]
-            let tangent = (after - before).normalized ?? Vec3(1, 0, 0)
-
-            // Normale vestibolo-linguale: perpendicolare alla tangente e all'asse verticale.
-            // Se la tangente fosse parallela alla verticale il prodotto degenererebbe, ma su
-            // una curva d'arcata, che giace in un piano pressoché orizzontale, non accade.
-            let normal = tangent.cross(upAxis).normalized ?? Vec3(0, 1, 0)
-
             samples.append(
-                ArchSample(
-                    positionMM: position,
-                    tangent: tangent,
-                    normal: normal,
-                    arcLengthMM: targetLength))
+                sample(
+                    atArcLength: targetLength, polyline: polyline, cumulative: cumulative,
+                    searchIndex: &searchIndex))
         }
 
         return samples
+    }
+
+    /// Un campione a una lunghezza d'arco già limitata all'intervallo valido.
+    ///
+    /// `searchIndex` è `inout` di proposito: l'avanzamento lungo la poligonale resta monotòno fra
+    /// chiamate successive, quindi ricampionare *n* colonne costa O(n + poligonale) invece che
+    /// O(n · poligonale). Su un panorex sono duemila colonne contro qualche migliaio di segmenti,
+    /// e la differenza si sente trascinando.
+    private func sample(
+        atArcLength targetLength: Double,
+        polyline: [Vec3],
+        cumulative: [Double],
+        searchIndex: inout Int
+    ) -> ArchSample {
+        while searchIndex + 1 < cumulative.count, cumulative[searchIndex + 1] < targetLength {
+            searchIndex += 1
+        }
+        let next = min(searchIndex + 1, polyline.count - 1)
+
+        let span = cumulative[next] - cumulative[searchIndex]
+        let local = span > 1e-12 ? (targetLength - cumulative[searchIndex]) / span : 0
+        let position = polyline[searchIndex].lerp(to: polyline[next], t: local)
+
+        // Tangente per differenze centrali sulla poligonale: più stabile della derivata
+        // analitica della spline vicino ai punti di controllo, dove la curvatura salta.
+        let before = polyline[max(searchIndex - 1, 0)]
+        let after = polyline[min(next + 1, polyline.count - 1)]
+        let tangent = (after - before).normalized ?? Vec3(1, 0, 0)
+
+        // Normale vestibolo-linguale: perpendicolare alla tangente e all'asse verticale.
+        // Se la tangente fosse parallela alla verticale il prodotto degenererebbe, ma su
+        // una curva d'arcata, che giace in un piano pressoché orizzontale, non accade.
+        let normal = tangent.cross(upAxis).normalized ?? Vec3(0, 1, 0)
+
+        return ArchSample(
+            positionMM: position,
+            tangent: tangent,
+            normal: normal,
+            arcLengthMM: targetLength)
     }
 
     // MARK: Modifica

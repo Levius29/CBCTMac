@@ -204,6 +204,33 @@ struct ModuleAPIContractTests {
         _ = panoramic.downStepMM(pixelWidth: 64)
         if let first = columns.first {
             _ = panoramic.topOfColumn(first, pixelWidth: 64, pixelHeight: 48)
+            // Navigazione: `scrollPanoramic(byArcMM:)`, `zoomPanoramic(by:atPixelX:pixelWidth:)`,
+            // `resetPanoramicView()`, e la conversione pixel → lunghezza d'arco usata da
+            // `PanoramicViewportView` per hover, clic e righello.
+            _ = panoramic.effectiveZoom
+            _ = panoramic.clampedArcCentreMM
+            _ = panoramic.visibleArcRangeMM
+            _ = panoramic.visibleArcHalfLengthMM
+            _ = panoramic.arcLengthMM(atPixelX: 12, pixelWidth: 64)
+            _ = panoramic.scrolled(byArcMM: 3).clampedArcCentreMM
+            _ = panoramic.zoomed(by: 1.5, aboutPixelX: 12, pixelWidth: 64).effectiveZoom
+            _ = curve.samples(atArcLengthsMM: [0, 1, 2])
+            // Modifica della curva: `addArchPoint`, `moveArchPoint`, `removeArchPoint`,
+            // `flattenActiveArchCurve`, `suggestArchCurve`, e il selettore d'arcata.
+            _ = curve.closestPointOnControlPolyline(to: .zero)
+            _ = curve.averageVerticalMM
+            for arch in DentalArch.allCases {
+                _ = arch.localizedName
+                _ = arch.shortName
+                _ = arch.systemImageName
+                _ = ArchCurve.suggested(for: geometry, atVerticalMM: 0, arch: arch)
+            }
+            var editable = curve
+            editable.addControlPoint(Vec3(1, 2, 3))
+            editable.moveControlPoint(at: 0, to: Vec3(2, 3, 4))
+            _ = editable.removeControlPoint(at: 0)
+            editable.flatten(toVerticalMM: 1)
+            editable.removeAllControlPoints()
             _ = panoramic.millimetresPerPixel(pixelWidth: 64)
             _ = panoramic.visibleHeightMM(pixelWidth: 64, pixelHeight: 48)
             _ = panoramic.slabStep(for: first, sampleCount: 8)

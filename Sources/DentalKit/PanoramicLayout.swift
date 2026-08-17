@@ -43,7 +43,9 @@ public struct PanoramicLayout: Hashable, Sendable {
         verticalCentreMM: Double = 0,
         slabThicknessMM: Double = 20,
         projection: SlabProjection = .maximum,
-        millimetresPerPixel: Double = 0.2
+        millimetresPerPixel: Double = 0.2,
+        zoom: Double = 1,
+        arcCentreMM: Double? = nil
     ) {
         self.curve = curve
         self.heightMM = max(heightMM, 1)
@@ -51,6 +53,8 @@ public struct PanoramicLayout: Hashable, Sendable {
         self.slabThicknessMM = max(slabThicknessMM, 0)
         self.projection = projection
         self.millimetresPerPixel = max(millimetresPerPixel, 0.01)
+        self.zoom = zoom
+        self.arcCentreMM = arcCentreMM
     }
 
     /// Larghezza naturale in pixel, pari alla lunghezza della curva alla risoluzione scelta.
@@ -67,7 +71,102 @@ public struct PanoramicLayout: Hashable, Sendable {
     /// Un campione per colonna esatto, così lo shader indicizza direttamente il buffer senza
     /// interpolare: tutta la matematica della spline resta sulla CPU e in Double.
     public func columnSamples(pixelWidth: Int) -> [ArchSample] {
-        curve.resampled(count: max(pixelWidth, 2))
+        let count = max(pixelWidth, 2)
+
+        // A ingrandimento 1 la finestra è l'intera curva: si usa il ricampionamento uniforme, che
+        // fa cadere il primo campione esattamente su 0 e l'ultimo su `lengthMM`. Passando dalle
+        // lunghezze d'arco si perderebbero mezzo pixel per lato senza alcun vantaggio.
+        guard effectiveZoom > 1 else {
+            return curve.resampled(count: count)
+        }
+
+        let range = visibleArcRangeMM
+        let step = (range.upperBound - range.lowerBound) / Double(count)
+        // Centro del pixel, come altrove: il campione sta a metà della colonna che rappresenta.
+        let lengths = (0..<count).map { range.lowerBound + (Double($0) + 0.5) * step }
+        return curve.samples(atArcLengthsMM: lengths)
+    }
+
+    /// Lunghezza d'arco corrispondente a una colonna di pixel.
+    ///
+    /// È la conversione che serve all'interazione: sapere su che punto dell'arcata sta il cursore
+    /// per ancorarci lo zoom, e per portare le altre viste al punto cliccato.
+    public func arcLengthMM(atPixelX x: Double, pixelWidth: Int) -> Double {
+        guard pixelWidth > 0 else { return clampedArcCentreMM }
+        let range = visibleArcRangeMM
+        let fraction = (x + 0.5) / Double(pixelWidth)
+        return range.lowerBound + fraction * (range.upperBound - range.lowerBound)
+    }
+
+    /// Ingrandisce mantenendo fermo il punto dell'arcata sotto un pixel.
+    ///
+    /// Stessa ragione dello zoom ancorato dei riquadri MPR: ingrandendo attorno al centro, il dente
+    /// che si sta guardando scappa dal cursore e va rincorso scorrendo.
+    public func zoomed(by factor: Double, aboutPixelX x: Double, pixelWidth: Int) -> PanoramicLayout {
+        guard factor > 0, factor.isFinite, pixelWidth > 0 else { return self }
+
+        let anchor = arcLengthMM(atPixelX: x, pixelWidth: pixelWidth)
+        var copy = self
+        copy.zoom = max(1, effectiveZoom * factor)
+
+        // Il punto d'ancoraggio deve ricadere sulla stessa frazione di larghezza dopo lo zoom.
+        let fraction = (x + 0.5) / Double(pixelWidth)
+        let newHalf = copy.visibleArcHalfLengthMM
+        copy.arcCentreMM = anchor - (fraction - 0.5) * newHalf * 2
+        return copy
+    }
+
+    /// Scorre la finestra lungo l'arcata di un numero di millimetri d'arco.
+    public func scrolled(byArcMM delta: Double) -> PanoramicLayout {
+        guard delta.isFinite else { return self }
+        var copy = self
+        copy.arcCentreMM = clampedArcCentreMM + delta
+        return copy
+    }
+
+    /// Ingrandimento orizzontale. A 1 l'arcata intera riempie la larghezza del riquadro.
+    ///
+    /// È ciò che rende possibile scorrere: senza ingrandimento la finestra visibile *è* l'intera
+    /// curva, e non c'è niente in cui scorrere. Con `zoom = 2` si vede metà arcata alla volta e la
+    /// si percorre trascinando, come una finestra su un'immagine più lunga.
+    public var zoom: Double = 1
+
+    /// Lunghezza d'arco al centro dell'immagine. `nil` significa il centro della curva.
+    ///
+    /// Viene sempre limitata perché la finestra resti dentro la curva: scorrendo oltre un capo
+    /// dell'arcata si ferma contro il capo invece di mostrare colonne vuote. È il comportamento di
+    /// una finestra su un contenuto finito, e ha il vantaggio di non richiedere colonne "cieche"
+    /// nello shader.
+    public var arcCentreMM: Double?
+
+    /// Ingrandimento efficace, non inferiore a 1.
+    ///
+    /// Sotto 1 l'arcata occuperebbe meno della larghezza disponibile, lasciando bande vuote ai
+    /// lati: si può fare, ma non serve a nulla e complica la geometria per niente.
+    public var effectiveZoom: Double {
+        guard zoom.isFinite else { return 1 }
+        return max(1, zoom)
+    }
+
+    /// Semiampiezza della finestra visibile, in lunghezza d'arco.
+    public var visibleArcHalfLengthMM: Double {
+        curve.lengthMM / (2 * effectiveZoom)
+    }
+
+    /// Centro della finestra visibile, limitato perché la finestra resti dentro la curva.
+    public var clampedArcCentreMM: Double {
+        let half = visibleArcHalfLengthMM
+        let requested = arcCentreMM ?? curve.lengthMM / 2
+        guard requested.isFinite else { return curve.lengthMM / 2 }
+        // A zoom 1 gli estremi coincidono e il centro è forzato a metà curva, che è giusto.
+        return min(max(requested, half), curve.lengthMM - half)
+    }
+
+    /// Intervallo di lunghezza d'arco inquadrato.
+    public var visibleArcRangeMM: ClosedRange<Double> {
+        let centre = clampedArcCentreMM
+        let half = visibleArcHalfLengthMM
+        return (centre - half)...(centre + half)
     }
 
     /// Millimetri per pixel effettivi, **uguali sui due assi**.
@@ -92,7 +191,7 @@ public struct PanoramicLayout: Hashable, Sendable {
     /// più anatomia, non la stessa anatomia più stirata.
     public func millimetresPerPixel(pixelWidth: Int) -> Double {
         guard pixelWidth > 0, curve.lengthMM > 0 else { return millimetresPerPixel }
-        return curve.lengthMM / Double(pixelWidth)
+        return curve.lengthMM / (effectiveZoom * Double(pixelWidth))
     }
 
     /// Estensione verticale effettivamente inquadrata, in millimetri.

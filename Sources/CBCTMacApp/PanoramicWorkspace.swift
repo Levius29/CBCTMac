@@ -26,6 +26,13 @@ struct PanoramicViewportView: NSViewRepresentable {
     var onClickArcLength: (Double) -> Void = { _ in }
     var onDrawableSize: (CGSize) -> Void = { _ in }
 
+    /// Scorrimento lungo l'arcata, in millimetri di lunghezza d'arco.
+    var onScrollArc: (Double) -> Void = { _ in }
+    /// Spostamento della quota verticale, in millimetri.
+    var onScrollVertical: (Double) -> Void = { _ in }
+    /// Ingrandimento: fattore e pixel orizzontale su cui ancorarlo.
+    var onZoom: (Double, Double, Int) -> Void = { _, _, _ in }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> InteractiveMetalView {
@@ -55,11 +62,17 @@ struct PanoramicViewportView: NSViewRepresentable {
     }
 
     private func attachHandlers(to view: InteractiveMetalView) {
-        let totalLength = layout.curve.lengthMM
+        let layout = self.layout
 
-        // La coordinata orizzontale del panorex **è** la distanza d'arco, per costruzione: è la
+        // La coordinata orizzontale del panorex **è** la lunghezza d'arco, per costruzione: è la
         // proprietà che rende leggibile una misura orizzontale su questa immagine, e dipende
         // interamente dal fatto che i campioni siano equidistanti in lunghezza d'arco.
+        //
+        // La conversione passa da `layout.arcLengthMM(atPixelX:pixelWidth:)` e **non** da
+        // `frazione × lunghezzaTotale`: quella formula vale solo a ingrandimento 1, quando la
+        // finestra visibile è l'arcata intera. Ingranditi, il pixel 0 non sta più all'inizio della
+        // curva, e usare la frazione darebbe una posizione sbagliata — il clic porterebbe le altre
+        // viste sul dente accanto.
         //
         // `[weak view]` non è pedanteria: la vista possiede queste chiusure, e catturandola
         // forte si formerebbe un ciclo che tiene in vita vista e texture per tutta la sessione.
@@ -68,13 +81,47 @@ struct PanoramicViewportView: NSViewRepresentable {
                 onHoverArcLength(nil)
                 return
             }
-            let fraction = Double(point.x) / Double(view.drawableSize.width)
-            onHoverArcLength(min(max(fraction, 0), 1) * totalLength)
+            onHoverArcLength(
+                layout.arcLengthMM(
+                    atPixelX: Double(point.x), pixelWidth: Int(view.drawableSize.width)))
         }
         view.onClick = { [weak view] point in
             guard let view, view.drawableSize.width > 0 else { return }
-            let fraction = Double(point.x) / Double(view.drawableSize.width)
-            onClickArcLength(min(max(fraction, 0), 1) * totalLength)
+            onClickArcLength(
+                layout.arcLengthMM(
+                    atPixelX: Double(point.x), pixelWidth: Int(view.drawableSize.width)))
+        }
+
+        // La rotella percorre l'arcata. È il gesto che l'immagine suggerisce da sé: un panorex è
+        // una striscia lunga, e una striscia si scorre.
+        view.onScroll = { [weak view] steps in
+            guard let view, view.drawableSize.width > 0 else { return }
+            let millimetresPerPixel = layout.millimetresPerPixel(
+                pixelWidth: Int(view.drawableSize.width))
+            // Otto pixel per passo: la stessa quantità di immagine che scorre in una lista, così
+            // il gesto ha il "peso" a cui la mano è abituata.
+            onScrollArc(steps * 8 * millimetresPerPixel)
+        }
+
+        // Trascinamento: orizzontale scorre lungo l'arcata, verticale sposta la quota. Un solo
+        // gesto per entrambe le direzioni, come si sposta il contenuto di una finestra.
+        let drag: (CGSize) -> Void = { [weak view] delta in
+            guard let view, view.drawableSize.width > 0 else { return }
+            let millimetresPerPixel = layout.millimetresPerPixel(
+                pixelWidth: Int(view.drawableSize.width))
+            // Segno invertito: trascinando verso sinistra il contenuto va a sinistra, quindi la
+            // finestra avanza a destra. È la convenzione di ogni vista che si trascina.
+            onScrollArc(-Double(delta.width) * millimetresPerPixel)
+            // In verticale lo schermo scende verso i piedi, quindi trascinare in basso alza la
+            // quota di lavoro.
+            onScrollVertical(Double(delta.height) * millimetresPerPixel)
+        }
+        view.onDrag = { _, delta in drag(delta) }
+        view.onPan = drag
+
+        view.onZoom = { [weak view] factor, anchor in
+            guard let view, view.drawableSize.width > 0 else { return }
+            onZoom(factor, Double(anchor.x), Int(view.drawableSize.width))
         }
     }
 
@@ -275,13 +322,24 @@ struct PanoramicWorkspace: View {
                     model.crossSectionPageStart = max(
                         0, section.index - visibleSectionCount / 2)
                 },
-                onDrawableSize: { panoramicPixelSize = $0 }
+                onDrawableSize: { panoramicPixelSize = $0 },
+                onScrollArc: { model.scrollPanoramic(byArcMM: $0) },
+                onScrollVertical: { model.movePanoramicVertical(byMM: $0) },
+                onZoom: { factor, x, width in
+                    model.zoomPanoramic(by: factor, atPixelX: x, pixelWidth: width)
+                }
             )
 
             // Righello della posizione lungo l'arcata sotto il puntatore.
+            //
+            // La frazione si calcola sulla **finestra visibile**, non sulla lunghezza totale:
+            // ingranditi le due cose divergono, e il righello finirebbe altrove rispetto al
+            // cursore che dovrebbe seguire.
             if let arcLength = hoverArcLengthMM, model.archCurve.isUsable {
                 GeometryReader { geometry in
-                    let fraction = arcLength / max(model.archCurve.lengthMM, 1)
+                    let range = model.panoramicLayout.visibleArcRangeMM
+                    let span = max(range.upperBound - range.lowerBound, 1e-6)
+                    let fraction = min(max((arcLength - range.lowerBound) / span, 0), 1)
                     let x = fraction * geometry.size.width
                     Rectangle()
                         .fill(Palette.accent.opacity(0.7))
@@ -311,6 +369,17 @@ struct PanoramicWorkspace: View {
                     Text(
                         String(format: "Arcata %.0f mm", model.archCurve.lengthMM)
                     )
+                    if model.panoramicZoom > 1.001 {
+                        // Ingranditi, la lunghezza totale non basta a orientarsi: serve sapere
+                        // quale tratto si sta guardando.
+                        let range = model.panoramicLayout.visibleArcRangeMM
+                        Text(
+                            String(
+                                format: "· %.0f–%.0f mm · %.1f×",
+                                range.lowerBound, range.upperBound, model.panoramicZoom)
+                        )
+                        .foregroundStyle(Palette.accent)
+                    }
                     Spacer()
                     Text(
                         String(format: "Spessore %.0f mm", model.panoramicSlabThicknessMM)
@@ -321,6 +390,25 @@ struct PanoramicWorkspace: View {
             }
             .padding(Metrics.spacing)
             .allowsHitTesting(false)
+        }
+        .overlay(alignment: .topTrailing) {
+            // Una via di ritorno all'arcata intera, come nei riquadri MPR: scorrendo e
+            // ingrandendo si finisce per perdersi, e senza un ritorno l'unico rimedio sarebbe
+            // riaprire lo studio.
+            if model.panoramicZoom > 1.001 {
+                Button {
+                    model.resetPanoramicView()
+                } label: {
+                    Image(systemName: "viewfinder")
+                        .font(.system(size: 10, weight: .medium))
+                        .frame(width: 18, height: 18)
+                        .background(Palette.chrome.opacity(0.75), in: .rect(cornerRadius: 3))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.textSecondary)
+                .help("Torna all'arcata intera")
+                .padding(Metrics.spacingSmall)
+            }
         }
         .clipShape(.rect(cornerRadius: Metrics.cornerRadius))
         .overlay(alignment: .top) {
