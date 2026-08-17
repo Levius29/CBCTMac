@@ -58,15 +58,27 @@ struct PolarStreakSuppressionTests {
             volume: result.volume, centre: fixture.centre, radius: 25, sampleCount: 144
         )
         let seam = abs(Double(values[0]) - Double(values[143]))
-        var typicalMaximum = 0.0
-        for index in 1..<143 {
-            typicalMaximum = max(
-                typicalMaximum,
-                abs(Double(values[index]) - Double(values[index - 1]))
-            )
-        }
 
-        #expect(seam <= typicalMaximum + 2)
+        // Il confronto va fatto con un salto **tipico**, non con il massimo.
+        //
+        // La versione precedente usava il massimo degli altri salti, e quel test non poteva
+        // fallire: basta una stria residua che produca un salto grande in un punto qualunque
+        // dell'anello perché l'asticella si alzi tanto da lasciar passare qualsiasi cucitura.
+        // Verificato rompendo di proposito l'avvolgimento — sostituendo il modulo con una
+        // limitazione agli estremi — e vedendo la prova passare lo stesso.
+        //
+        // Il novantesimo percentile è robusto: ignora le poche discontinuità residue e resta
+        // sensibile a una cucitura, che è per costruzione il salto peggiore dell'anello.
+        var jumps: [Double] = []
+        for index in 1..<values.count {
+            jumps.append(abs(Double(values[index]) - Double(values[index - 1])))
+        }
+        jumps.sort()
+        let percentile90 = jumps[Int(Double(jumps.count - 1) * 0.9)]
+
+        #expect(
+            seam <= percentile90 + 2,
+            "cucitura \(seam), novantesimo percentile dei salti \(percentile90)")
     }
 
     @Test("Il bordo radiale sfuma la correzione senza creare un anello netto")
