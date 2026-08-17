@@ -76,6 +76,19 @@ e resta utile anche ora che si aprono studi veri.
 > `swift build` e `swift run CBCTMacApp` invece non compilano i test e funzionano anche con i soli
 > Command Line Tools.
 
+Il target dell'applicazione non compila fuori da macOS, quindi un errore banale in quel codice si
+scopre solo là. Un controllo copre la classe di errore più frequente:
+
+```sh
+python3 Tools/check-exhaustive-switches.py
+```
+
+Verifica che ogni `switch` sugli enum dell'app li copra per intero. Aggiungere un caso a `Tool` e
+dimenticare uno degli `switch` che lo consumano è un errore che il compilatore Swift segnala
+subito — dove c'è. Il controllo è sintattico e prudente: legge gli enum di tutti i moduli per non
+scambiare un `AnatomicalPlane` per un `ViewportSlot` incompleto, e tace quando un enum è coperto
+esattamente.
+
 ### Costruire `CBCTMac.app`
 
 `swift run` avvia un eseguibile nudo: senza identità di bundle le finestre di dialogo dei file si

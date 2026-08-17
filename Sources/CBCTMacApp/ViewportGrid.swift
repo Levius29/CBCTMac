@@ -249,6 +249,13 @@ struct ViewportContainer: View {
         case .navigate:
             model.moveCrosshair(to: patient)
 
+        case .archCurve:
+            // Sull'assiale questo caso non si raggiunge: lì `ArchCurveOverlay` sta sopra la vista
+            // Metal e intercetta il clic per posare o spostare un punto. Sugli altri riquadri il
+            // clic sposta il mirino, ed è ciò che serve davvero mentre si disegna: è così che si
+            // sceglie la fetta assiale su cui posare i punti, guardando la cresta di profilo.
+            model.moveCrosshair(to: patient)
+
         case .distance:
             if let start = pendingStartMM {
                 let measurement = DistanceMeasurement(
