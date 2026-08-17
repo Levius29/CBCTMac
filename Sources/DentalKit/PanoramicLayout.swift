@@ -327,6 +327,21 @@ public struct CrossSectionLayout: Hashable, Sendable {
     public var thicknessMM: Double
     public var projection: SlabProjection
 
+    /// Inclinazione del taglio rispetto alla perpendicolare alla curva, in radianti.
+    ///
+    /// A zero ogni sezione è perpendicolare alla curva, che è la definizione di sezione
+    /// trasversale. Ma la perpendicolare non è sempre ciò che serve: l'asse di un dente incluso,
+    /// un impianto già posato che si vuole rivedere lungo il proprio asse, un ramo che sale
+    /// obliquo — su tutti questi la perpendicolare taglia di sbieco e nessuna misura è quella
+    /// vera.
+    ///
+    /// La rotazione avviene attorno all'asse **verticale** del paziente, cioè è l'inclinazione che
+    /// si ottiene ruotando la linea di taglio disegnata sul panorex. Restano perpendicolari al
+    /// piano orizzontale: inclinarle anche in verticale sarebbe una seconda libertà, e va aggiunta
+    /// solo se serve davvero, perché due angoli da governare a mano su una griglia di sezioni
+    /// diventano difficili da tenere a mente.
+    public var angleOffsetRadians: Double
+
     public init(
         curve: ArchCurve,
         intervalMM: Double = 1.0,
@@ -334,8 +349,10 @@ public struct CrossSectionLayout: Hashable, Sendable {
         heightMM: Double = 45,
         verticalCentreMM: Double = 0,
         thicknessMM: Double = 0,
-        projection: SlabProjection = .average
+        projection: SlabProjection = .average,
+        angleOffsetRadians: Double = 0
     ) {
+        self.angleOffsetRadians = angleOffsetRadians.isFinite ? angleOffsetRadians : 0
         self.curve = curve
         self.intervalMM = max(intervalMM, 0.1)
         self.widthMM = max(widthMM, 1)
@@ -362,9 +379,22 @@ public struct CrossSectionLayout: Hashable, Sendable {
                 - up * sample.positionMM.dot(up)
                 + up * verticalCentreMM
 
+            // L'asse orizzontale è la normale vestibolo-linguale, ruotata attorno alla verticale
+            // dell'angolo richiesto. Ruotare **la normale** e non il piano già costruito tiene il
+            // taglio verticale per costruzione: il basso resta il basso a qualunque inclinazione,
+            // che è ciò che rende confrontabili due sezioni scattate con angoli diversi.
+            let right: Vec3
+            if abs(angleOffsetRadians) < 1e-12 {
+                right = sample.normal
+            } else if let rotation = Transform3D.rotation(axis: up, angle: angleOffsetRadians) {
+                right = rotation.apply(toVector: sample.normal).normalized ?? sample.normal
+            } else {
+                right = sample.normal
+            }
+
             let plane = MPRPlane(
                 centerMM: centre,
-                rightMM: sample.normal,
+                rightMM: right,
                 downMM: up * -1.0,
                 widthMM: widthMM,
                 heightMM: heightMM,
