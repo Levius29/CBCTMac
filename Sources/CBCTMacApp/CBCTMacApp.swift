@@ -10,6 +10,9 @@ struct CBCTMacApp: App {
     var body: some Scene {
         Window("CBCTMac", id: "main") {
             ContentView(model: model)
+                .sheet(isPresented: $model.isShowingReformat) {
+                    ReformatSheet(model: model)
+                }
                 .frame(minWidth: 1100, minHeight: 700)
                 .preferredColorScheme(.dark)
                 .task {
@@ -25,6 +28,15 @@ struct CBCTMacApp: App {
             CommandGroup(replacing: .newItem) {}
 
             CommandGroup(after: .newItem) {
+                // Il ritaglio sta nel menu **e** nella barra degli strumenti. Il motore esisteva
+                // da tempo senza un solo comando che lo raggiungesse, e una funzione che non si
+                // trova equivale a una funzione che non c'è.
+                Button("Ritaglia e ricampiona…") { model.isShowingReformat = true }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .disabled(model.volume == nil)
+
+                Divider()
+
                 Button("Apri piano…") { openPlan() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)

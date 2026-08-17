@@ -4,6 +4,7 @@ import Foundation
 import ImplantKit
 import MeasureKit
 import MeshKit
+import SegmentKit
 import Testing
 import VolumeKit
 
@@ -270,6 +271,22 @@ struct ModuleAPIContractTests {
             _ = browser.sectionExtentMM(baseWidthMM: 30, baseHeightMM: 45)
             _ = CrossSectionBrowser.minimumZoom
             _ = CrossSectionBrowser.maximumZoom
+
+            // `ReformatSheet` e `CropBoxOverlay`: ritaglio e ricampionamento.
+            var reformat = ReformatPlan.full(for: geometry, spacingMM: 0.3)
+            reformat.name = "Prova"
+            reformat.spacingMM = 0.15
+            _ = reformat.estimatedVoxelCount()
+            _ = reformat.estimatedBytes()
+            _ = reformat.validate(against: geometry)
+            _ = reformat.regionMM.sizeMM
+            for face in BoxFace.allCases {
+                reformat.moveFace(face, toMM: 1, within: geometry)
+            }
+            _ = VolumeResampler.spacingPresetsMM
+            _ = try VolumeResampler.resampled(
+                try makeVolume(),
+                request: ResampleRequest(spacingMM: 2, regionMM: reformat.regionMM))
             _ = PanoramicLayout.slabThicknessPresetsMM
             _ = panoramic.slabStep(for: first, sampleCount: 8)
             _ = first.positionMM

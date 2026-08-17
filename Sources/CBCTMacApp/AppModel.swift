@@ -260,6 +260,9 @@ final class AppModel {
         set { archCurves[activeArch] = newValue }
     }
 
+    /// Vero quando è aperta la finestra di ritaglio e ricampionamento.
+    var isShowingReformat = false
+
     /// Vero mentre l'utente sta disegnando o correggendo la curva sull'assiale.
     var isEditingArch = false
 
@@ -755,7 +758,7 @@ final class AppModel {
     }
 
     /// Nome della serie aperta, per il titolo della finestra e la barra laterale.
-    private(set) var studyName: String = "Fantoccio sintetico"
+    fileprivate(set) var studyName: String = "Fantoccio sintetico"
 
     /// Etichetta in basso a sinistra nei riquadri: da dove vengono i numeri che si stanno leggendo.
     ///
@@ -772,6 +775,13 @@ final class AppModel {
             return "FANTOCCIO · \(volume.densityUnit.symbol)"
         }
         return volume.densityUnit.symbol
+    }
+
+    /// Adotta un volume dandogli un nome, per esempio dopo un ritaglio.
+    func adopt(volume: Volume, named name: String) {
+        adopt(volume: volume)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        studyName = trimmed.isEmpty ? "Volume riformattato" : trimmed
     }
 
     /// Adotta un volume: costruisce la texture, imposta mirino, finestra e inquadrature.
