@@ -22,7 +22,7 @@ In sviluppo iniziale. Fase 1 — il visore — in corso.
 | 1b | Parser DICOM per aprire file veri | in corso |
 | 2 | Panorex e sezioni trasversali d'arcata | scritta, mai compilata |
 | 3 | Nervo alveolare, pianificazione implantare, allarmi di prossimità | scritta, mai compilata |
-| 4 | Import scansione intraorale e fusione con il volume | da fare |
+| 4 | Import mesh STL/PLY/OBJ e registrazione rigida | scritta, mai compilata |
 | 5 | Dime chirurgiche ed endodontiche per stampa 3D | da fare |
 | 6 | Segmentazione AI on-device (Core ML) | da fare |
 
@@ -41,6 +41,7 @@ Sources/
   VolumeKit/    Metal: MPR, slab, raycasting 3D, transfer function
   DentalKit/    curva d'arcata, panorex, sezioni trasversali
   ImplantKit/   canale alveolare, impianti, allarmi di prossimità, densità ossea
+  MeshKit/      import STL/PLY/OBJ, registrazione con Horn, affinamento ICP
   CBCTMacApp/   applicazione SwiftUI
 Tools/          generatore e verificatore di fantocci, in Python senza dipendenze
 docs/           architettura, specifica grafica, mockup, brief per Codex
