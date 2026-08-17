@@ -108,6 +108,20 @@ struct ModuleAPIContractTests {
         _ = AnatomicalPlane.coronal.screenDownMM
         _ = AnatomicalPlane.sagittal.normalMM
         _ = AnatomicalPlane.axial.localizedName
+        // `ViewportChrome`: lettere d'orientamento ai quattro bordi, e quota per riquadro.
+        for anatomical in AnatomicalPlane.allCases {
+            let edges = anatomical.edgeLabels
+            _ = edges.top
+            _ = edges.bottom
+            _ = edges.left
+            _ = edges.right
+        }
+        // `slabThickness(for:)` e `setSlabThickness(_:for:)` leggono e scrivono nel piano.
+        var perViewport = adjusted
+        perViewport.slabThicknessMM = 1.1
+        perViewport.projection = .maximum
+        _ = perViewport.slabThicknessMM
+        _ = perViewport.projection
     }
 
     @Test("Finestra, livello e proiezione dell'ispettore")

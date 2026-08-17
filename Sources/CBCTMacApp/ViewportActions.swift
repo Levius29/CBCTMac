@@ -1,4 +1,6 @@
+import DentalKit
 import SwiftUI
+import VolumeKit
 
 // Pulsanti d'angolo di un riquadro: ingrandimento, inquadratura di ritorno, risoluzione.
 //
@@ -26,6 +28,8 @@ struct ViewportActions: View {
     var body: some View {
         HStack(spacing: 2) {
             if slot.anatomicalPlane != nil {
+                slabMenu
+                projectionMenu
                 resolutionMenu
                 actionButton(
                     systemImage: "viewfinder",
@@ -67,6 +71,78 @@ struct ViewportActions: View {
         .buttonStyle(.plain)
         .foregroundStyle(Palette.textSecondary)
         .help(help)
+    }
+
+    /// Spessore dello slab di **questo** riquadro.
+    ///
+    /// Il valore corrente è scritto accanto all'icona invece di essere nascosto nel menu: è lo
+    /// stato che cambia di più il significato dell'immagine, e leggerlo non deve costare un clic.
+    /// «Fetta» al posto di «0,0 mm» perché è ciò che si sta guardando: una fetta sola, non uno
+    /// spessore nullo.
+    private var slabMenu: some View {
+        let thickness = model.slabThickness(for: slot)
+        return Menu {
+            Button("Fetta singola") { model.setSlabThickness(0, for: slot) }
+            Divider()
+            ForEach(PanoramicLayout.slabThicknessPresetsMM, id: \.self) { value in
+                Button(Self.thicknessText(value)) { model.setSlabThickness(value, for: slot) }
+            }
+            Divider()
+            Button("Applica a tutti i riquadri") {
+                model.applyViewportSettingsToAll(from: slot)
+            }
+        } label: {
+            Text(thickness <= 0 ? "Fetta" : Self.thicknessText(thickness))
+                .font(Typography.numericSmall)
+                .frame(height: 18)
+                .padding(.horizontal, 4)
+                .background(Palette.chrome.opacity(0.75), in: .rect(cornerRadius: 3))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(thickness > 0 ? Palette.accent : Palette.textSecondary)
+        .help("Spessore dello slab di questo riquadro")
+    }
+
+    /// Proiezione dello slab di **questo** riquadro. Disabilitata a fetta singola, perché con una
+    /// fetta sola non c'è nulla da combinare e un menu attivo che non fa niente confonde.
+    private var projectionMenu: some View {
+        let mode = model.projection(for: slot)
+        return Menu {
+            ForEach(SlabProjection.allCases, id: \.self) { value in
+                Button(value.localizedName) { model.setProjection(value, for: slot) }
+            }
+        } label: {
+            Text(Self.projectionAbbreviation(mode))
+                .font(Typography.numericSmall)
+                .frame(height: 18)
+                .padding(.horizontal, 4)
+                .background(Palette.chrome.opacity(0.75), in: .rect(cornerRadius: 3))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(Palette.textSecondary)
+        .disabled(model.slabThickness(for: slot) <= 0)
+        .help("Come combinare le fette dello slab")
+    }
+
+    /// Millimetri sotto il millimetro si scrivono in micrometri, come sugli apparecchi: «450 µm»
+    /// si legge, «0,45 mm» va contato.
+    static func thicknessText(_ value: Double) -> String {
+        if value < 1 {
+            return "\(Int((value * 1000).rounded())) µm"
+        }
+        return String(format: "%.1f mm", value).replacingOccurrences(of: ".", with: ",")
+    }
+
+    static func projectionAbbreviation(_ projection: SlabProjection) -> String {
+        switch projection {
+        case .average: return "MED"
+        case .maximum: return "MIP"
+        case .minimum: return "MinIP"
+        }
     }
 
     /// La risoluzione è una scelta globale, non per riquadro.

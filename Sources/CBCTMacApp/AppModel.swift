@@ -728,6 +728,23 @@ final class AppModel {
     /// Nome della serie aperta, per il titolo della finestra e la barra laterale.
     private(set) var studyName: String = "Fantoccio sintetico"
 
+    /// Etichetta in basso a sinistra nei riquadri: da dove vengono i numeri che si stanno leggendo.
+    ///
+    /// I visori commerciali scrivono lì l'algoritmo di ricostruzione — «FDK» sulle CBCT — e la
+    /// pratica è buona: dichiarare la provenienza dei valori. Noi non leggiamo quel tag, e
+    /// inventarlo sarebbe peggio che tacere; scriviamo invece l'**unità**, che è l'informazione
+    /// che serve davvero per sapere se un numero è confrontabile con la letteratura.
+    ///
+    /// Sul fantoccio lo dice apertamente, perché lì i numeri sono esatti per costruzione e
+    /// scambiarlo per uno studio vero sarebbe il malinteso peggiore possibile.
+    var reconstructionLabel: String {
+        guard let volume else { return "—" }
+        if volume.geometry.voxelCount > 0, studyName == "Fantoccio sintetico" {
+            return "FANTOCCIO · \(volume.densityUnit.symbol)"
+        }
+        return volume.densityUnit.symbol
+    }
+
     /// Adotta un volume: costruisce la texture, imposta mirino, finestra e inquadrature.
     func adopt(volume: Volume) {
         self.volume = volume
@@ -760,8 +777,14 @@ final class AppModel {
     func resetPlanes() {
         guard let geometry = volume?.geometry else { return }
         for slot in ViewportSlot.allCases {
-            guard let plane = slot.anatomicalPlane else { continue }
-            planes[slot] = MPRPlane.fitted(plane: plane, geometry: geometry)
+            guard let anatomical = slot.anatomicalPlane else { continue }
+            // Spessore e proiezione sopravvivono al reimpostare l'inquadratura: sono una scelta di
+            // lettura, non una posizione. Azzerarli qui costringerebbe a rifarli dopo ogni «adatta
+            // alla finestra», che è il gesto più frequente di tutti.
+            var plane = MPRPlane.fitted(plane: anatomical, geometry: geometry)
+            plane.slabThicknessMM = planes[slot]?.slabThicknessMM ?? slabThicknessMM
+            plane.projection = planes[slot]?.projection ?? projection
+            planes[slot] = plane
         }
         syncPlanesToCrosshair()
     }
@@ -782,12 +805,58 @@ final class AppModel {
         }
     }
 
-    /// Piano corrente di un riquadro, con slab e proiezione applicati e proporzioni adattate.
+    /// Piano corrente di un riquadro, con le proporzioni adattate al riquadro.
+    ///
+    /// Spessore e proiezione **non** vengono più sovrascritti da valori globali: vivono nel piano,
+    /// uno per riquadro. Vedi `setSlabThickness(_:for:)`.
     func plane(for slot: ViewportSlot, pixelWidth: Int, pixelHeight: Int) -> MPRPlane? {
-        guard var plane = planes[slot] else { return nil }
-        plane.slabThicknessMM = slabThicknessMM
-        plane.projection = projection
+        guard let plane = planes[slot] else { return nil }
         return plane.matchingAspect(pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+    }
+
+    // MARK: Spessore e proiezione, per riquadro
+
+    /// Spessore dello slab di un riquadro.
+    ///
+    /// Prima era un valore solo, condiviso da tutte le viste, e lo si passava la giornata a
+    /// cambiare avanti e indietro: l'assiale lo si vuole sottile per leggere la corticale, il
+    /// panorex spesso per l'immagine d'insieme, la sezione a un millimetro per misurare. Sono tre
+    /// compiti diversi che convivono sullo schermo, quindi tre valori.
+    func slabThickness(for slot: ViewportSlot) -> Double {
+        planes[slot]?.slabThicknessMM ?? slabThicknessMM
+    }
+
+    func setSlabThickness(_ value: Double, for slot: ViewportSlot) {
+        guard var plane = planes[slot], value.isFinite, value >= 0 else { return }
+        plane.slabThicknessMM = value
+        planes[slot] = plane
+    }
+
+    func projection(for slot: ViewportSlot) -> SlabProjection {
+        planes[slot]?.projection ?? projection
+    }
+
+    func setProjection(_ value: SlabProjection, for slot: ViewportSlot) {
+        guard var plane = planes[slot] else { return }
+        plane.projection = value
+        planes[slot] = plane
+    }
+
+    /// Porta spessore e proiezione di un riquadro su tutti gli altri.
+    ///
+    /// Serve perché avere tre valori indipendenti è giusto e ogni tanto se ne vuole uno solo:
+    /// confrontare le tre viste ortogonali sullo stesso spessore è un gesto normale. Senza questo
+    /// comando si dovrebbe ripetere la scelta tre volte, che è il difetto opposto a quello appena
+    /// corretto.
+    func applyViewportSettingsToAll(from slot: ViewportSlot) {
+        let thickness = slabThickness(for: slot)
+        let mode = projection(for: slot)
+        for other in ViewportSlot.allCases where other != slot {
+            setSlabThickness(thickness, for: other)
+            setProjection(mode, for: other)
+        }
+        slabThicknessMM = thickness
+        projection = mode
     }
 
     // MARK: Navigazione
@@ -858,8 +927,10 @@ final class AppModel {
                 through: crosshairMM,
                 widthMM: extent,
                 heightMM: extent,
-                slabThicknessMM: slabThicknessMM,
-                projection: projection
+                // Anche qui spessore e proiezione del riquadro sopravvivono: «riporta tutto
+                // all'origine» riguarda l'inquadratura, non il modo di leggere l'immagine.
+                slabThicknessMM: planes[slot]?.slabThicknessMM ?? slabThicknessMM,
+                projection: planes[slot]?.projection ?? projection
             ).fitted(to: geometry)
         }
     }

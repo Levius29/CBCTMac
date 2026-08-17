@@ -20,12 +20,39 @@ struct ViewportChrome: View {
 
     var body: some View {
         ZStack {
+            orientationLetters
+
             VStack {
                 HStack(alignment: .top) {
-                    Text(slot.localizedName.uppercased())
-                        .font(Typography.viewportLabel)
-                        .foregroundStyle(slot.accentColor)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(slot.localizedName.uppercased())
+                            .font(Typography.viewportLabel)
+                            .foregroundStyle(slot.accentColor)
+
+                        if slot.anatomicalPlane != nil {
+                            // La **quota in millimetri** in evidenza, e il numero di fetta come
+                            // riga minore. È l'inversione di ciò che c'era prima, e la ragione è
+                            // che il numero di fetta non è una grandezza: dipende da spaziatura e
+                            // origine, non si confronta fra due studi, e non si comunica a
+                            // nessuno. La quota sì.
+                            if let position = model.positionLabel(for: slot) {
+                                Text(position)
+                                    .font(Typography.numeric)
+                                    .foregroundStyle(Palette.textPrimary)
+                            }
+                            HStack(spacing: 6) {
+                                if let indicator = model.sliceIndicator(for: slot) {
+                                    Text("\(indicator.index)/\(indicator.count)")
+                                }
+                                Text(zoomText)
+                            }
+                            .font(Typography.numericSmall)
+                            .foregroundStyle(Palette.textSecondary)
+                        }
+                    }
+
                     Spacer()
+
                     if slot.anatomicalPlane != nil {
                         Text(windowLevelText)
                             .font(Typography.numericSmall)
@@ -39,18 +66,12 @@ struct ViewportChrome: View {
                 Spacer()
 
                 HStack(alignment: .bottom) {
-                    if slot.anatomicalPlane != nil {
-                        VStack(alignment: .leading, spacing: 2) {
-                            if let indicator = model.sliceIndicator(for: slot) {
-                                Text("\(indicator.index) / \(indicator.count)")
-                            }
-                            if let position = model.positionLabel(for: slot) {
-                                Text(position)
-                            }
-                        }
+                    // L'algoritmo di ricostruzione, dichiarato come fanno i visori commerciali.
+                    // Non è decorazione: dice da dove vengono i valori che si stanno misurando, e
+                    // su una CBCT è il motivo per cui si scrive GV e non HU.
+                    Text(model.reconstructionLabel)
                         .font(Typography.numericSmall)
-                        .foregroundStyle(Palette.textSecondary)
-                    }
+                        .foregroundStyle(Palette.textSecondary.opacity(0.7))
                     Spacer()
                     ScaleBar(millimetresPerPoint: millimetresPerPoint)
                 }
@@ -58,6 +79,49 @@ struct ViewportChrome: View {
             .padding(Metrics.spacing)
         }
         .allowsHitTesting(false)
+    }
+
+    /// Lettere d'orientamento ai quattro bordi.
+    ///
+    /// Sono la difesa contro l'errore peggiore possibile su un'immagine radiologica: scambiare
+    /// destra e sinistra del paziente. La convenzione radiologica mette la destra del paziente a
+    /// sinistra dello schermo, cioè il contrario di quanto suggerisce l'istinto, e senza le lettere
+    /// nulla lo ricorda.
+    @ViewBuilder
+    private var orientationLetters: some View {
+        if let plane = slot.anatomicalPlane {
+            let edges = plane.edgeLabels
+            VStack {
+                Text(edges.top)
+                Spacer()
+                Text(edges.bottom)
+            }
+            .font(Typography.numericSmall)
+            .foregroundStyle(Palette.textSecondary.opacity(0.8))
+            .padding(.vertical, 3)
+
+            HStack {
+                Text(edges.left)
+                Spacer()
+                Text(edges.right)
+            }
+            .font(Typography.numericSmall)
+            .foregroundStyle(Palette.textSecondary.opacity(0.8))
+            .padding(.horizontal, 3)
+        }
+    }
+
+    private var zoomText: String {
+        guard let plane = model.planes[slot], plane.widthMM > 0,
+            let geometry = model.volume?.geometry
+        else { return "" }
+        // Lo zoom è il rapporto fra ciò che si vedrebbe inquadrando tutto e ciò che si vede ora:
+        // a 1× il volume riempie il riquadro, a 4× se ne vede un quarto per lato.
+        let size = geometry.physicalSizeMM
+        let full = max(size.x, max(size.y, size.z))
+        guard full > 0 else { return "" }
+        return String(format: "%.2f×", full / plane.widthMM)
+            .replacingOccurrences(of: ".", with: ",")
     }
 
     /// Ordine coerente con l'ispettore: **W** è l'ampiezza, **L** il livello.

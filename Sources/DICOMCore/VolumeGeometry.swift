@@ -487,4 +487,38 @@ public enum AnatomicalPlane: String, CaseIterable, Hashable, Sendable, Codable {
         case .sagittal: return "Sagittale"
         }
     }
+
+    /// Lettere d'orientamento da mostrare ai quattro bordi del riquadro.
+    ///
+    /// Sono la difesa contro l'errore peggiore che si possa commettere su un'immagine
+    /// radiologica: scambiare destra e sinistra del paziente. La convenzione mette la **destra
+    /// del paziente a sinistra dello schermo** — come se lo si guardasse in faccia — cioè il
+    /// contrario di quanto suggerisce l'istinto, e senza le lettere nulla lo ricorda.
+    ///
+    /// Non sono scritte a mano: si **derivano** da `screenRightMM` e `screenDownMM`, gli stessi
+    /// vettori che il renderer usa per costruire il piano. Scriverle a parte significherebbe
+    /// avere due dichiarazioni della stessa convenzione, e un giorno una delle due cambierebbe
+    /// senza l'altra: l'immagine sarebbe specchiata e le lettere direbbero il contrario, che è
+    /// peggio di non averle.
+    public var edgeLabels: (top: String, bottom: String, left: String, right: String) {
+        (
+            top: Self.label(for: screenDownMM * -1),
+            bottom: Self.label(for: screenDownMM),
+            left: Self.label(for: screenRightMM * -1),
+            right: Self.label(for: screenRightMM)
+        )
+    }
+
+    /// Lettera del verso anatomico prevalente di una direzione, in LPS.
+    ///
+    /// In LPS gli assi crescono verso sinistra del paziente (+L), verso il posteriore (+P) e verso
+    /// l'alto (+S); i versi opposti sono destra (R), anteriore (A) e piedi (F). Si usano le
+    /// iniziali internazionali e non quelle italiane perché sono quelle che compaiono su ogni
+    /// referto e su ogni apparecchio: tradurle renderebbe l'immagine meno leggibile, non di più.
+    static func label(for direction: Vec3) -> String {
+        let x = abs(direction.x), y = abs(direction.y), z = abs(direction.z)
+        if x >= y, x >= z { return direction.x >= 0 ? "L" : "R" }
+        if y >= z { return direction.y >= 0 ? "P" : "A" }
+        return direction.z >= 0 ? "H" : "F"
+    }
 }
