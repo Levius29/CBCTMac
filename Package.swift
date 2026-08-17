@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 
 // CBCTMac — moduli condivisi.
@@ -25,10 +25,16 @@ import PackageDescription
 // DCMTK si innesta più avanti senza toccare altro.
 //
 // Nessun target dichiara `swiftSettings: [.swiftLanguageMode(.v6)]`. Sarebbe ridondante, perché
-// con `swift-tools-version: 6.0` la modalità Swift 6 è già il default ovunque, e non è
-// innocuo: quell'API non esiste nel PackageDescription dei Command Line Tools più datati, dove
-// il manifest smette di compilare. Ripeterla su ogni target appesantiva anche l'inferenza al
-// punto da mandare in timeout il type-check dell'intera espressione `Package(...)`.
+// dalla tools-version 6.0 in su la modalità Swift 6 è già il default ovunque, e ripeterla su ogni
+// target appesantiva l'inferenza fino a mandare in timeout il type-check dell'intera espressione
+// `Package(...)`.
+//
+// La tools-version dichiarata è **6.1 e non 6.0**, per una ragione non ovvia. Con 6.0 le
+// SwiftPM recenti rendono visibili sia l'inizializzatore moderno di `Package` sia quello
+// deprecato con `swiftLanguageVersions:`; non passando nessuno dei due parametri la risoluzione
+// degli overload può scegliere il deprecato, il cui simbolo nelle toolchain nuove non è più
+// presente, e il manifest fallisce in fase di **link** con un errore che non nomina la causa.
+// Dichiarare 6.1 nasconde l'overload deprecato e il problema non si pone.
 
 // MARK: - Applicazione, solo su macOS
 //
