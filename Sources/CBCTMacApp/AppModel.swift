@@ -145,7 +145,7 @@ final class AppModel {
         didSet { syncPlanesToCrosshair() }
     }
 
-    var windowLevel: WindowLevel = .bone
+    var windowLevel: DensityWindow = .bone
     var slabThicknessMM: Double = 0
     var projection: SlabProjection = .average
     var layout: ViewportLayout = .grid2x2
@@ -494,7 +494,7 @@ final class AppModel {
 
         // Il mirino parte dal centro del volume, che è l'inquadratura naturale all'apertura.
         crosshairMM = volume.geometry.centerMM
-        windowLevel = WindowLevel.automatic(from: volume)
+        windowLevel = DensityWindow.automatic(from: volume)
         camera = VolumeCamera.fitted(to: volume.geometry)
         histogram = volume.rawHistogram(binCount: 256)
 

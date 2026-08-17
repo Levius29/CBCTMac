@@ -140,7 +140,7 @@ struct ProjectDocument: Codable, Sendable {
         model.transferPresetName = "Personalizzato"
 
         if let state = plan.viewState {
-            model.windowLevel = WindowLevel(width: state.windowWidth, level: state.windowLevel)
+            model.windowLevel = DensityWindow(width: state.windowWidth, level: state.windowLevel)
             model.slabThicknessMM = state.slabThicknessMM
             model.moveCrosshair(to: state.crosshairVec3)
         }

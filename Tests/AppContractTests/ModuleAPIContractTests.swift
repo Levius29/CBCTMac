@@ -37,7 +37,7 @@ struct ModuleAPIContractTests {
         // `adopt(volume:)`
         let geometry = volume.geometry
         _ = geometry.centerMM
-        _ = WindowLevel.automatic(from: volume)
+        _ = DensityWindow.automatic(from: volume)
         _ = volume.rawHistogram(binCount: 256)
         _ = VolumeCamera.fitted(to: geometry)
         _ = ArchCurve.defaultArch(for: geometry)
@@ -102,12 +102,12 @@ struct ModuleAPIContractTests {
 
     @Test("Finestra, livello e proiezione dell'ispettore")
     func windowLevelAPI() {
-        var wl = WindowLevel.bone
+        var wl = DensityWindow.bone
         wl.width = 2400
         wl.level = 600
         _ = wl.lowerBound
         _ = wl.upperBound
-        for preset in WindowLevel.presets {
+        for preset in DensityWindow.presets {
             _ = preset.name
             _ = preset.value
         }

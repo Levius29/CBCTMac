@@ -72,7 +72,7 @@ public final class MPRRenderer {
     public func encode(
         plane: MPRPlane,
         volume: VolumeTexture,
-        windowLevel: WindowLevel,
+        windowLevel: DensityWindow,
         invertGrayscale: Bool = false,
         into output: MTLTexture,
         commandBuffer: MTLCommandBuffer
@@ -121,7 +121,7 @@ public final class MPRRenderer {
     func makeUniforms(
         plane: MPRPlane,
         volume: VolumeTexture,
-        windowLevel: WindowLevel,
+        windowLevel: DensityWindow,
         invertGrayscale: Bool,
         pixelWidth: Int,
         pixelHeight: Int

@@ -258,7 +258,15 @@ public struct MPRPlane: Hashable, Sendable {
 ///
 /// I valori si esprimono in densità e non in valori grezzi perché è così che li ragiona chi
 /// legge le immagini; la conversione a grezzo avviene una volta sola, entrando nello shader.
-public struct WindowLevel: Hashable, Sendable, Codable {
+///
+/// - Important: il nome **non** è `WindowLevel`, che sarebbe quello ovvio. SwiftUI dichiara un
+///   proprio tipo `WindowLevel` (il livello di sovrapposizione di una finestra sullo schermo,
+///   cosa del tutto diversa), e in ogni file che importa sia SwiftUI sia VolumeKit il nome
+///   diventerebbe ambiguo. Il guasto non si ferma lì: `AppModel` tiene una proprietà di questo
+///   tipo, quindi l'ambiguità impedisce l'espansione della macro `@Observable`, `AppModel`
+///   perde la conformità a `Observable`, e ogni `@Bindable var model` dell'applicazione
+///   diventa illegale. Novantuno errori di compilazione da un nome. Non rinominarlo indietro.
+public struct DensityWindow: Hashable, Sendable, Codable {
     public var width: Double
     public var level: Double
 
@@ -271,16 +279,16 @@ public struct WindowLevel: Hashable, Sendable, Codable {
     public var upperBound: Double { level + width * 0.5 }
 
     /// Preset ampi per l'osso: è il punto di partenza abituale su una CBCT dentale.
-    public static let bone = WindowLevel(width: 2400, level: 600)
+    public static let bone = DensityWindow(width: 2400, level: 600)
     /// Denti e smalto, dove servono i valori più alti della scala.
-    public static let teeth = WindowLevel(width: 3200, level: 1400)
-    public static let softTissue = WindowLevel(width: 500, level: 60)
+    public static let teeth = DensityWindow(width: 3200, level: 1400)
+    public static let softTissue = DensityWindow(width: 500, level: 60)
     /// Articolazione temporo-mandibolare: contrasto stretto sulla corticale del condilo.
-    public static let tmj = WindowLevel(width: 3000, level: 900)
+    public static let tmj = DensityWindow(width: 3000, level: 900)
     /// Vie aeree: si guarda l'aria, quindi livelli molto bassi.
-    public static let airway = WindowLevel(width: 1200, level: -400)
+    public static let airway = DensityWindow(width: 1200, level: -400)
 
-    public static let presets: [(name: String, value: WindowLevel)] = [
+    public static let presets: [(name: String, value: DensityWindow)] = [
         ("Osso", .bone),
         ("Denti", .teeth),
         ("Tessuti molli", .softTissue),
@@ -293,7 +301,7 @@ public struct WindowLevel: Hashable, Sendable, Codable {
     /// Si scartano le code perché su CBCT gli estremi sono quasi sempre artefatti — metallo da
     /// un lato, aria e rumore dall'altro — e lasciarli dentro comprime tutto il tessuto utile
     /// in una manciata di livelli di grigio, rendendo l'immagine piatta.
-    public static func automatic(from volume: Volume, tailFraction: Double = 0.005) -> WindowLevel
+    public static func automatic(from volume: Volume, tailFraction: Double = 0.005) -> DensityWindow
     {
         let histogram = volume.rawHistogram(binCount: 512)
         let total = histogram.reduce(0, +)
@@ -331,7 +339,7 @@ public struct WindowLevel: Hashable, Sendable, Codable {
         let highDensity = volume.applyRescale(
             Int16(clamping: Int(lowRaw + Double(highBin) * binWidth)))
 
-        return WindowLevel(
+        return DensityWindow(
             width: abs(highDensity - lowDensity),
             level: (highDensity + lowDensity) * 0.5)
     }

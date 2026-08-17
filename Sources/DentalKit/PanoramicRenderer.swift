@@ -72,7 +72,7 @@ public final class PanoramicRenderer {
     public func encode(
         layout: PanoramicLayout,
         volume: VolumeTexture,
-        windowLevel: WindowLevel,
+        windowLevel: DensityWindow,
         invertGrayscale: Bool = false,
         into output: MTLTexture,
         commandBuffer: MTLCommandBuffer

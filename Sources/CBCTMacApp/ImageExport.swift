@@ -67,7 +67,7 @@ enum ImageExport {
         volumeTexture: VolumeTexture,
         renderer: MPRRenderer,
         device: MTLDevice,
-        windowLevel: WindowLevel,
+        windowLevel: DensityWindow,
         pixelWidth: Int,
         pixelHeight: Int
     ) throws -> CGImage {

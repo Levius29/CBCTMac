@@ -71,13 +71,13 @@ struct InspectorPanel: View {
 
             LabeledControl("Preset") {
                 Menu(presetName) {
-                    ForEach(WindowLevel.presets, id: \.name) { preset in
+                    ForEach(DensityWindow.presets, id: \.name) { preset in
                         Button(preset.name) { model.windowLevel = preset.value }
                     }
                     Divider()
                     Button("Automatico dai dati") {
                         if let volume = model.volume {
-                            model.windowLevel = WindowLevel.automatic(from: volume)
+                            model.windowLevel = DensityWindow.automatic(from: volume)
                         }
                     }
                 }
@@ -109,7 +109,7 @@ struct InspectorPanel: View {
     }
 
     private var presetName: String {
-        for preset in WindowLevel.presets where preset.value == model.windowLevel {
+        for preset in DensityWindow.presets where preset.value == model.windowLevel {
             return preset.name
         }
         return "Personalizzato"

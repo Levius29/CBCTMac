@@ -187,12 +187,12 @@ struct MPRPlaneTests {
 
 // MARK: - Finestra e livello
 
-@Suite("WindowLevel")
-struct WindowLevelTests {
+@Suite("DensityWindow")
+struct DensityWindowTests {
 
     @Test("Gli estremi derivano da ampiezza e livello")
     func bounds() {
-        let wl = WindowLevel(width: 2400, level: 600)
+        let wl = DensityWindow(width: 2400, level: 600)
         #expect(abs(wl.lowerBound - (-600)) < 1e-12)
         #expect(abs(wl.upperBound - 1800) < 1e-12)
     }
@@ -200,17 +200,17 @@ struct WindowLevelTests {
     @Test("Un'ampiezza nulla o negativa viene portata al minimo")
     func rejectsNonPositiveWidth() {
         // Una finestra di ampiezza zero produrrebbe una divisione per zero nello shader.
-        #expect(WindowLevel(width: 0, level: 100).width >= 1)
-        #expect(WindowLevel(width: -500, level: 100).width >= 1)
+        #expect(DensityWindow(width: 0, level: 100).width >= 1)
+        #expect(DensityWindow(width: -500, level: 100).width >= 1)
     }
 
     @Test("I preset dentali coprono i tessuti che servono")
     func presets() {
-        #expect(WindowLevel.presets.count >= 5)
+        #expect(DensityWindow.presets.count >= 5)
         // L'osso è il punto di partenza abituale su una CBCT dentale.
-        #expect(WindowLevel.bone.width > 1000)
+        #expect(DensityWindow.bone.width > 1000)
         // Le vie aeree guardano l'aria, quindi il livello sta molto in basso.
-        #expect(WindowLevel.airway.level < 0)
+        #expect(DensityWindow.airway.level < 0)
     }
 
     @Test("La finestra automatica scarta le code")
@@ -220,7 +220,7 @@ struct WindowLevelTests {
         // il tessuto utile finirebbe compresso in pochi livelli di grigio.
         let volume = try SyntheticVolume.makePhantom(
             columns: 60, rows: 60, slices: 60, spacingMM: Vec3(1, 1, 1))
-        let wl = WindowLevel.automatic(from: volume)
+        let wl = DensityWindow.automatic(from: volume)
 
         #expect(wl.width > 0)
         #expect(wl.lowerBound >= SyntheticVolume.air - 1)

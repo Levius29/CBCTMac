@@ -21,7 +21,7 @@ struct MPRViewportView: NSViewRepresentable {
     let plane: MPRPlane?
     let volumeTexture: VolumeTexture?
     let renderer: MPRRenderer?
-    let windowLevel: WindowLevel
+    let windowLevel: DensityWindow
 
     // Eventi. Le posizioni sono in **pixel della texture, origine in alto a sinistra**, già
     // convertite da `InteractiveMetalView`.
@@ -94,7 +94,7 @@ struct MPRViewportView: NSViewRepresentable {
         var plane: MPRPlane?
         var volumeTexture: VolumeTexture?
         var renderer: MPRRenderer?
-        var windowLevel: WindowLevel = .bone
+        var windowLevel: DensityWindow = .bone
         var onDrawableSize: ((CGSize) -> Void)?
 
         private var commandQueue: MTLCommandQueue?

@@ -19,7 +19,7 @@ struct PanoramicViewportView: NSViewRepresentable {
     let layout: PanoramicLayout
     let volumeTexture: VolumeTexture?
     let renderer: PanoramicRenderer?
-    let windowLevel: WindowLevel
+    let windowLevel: DensityWindow
 
     var onHoverArcLength: (Double?) -> Void = { _ in }
     var onClickArcLength: (Double) -> Void = { _ in }
@@ -83,7 +83,7 @@ struct PanoramicViewportView: NSViewRepresentable {
         var layout: PanoramicLayout?
         var volumeTexture: VolumeTexture?
         var renderer: PanoramicRenderer?
-        var windowLevel: WindowLevel = .bone
+        var windowLevel: DensityWindow = .bone
         var onDrawableSize: ((CGSize) -> Void)?
 
         private var commandQueue: MTLCommandQueue?
