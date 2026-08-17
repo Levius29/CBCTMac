@@ -127,6 +127,19 @@ let package = Package(
             dependencies: ["DentalKit", "DICOMCore", "VolumeKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Contratto delle API usate dall'applicazione.
+        //
+        // L'app non compila su Linux, perche' importa SwiftUI, AppKit e Metal. Le sue chiamate
+        // **nei moduli condivisi** pero' si possono verificare lo stesso: questo target le
+        // ripete con le stesse firme, quindi se compila ogni punto di chiamata dell'app verso i
+        // moduli e' corretto. Resta fuori solo il codice di piattaforma vero e proprio.
+        .testTarget(
+            name: "AppContractTests",
+            dependencies: [
+                "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "ImplantKitTests",
             dependencies: ["ImplantKit", "DICOMCore"],

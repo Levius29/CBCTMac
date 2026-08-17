@@ -38,26 +38,6 @@ struct RaycastUniforms {
     var gradientStepTex: Float
 }
 
-/// Parametri di illuminazione, comandati dai cursori dell'ispettore.
-public struct LightingParameters: Hashable, Sendable {
-    public var ambient: Double
-    public var diffuse: Double
-    public var specular: Double
-    public var shininess: Double
-
-    public init(
-        ambient: Double = 0.25, diffuse: Double = 0.85, specular: Double = 0.35,
-        shininess: Double = 24
-    ) {
-        self.ambient = ambient
-        self.diffuse = diffuse
-        self.specular = specular
-        self.shininess = shininess
-    }
-
-    public static let standard = LightingParameters()
-}
-
 public final class VolumeRaycaster {
 
     private let device: MTLDevice
