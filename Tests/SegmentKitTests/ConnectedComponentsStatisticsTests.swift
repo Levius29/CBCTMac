@@ -123,7 +123,7 @@ struct ConnectedComponentsStatisticsTests {
         mask.setLabel(4, i: 1, j: 1, k: 0)
         mask.setLabel(4, i: 2, j: 1, k: 0)
 
-        let summary = try #require(ConnectedComponents.label(mask).components.first)
+        let summary = try #require(try ConnectedComponents.label(mask).components.first)
         let first = geometry.patientPoint(i: 1, j: 1, k: 0)
         let second = geometry.patientPoint(i: 2, j: 1, k: 0)
 
@@ -174,7 +174,7 @@ struct ConnectedComponentsStatisticsTests {
         var mask = try #require(VolumeMask(geometry: geometry))
         for i in 0..<3 { mask.setLabel(5, i: i, j: 0, k: 0) }
 
-        let statistics = try #require(MaskAnalysis.statistics(of: volume, within: mask, label: nil))
+        let statistics = try #require(try MaskAnalysis.statistics(of: volume, within: mask, label: nil))
         #expect(statistics.meanDensity == 10.0 - (14.0 / 3.0))
         #expect(abs(statistics.standardDeviation - 3.055050463303893) < 1e-12)
         #expect(statistics.minimumDensity == 2)
@@ -200,7 +200,7 @@ struct ConnectedComponentsStatisticsTests {
         var mask = try #require(VolumeMask(geometry: geometry))
         mask.setLabel(1, i: 1, j: 0, k: 0)
 
-        let statistics = try #require(MaskAnalysis.statistics(of: volume, within: mask, label: 0))
+        let statistics = try #require(try MaskAnalysis.statistics(of: volume, within: mask, label: 0))
 
         #expect(statistics.voxelCount == 1)
         #expect(statistics.meanDensity == 10)
@@ -223,7 +223,7 @@ struct ConnectedComponentsStatisticsTests {
             label: 3
         )
 
-        let statistics = try #require(MaskAnalysis.statistics(of: volume, within: mask, label: nil))
+        let statistics = try #require(try MaskAnalysis.statistics(of: volume, within: mask, label: nil))
         let expectedVoxelCount = try #require(mask.voxelCounts()[3])
 
         #expect(statistics.meanDensity == 1200)
