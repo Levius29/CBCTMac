@@ -1,7 +1,7 @@
 # MeshKit — specifica di progettazione
 
 **Data:** 17 agosto 2026
-**Stato:** approvato nel dialogo, in attesa di revisione del documento
+**Stato:** approvato nel dialogo e aggiornato con le integrazioni di revisione
 **Ramo:** `codex/meshkit`
 
 ## 1. Obiettivo e confini
@@ -33,6 +33,15 @@ registrazione non rigida o decisioni cliniche sulla qualità del fit.
   conversione opposta soltanto nel momento in cui scrive il formato.
 - Ogni lettura di byte verifica prima il range. Un input troncato genera un errore e non può
   causare un accesso fuori dai limiti.
+- Ogni vertice importato viene verificato con `Vec3.isFinite` prima di entrare nella mesh.
+  `NaN` e infinito sono valori rappresentabili nei formati floating-point, ma non coordinate
+  valide: generano `MeshIOError.malformed` con nome del file e indice del vertice. Non vengono
+  sostituiti con zero, perché ciò creerebbe un vertice fantasma all'origine.
+- Ogni conversione da coordinata a indice di griglia verifica nuovamente `isFinite` e usa
+  `Int(exactly: Foundation.floor(coordinate / cellSize))`. Questa seconda guardia è necessaria
+  perché `Mesh.init` e gli array passati a ICP possono provenire dall'applicazione, non
+  soltanto dai parser;
+  `Int(Double.nan)` causa un trap a runtime.
 - Gli errori di import nominano sempre il file e descrivono in italiano la causa.
 - Nessun `try!`, `fatalError` o force unwrap viene usato su dati d'ingresso.
 - I commenti e le doc comment sono in italiano; gli identificatori restano in inglese.
@@ -67,6 +76,11 @@ ai due lati di un confine. Il primo vertice incontrato diventa il rappresentante
 tutti i triangoli vengono reindicizzati. Il metodo non elimina implicitamente le facce che
 diventano degeneri: quella responsabilità resta a `removingDegenerateTriangles()`.
 
+Un vertice non finito costruito direttamente dall'applicazione viene conservato come vertice
+unico, ma non viene convertito in coordinate di cella né inserito nella griglia. In questo modo
+`welded()` resta non fallibile e non può effettuare la conversione intrinsecamente pericolosa
+da `NaN` o infinito a `Int`.
+
 Una tolleranza non finita o non positiva restituisce la mesh invariata, perché l'API non è
 fallibile e non deve inventare una distanza valida. `removingDegenerateTriangles()` scarta
 indici ripetuti, indici fuori range e facce con area nulla.
@@ -79,7 +93,9 @@ floating-point byte per byte, senza caricare valori non allineati tramite puntat
 `MeshIOError.malformed`, mantenendo il percorso nel dettaglio.
 
 Una mesh importata deve contenere almeno un vertice e un triangolo; diversamente genera
-`emptyMesh`. Gli indici delle facce vengono validati prima di costruire il risultato.
+`emptyMesh`. Gli indici delle facce vengono validati prima di costruire il risultato. Ogni
+coordinata STL, PLY o OBJ viene inoltre validata immediatamente dopo la lettura: l'errore
+`malformed` nomina il file e l'indice progressivo del vertice non finito.
 
 ### STL
 
@@ -169,6 +185,11 @@ corrente e le 26 vicine; con quella dimensione ogni punto entro la distanza mass
 trovarsi in una di esse. Il campione sorgente è deterministico e distribuito uniformemente
 nell'array, fino a `sampleLimit` punti.
 
+Target non finiti vengono saltati prima di calcolare la chiave della griglia. Anche una
+sorgente trasformata non finita viene saltata prima della query. Se le guardie lasciano meno
+di tre corrispondenze, si applica la normale regola `didNotConverge`; nessuna coordinata non
+finita raggiunge mai una conversione a `Int`.
+
 Ogni iterazione:
 
 1. trasforma il campione con la trasformazione corrente;
@@ -184,6 +205,11 @@ Ogni iterazione:
 Trimmed ICP non è facoltativo: la scansione intraorale rappresenta soprattutto corone, mentre
 la superficie CBCT contiene anche osso, tessuti e artefatti senza controparte. Il peggior quinto
 trascinerebbe il fit fuori dai denti se non venisse scartato.
+
+Se `PointRegistration.align` rileva che le corrispondenze superstiti sono collineari o
+altrimenti degeneri, il suo `RegistrationError.degenerateConfiguration` viene propagato senza
+essere riclassificato come `didNotConverge`. Una configurazione geometrica insolubile e una
+divergenza iterativa sono fallimenti distinti e il chiamante deve poterli distinguere.
 
 ### Terminazione ICP
 
@@ -237,14 +263,17 @@ La suite copre almeno:
 - STL ASCII con whitespace irregolare e senza `endsolid`;
 - PLY ASCII, binario little-endian e binario big-endian;
 - proprietà binarie extra per vertice, inclusi colori;
+- PLY con coordinata `NaN` rifiutato con `malformed` invece di raggiungere la griglia;
 - OBJ con quattro forme di indice, indici negativi e quad triangolato;
 - input troncati e conteggio STL corrotto enorme;
 - welding, area, facce degeneri e trasformazione;
+- mesh costruita in memoria con un vertice `NaN` che attraversa `welded()` senza trap;
 - recupero di rotazione e traslazione note con RMS sotto `1e-9`;
 - impossibilità di restituire una riflessione;
 - rifiuto di punti collineari;
 - ICP da perturbazione piccola con RMS sotto `0.01 mm`;
 - trimmed ICP con il 30% di punti senza controparte;
+- propagazione di `degenerateConfiguration` da corrispondenze ICP collineari;
 - limite iterazioni che restituisce `converged == false`;
 - carenza di corrispondenze e cinque aumenti consecutivi;
 - esclusione e reinclusione con `RegionMask`.
