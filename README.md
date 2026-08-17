@@ -19,7 +19,7 @@ In sviluppo iniziale. Fase 1 — il visore — in corso.
 | Fase | Contenuto | Stato |
 |---|---|---|
 | 1 | MPR ortogonale, misure, annotazioni, rendering 3D | scritta, mai compilata |
-| 1b | Parser DICOM per aprire file veri | in corso |
+| 1b | Parser DICOM, decoder RLE e JPEG Lossless | **compilata e verificata** |
 | 2 | Panorex e sezioni trasversali d'arcata | scritta, mai compilata |
 | 3 | Nervo alveolare, pianificazione implantare, allarmi di prossimità | scritta, mai compilata |
 | 4 | Import mesh STL/PLY/OBJ e registrazione rigida | scritta, mai compilata |
@@ -36,7 +36,7 @@ In sviluppo iniziale. Fase 1 — il visore — in corso.
 
 ```
 Sources/
-  DICOMCore/    parsing DICOM, geometria del volume, decoding pixel, fantoccio sintetico
+  DICOMCore/    parsing DICOM, geometria, decoder pixel (nativi, RLE, JPEG Lossless)
   MeasureKit/   annotazioni, misure, statistiche ROI, documento .cbctplan
   VolumeKit/    Metal: MPR, slab, raycasting 3D, transfer function
   DentalKit/    curva d'arcata, panorex, sezioni trasversali
