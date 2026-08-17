@@ -14,7 +14,8 @@ misurazioni, annotazioni e pianificazione implantare.
 
 ## Stato
 
-In sviluppo iniziale. Fase 1 — il visore — in corso.
+I moduli condivisi compilano e sono verificati da 158 test. L'applicazione SwiftUI è scritta
+ma non ancora compilata: richiede macOS, e va provata lì.
 
 | Fase | Contenuto | Stato |
 |---|---|---|
@@ -60,12 +61,15 @@ swift run CBCTMacApp
 swift test
 ```
 
-All'avvio l'applicazione genera un **fantoccio sintetico** — un cubo da 20,00 mm con sfere di
-densità note — perché il parser DICOM non c'è ancora. Serve ad avere subito qualcosa di reale
-da disegnare, e a verificare le misure contro valori esatti senza toccare dati di pazienti.
+All'avvio l'applicazione genera un **fantoccio sintetico**: un cubo da 20,00 mm con sfere di
+densità note. Serve a verificare le misure contro valori esatti senza toccare dati di pazienti,
+e resta utile anche ora che si aprono studi veri.
 
-> **Nota.** Il codice non è ancora mai stato compilato: è stato scritto in un ambiente Linux
-> privo di toolchain Swift. Al primo `swift build` sono da attendersi errori da sistemare.
+> **Stato della verifica.** `swift test` copre i moduli condivisi: 158 test in 22 suite, tutti
+> verdi su Swift 6.2. Il target dell'applicazione è condizionale a macOS e non entra in quella
+> suite, perché importa SwiftUI, AppKit e Metal; le sue chiamate verso i moduli sono però
+> verificate da `AppContractTests`. Il primo `swift build` su macOS può quindi ancora produrre
+> errori, ma solo nel codice di piattaforma.
 
 L'eseguibile SPM va bene per lo sviluppo. Per la distribuzione servirà un vero target app in
 Xcode, con bundle e `Info.plist`.
