@@ -80,9 +80,18 @@ struct ViewportContainer: View {
             ZStack {
                 metalContent
 
-                // La curva dell'arcata si vede e si corregge sull'assiale, dove il suo
-                // andamento corrisponde a quello che si ha davanti agli occhi.
-                if slot == .axial, model.archCurve.isUsable {
+                // La curva dell'arcata si vede e si disegna sull'assiale, dove il suo andamento
+                // corrisponde a quello che si ha davanti agli occhi.
+                //
+                // La condizione comprende il caso in cui la curva **non** esiste ancora, e prima
+                // no: era `model.archCurve.isUsable`, quindi senza curva l'overlay non compariva e
+                // non c'era nulla su cui cliccare per crearne una. Combinato con la curva imposta
+                // all'apertura, l'unica azione possibile era spostare i punti di quella — da cui
+                // l'impressione di non poter intervenire.
+                if slot == .axial,
+                    model.archCurve.isUsable || model.isEditingArch
+                        || model.activeTool == .archCurve
+                {
                     ArchCurveOverlay(
                         model: model,
                         plane: model.planes[slot],

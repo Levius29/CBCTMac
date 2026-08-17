@@ -213,12 +213,23 @@ public struct ArchCurve: Hashable, Sendable, Codable {
         controlPointsMM.insert(point, at: clamped)
     }
 
-    public mutating func removeControlPoint(at index: Int) {
-        guard controlPointsMM.indices.contains(index) else { return }
-        // Sotto i due punti la curva non esiste più: si rifiuta invece di lasciare uno stato
-        // in cui il panorex sparisce senza spiegazione.
-        guard controlPointsMM.count > 2 else { return }
+    /// Rimuove un punto di controllo. Restituisce `false` se l'indice non esiste.
+    ///
+    /// Scendere sotto due punti **è permesso**, e prima non lo era. Il divieto nasceva da una
+    /// premessa che non vale più: quando la curva era imposta all'apertura, una curva incompleta
+    /// era uno stato in cui il panorex spariva senza spiegazione, e rifiutare sembrava prudente.
+    /// Ora la curva la disegna l'utente e nasce vuota, quindi una curva vuota è uno stato
+    /// legittimo con il suo messaggio; impedire di svuotarla toglieva invece l'unico modo di
+    /// ricominciare da capo cancellando i punti.
+    @discardableResult
+    public mutating func removeControlPoint(at index: Int) -> Bool {
+        guard controlPointsMM.indices.contains(index) else { return false }
         controlPointsMM.remove(at: index)
+        return true
+    }
+
+    public mutating func removeAllControlPoints() {
+        controlPointsMM.removeAll()
     }
 
     /// Indice del punto di controllo più vicino, entro `toleranceMM`.

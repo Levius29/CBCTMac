@@ -153,11 +153,21 @@ struct ArchCurveTests {
         #expect(ArchCurve(controlPointsMM: [Vec3(0, 0, 0), Vec3(1, 0, 0)]).isUsable)
     }
 
-    @Test("Non si può scendere sotto i due punti di controllo")
-    func cannotRemoveBelowTwo() {
+    @Test("Si può scendere sotto i due punti, e la curva smette semplicemente di essere usabile")
+    func canRemoveBelowTwo() {
+        // Questa prova asseriva l'opposto, e il cambiamento è deliberato. Il divieto nasceva da
+        // una premessa che non vale più: quando la curva era imposta all'apertura, una curva
+        // incompleta era uno stato in cui il panorex spariva senza spiegazione. Ora la curva la
+        // disegna l'utente e nasce vuota, quindi una curva vuota è uno stato legittimo — e
+        // impedire di svuotarla toglieva l'unico modo di ricominciare cancellando i punti.
         var curve = ArchCurve(controlPointsMM: [Vec3(0, 0, 0), Vec3(10, 0, 0)])
-        curve.removeControlPoint(at: 0)
-        #expect(curve.controlPointsMM.count == 2, "la curva non deve poter sparire")
+        let removed = curve.removeControlPoint(at: 0)
+        #expect(removed)
+        #expect(curve.controlPointsMM.count == 1)
+        #expect(!curve.isUsable, "un solo punto non definisce una curva")
+        // Chi la usa non deve andare in errore: restituisce zero e nessun campione.
+        #expect(curve.lengthMM == 0)
+        #expect(curve.resampled(count: 64).isEmpty)
     }
 
     @Test("Il punto di controllo più vicino si trova entro la tolleranza")
@@ -292,10 +302,15 @@ struct PanoramicLayoutTests {
 
     @Test("Il passo verticale punta verso i piedi")
     func downStepPointsInferior() {
+        // Con la scala isotropa il passo verticale vale `lunghezzaCurva / larghezza`, non piu
+        // il valore fisso di `millimetresPerPixel`: e questa uguaglianza che rende confrontabile
+        // una misura verticale con una orizzontale.
         let layout = PanoramicLayout(curve: curve(), millimetresPerPixel: 0.25)
-        let step = layout.downStepMM()
+        let width = 640
+        let step = layout.downStepMM(pixelWidth: width)
+        let expected = layout.curve.lengthMM / Double(width)
         #expect(step.z < 0)
-        #expect(abs(step.length - 0.25) < 1e-12)
+        #expect(abs(step.length - expected) < 1e-12)
     }
 
     @Test("Il numero di campioni dello slab ha un tetto")

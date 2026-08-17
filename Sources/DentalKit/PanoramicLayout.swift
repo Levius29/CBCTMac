@@ -70,26 +70,61 @@ public struct PanoramicLayout: Hashable, Sendable {
         curve.resampled(count: max(pixelWidth, 2))
     }
 
+    /// Millimetri per pixel effettivi, **uguali sui due assi**.
+    ///
+    /// Qui c'era il difetto che rendeva il panorex inservibile, e vale la pena scriverlo per
+    /// intero perché è istruttivo. La scala orizzontale non è mai stata una scelta: il renderer
+    /// ricampiona tutta la curva su `pixelWidth` colonne, quindi vale per costruzione
+    /// `lunghezzaCurva / larghezza`. La verticale invece usava `millimetresPerPixel`, un valore
+    /// fisso di 0,2 mm.
+    ///
+    /// Le due non coincidono quasi mai, e le conseguenze erano tre in una: l'immagine risultava
+    /// schiacciata in altezza, perché ogni pixel verticale copriva più millimetri di uno
+    /// orizzontale; copriva solo `altezzaPannello × 0,2` mm invece dei 70 richiesti; e partendo
+    /// dal bordo alto di quella finestra da 70 mm era tutta sbilanciata verso l'alto.
+    ///
+    /// L'aspetto era il sintomo meno grave. Con due scale diverse **una misura verticale sul
+    /// panorex non è confrontabile con una orizzontale**, ed è precisamente ciò per cui un
+    /// panorex ricostruito viene usato.
+    ///
+    /// Ora la scala è una sola e la ricava la larghezza: la curva riempie sempre il riquadro in
+    /// orizzontale, e l'estensione verticale visibile segue da lì. Un riquadro più alto mostra
+    /// più anatomia, non la stessa anatomia più stirata.
+    public func millimetresPerPixel(pixelWidth: Int) -> Double {
+        guard pixelWidth > 0, curve.lengthMM > 0 else { return millimetresPerPixel }
+        return curve.lengthMM / Double(pixelWidth)
+    }
+
+    /// Estensione verticale effettivamente inquadrata, in millimetri.
+    ///
+    /// Non è `heightMM`: quella resta la dimensione *richiesta*, usata per la risoluzione
+    /// naturale. Quella mostrata dipende dall'altezza del riquadro, perché la scala è isotropa.
+    public func visibleHeightMM(pixelWidth: Int, pixelHeight: Int) -> Double {
+        millimetresPerPixel(pixelWidth: pixelWidth) * Double(max(pixelHeight, 1))
+    }
+
     /// Passo verticale in millimetri per pixel, verso il basso dello schermo.
     ///
     /// Negativo lungo l'asse verticale del paziente perché sullo schermo il basso corrisponde
     /// ai piedi, come nelle viste coronale e sagittale.
-    public func downStepMM() -> Vec3 {
-        (curve.upAxis * -1.0) * millimetresPerPixel
+    public func downStepMM(pixelWidth: Int) -> Vec3 {
+        (curve.upAxis * -1.0) * millimetresPerPixel(pixelWidth: pixelWidth)
     }
 
     /// Punto Patient del centro del pixel `(0, 0)` per una data colonna.
-    public func topOfColumn(_ sample: ArchSample) -> Vec3 {
-        // Il centro verticale dell'immagine sta a `verticalCentreMM`; il bordo alto sta mezza
-        // altezza più su, e il primo campione mezzo pixel più in basso del bordo.
+    ///
+    /// L'immagine è centrata su `verticalCentreMM`: il primo pixel sta `(altezza − 1)/2` passi
+    /// più in alto. Con `(altezza − 1)/2` e non `altezza/2` la simmetria è esatta — la quota
+    /// richiesta cade sul centro del pixel di mezzo quando le righe sono in numero dispari, e
+    /// fra i due centrali quando è pari — e non serve alcuna correzione di mezzo pixel.
+    public func topOfColumn(_ sample: ArchSample, pixelWidth: Int, pixelHeight: Int) -> Vec3 {
         let up = curve.upAxis
         let columnCentre =
             sample.positionMM
             - up * sample.positionMM.dot(up)
             + up * verticalCentreMM
-        return columnCentre
-            + up * (heightMM * 0.5)
-            + downStepMM() * 0.5
+        let scale = millimetresPerPixel(pixelWidth: pixelWidth)
+        return columnCentre + up * (scale * Double(max(pixelHeight, 1) - 1) * 0.5)
     }
 
     /// Passo dello slab lungo la normale vestibolo-linguale, per una colonna.

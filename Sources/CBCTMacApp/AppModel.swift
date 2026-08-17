@@ -29,6 +29,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
     case text
     case implant
     case nerve
+    /// Disegno della curva d'arcata, punto per punto, sulla vista assiale.
+    case archCurve
 
     var localizedName: String {
         switch self {
@@ -40,6 +42,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .text: return "Testo"
         case .implant: return "Impianto"
         case .nerve: return "Traccia nervo"
+        case .archCurve: return "Disegna arcata"
         }
     }
 
@@ -53,6 +56,20 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .text: return "textformat"
         case .implant: return "screwdriver"
         case .nerve: return "point.topleft.down.curvedto.point.bottomright.up"
+        case .archCurve: return "scribble.variable"
+        }
+    }
+
+    /// Suggerimento mostrato quando lo strumento è attivo.
+    var hint: String? {
+        switch self {
+        case .archCurve:
+            return "Clicca sull'assiale per posare i punti dell'arcata · trascina per spostarli"
+                + " · ⌥ clic per cancellarne uno"
+        case .nerve:
+            return "Clicca lungo il canale mandibolare per tracciarlo"
+        default:
+            return nil
         }
     }
 }
@@ -86,7 +103,6 @@ enum ViewportLayout: String, CaseIterable, Hashable, Sendable {
     }
 }
 
-/// I quattro riquadri possibili.
 /// Risoluzione di rendering dei riquadri 2D, in frazione di quella nativa.
 ///
 /// Su un volume grande, e a piena risoluzione Retina, un riquadro può non stare nel budget di un
@@ -120,6 +136,7 @@ enum MPRResolution: String, CaseIterable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// I quattro riquadri possibili.
 enum ViewportSlot: String, CaseIterable, Hashable, Sendable, Identifiable {
     case axial
     case coronal
@@ -207,11 +224,55 @@ final class AppModel {
 
     // MARK: Arcata, panorex e sezioni
 
-    /// Curva dell'arcata. Da qui derivano sia il panorex sia le sezioni trasversali.
-    var archCurve = ArchCurve(controlPointsMM: [])
+    /// Curve d'arcata, una per arcata, indipendenti fra loro.
+    ///
+    /// Due e non una perché l'arcata superiore non ha la forma dell'inferiore e non sta alla
+    /// stessa quota: con una curva sola la panoramica riesce su un'arcata e sull'altra i denti
+    /// finiscono fuori dallo spessore campionato, cioè non compaiono affatto.
+    ///
+    /// Entrambe nascono **vuote**. Prima ne veniva imposta una all'apertura, una parabola al
+    /// centro del volume, cioè a metà fra le due arcate dove non c'è nessuna delle due: da lì
+    /// l'impressione, corretta, che il programma facesse di testa propria. Ora la curva la
+    /// disegna chi guarda l'anatomia, e la parabola resta disponibile come suggerimento su
+    /// richiesta — alla quota che si sta guardando, non al centro del volume.
+    var archCurves: [DentalArch: ArchCurve] = [
+        .maxillary: ArchCurve(controlPointsMM: []),
+        .mandibular: ArchCurve(controlPointsMM: []),
+    ]
 
-    /// Vero mentre l'utente sta correggendo la curva sull'assiale.
+    /// Arcata su cui si sta lavorando. Panorex e sezioni seguono questa.
+    var activeArch: DentalArch = .mandibular {
+        didSet {
+            guard activeArch != oldValue else { return }
+            selectedArchPointIndex = nil
+            // Passando da un'arcata all'altra si va a guardare dove sta la sua curva: è la curva
+            // a dire la quota, non l'utente a doverla ricordare e reimpostare a mano.
+            if let vertical = archCurve.averageVerticalMM {
+                archVerticalCentreMM = vertical
+            }
+            rebuildCrossSections()
+        }
+    }
+
+    /// Curva dell'arcata attiva. Da qui derivano sia il panorex sia le sezioni trasversali.
+    var archCurve: ArchCurve {
+        get { archCurves[activeArch] ?? ArchCurve(controlPointsMM: []) }
+        set { archCurves[activeArch] = newValue }
+    }
+
+    /// Vero mentre l'utente sta disegnando o correggendo la curva sull'assiale.
     var isEditingArch = false
+
+    /// Punto di controllo selezionato, quello che il tasto Backspace cancella.
+    var selectedArchPointIndex: Int?
+
+    /// Raggio di presa di un punto di controllo, in **pixel** dello schermo.
+    ///
+    /// In pixel e non in millimetri, perché la presa deve stare dov'è il dito: un bersaglio di
+    /// dimensione costante a schermo si afferra con la stessa facilità a ogni ingrandimento.
+    /// Espresso in millimetri, a zoom ridotto valdrebbe pochi pixel e i punti diventerebbero
+    /// impossibili da prendere.
+    static let archPointGrabRadiusPixels: Double = 14
 
     var panoramicHeightMM: Double = 70
     var panoramicSlabThicknessMM: Double = 20
@@ -263,11 +324,99 @@ final class AppModel {
         crossSectionPageStart = min(crossSectionPageStart, max(0, crossSections.count - 1))
     }
 
-    /// Reimposta la curva sull'arcata predefinita ricavata dal volume.
-    func resetArchCurve() {
-        guard let geometry = volume?.geometry else { return }
-        archCurve = ArchCurve.defaultArch(for: geometry)
+    // MARK: Disegno della curva d'arcata
+
+    /// Svuota entrambe le curve all'apertura di uno studio.
+    ///
+    /// Non impone più una parabola. Vedi il commento su `archCurves`: una curva imposta al centro
+    /// del volume cade fra le due arcate, e produce un panorex che non somiglia a niente.
+    func resetArchCurves() {
+        for arch in DentalArch.allCases {
+            archCurves[arch] = ArchCurve(controlPointsMM: [])
+        }
+        selectedArchPointIndex = nil
         archVerticalCentreMM = crosshairMM.z
+        rebuildCrossSections()
+    }
+
+    /// Aggiunge un punto alla curva attiva, nella posizione giusta dell'ordine di percorrenza.
+    ///
+    /// L'ordinamento lo decide `ArchCurve.addControlPoint`, che inserisce fra due punti quando il
+    /// clic cade lungo la curva e prolunga quando cade oltre un capo. Accodare sempre produrrebbe
+    /// un cappio, ed è il difetto che faceva sembrare la curva incontrollabile.
+    func addArchPoint(at pointMM: Vec3) {
+        var curve = archCurve
+        let outcome = curve.addControlPoint(pointMM)
+        archCurve = curve
+
+        switch outcome {
+        case .inserted(let index), .appended(let index):
+            selectedArchPointIndex = index
+        }
+
+        // La quota di lavoro segue la curva che si sta disegnando: i punti si posano sull'assiale,
+        // quindi nascono alla quota della fetta che si guarda, e panorex e sezioni devono
+        // centrarsi lì senza che l'utente lo chieda.
+        if let vertical = curve.averageVerticalMM {
+            archVerticalCentreMM = vertical
+        }
+        rebuildCrossSections()
+    }
+
+    func moveArchPoint(at index: Int, to pointMM: Vec3) {
+        var curve = archCurve
+        curve.moveControlPoint(at: index, to: pointMM)
+        archCurve = curve
+    }
+
+    func removeArchPoint(at index: Int) {
+        var curve = archCurve
+        guard curve.removeControlPoint(at: index) else { return }
+        archCurve = curve
+        selectedArchPointIndex = nil
+        rebuildCrossSections()
+    }
+
+    func removeSelectedArchPoint() {
+        guard let index = selectedArchPointIndex else { return }
+        removeArchPoint(at: index)
+    }
+
+    /// Svuota la curva dell'arcata attiva, lasciando intatta l'altra.
+    func clearActiveArchCurve() {
+        var curve = archCurve
+        curve.removeAllControlPoints()
+        archCurve = curve
+        selectedArchPointIndex = nil
+        rebuildCrossSections()
+    }
+
+    /// Propone una parabola d'arcata **alla quota che si sta guardando**.
+    ///
+    /// È un comando, non un comportamento automatico: la curva la decide chi guarda l'anatomia, e
+    /// questo serve solo a non dover posare sette punti da zero quando la forma è quella tipica.
+    func suggestArchCurve() {
+        guard let geometry = volume?.geometry else { return }
+        archCurve = ArchCurve.suggested(
+            for: geometry,
+            atVerticalMM: crosshairMM.z,
+            arch: activeArch)
+        archVerticalCentreMM = crosshairMM.z
+        selectedArchPointIndex = nil
+        isEditingArch = true
+        rebuildCrossSections()
+    }
+
+    /// Porta tutti i punti della curva attiva alla loro quota media.
+    ///
+    /// Posando i punti mentre si scorre di qualche fetta la curva viene leggermente elicoidale, e
+    /// su un panorex quella pendenza si legge come un'immagine che scivola in alto da un lato.
+    func flattenActiveArchCurve() {
+        var curve = archCurve
+        guard let vertical = curve.averageVerticalMM else { return }
+        curve.flatten(toVerticalMM: vertical)
+        archCurve = curve
+        archVerticalCentreMM = vertical
         rebuildCrossSections()
     }
 
@@ -534,7 +683,7 @@ final class AppModel {
         histogram = volume.rawHistogram(binCount: 256)
 
         resetPlanes()
-        resetArchCurve()
+        resetArchCurves()
         annotations = []
         roiStatistics = [:]
         selectedAnnotationID = nil

@@ -201,9 +201,11 @@ struct ModuleAPIContractTests {
         _ = panoramic.naturalPixelHeight
         _ = panoramic.curve.lengthMM
         let columns = panoramic.columnSamples(pixelWidth: 64)
-        _ = panoramic.downStepMM()
+        _ = panoramic.downStepMM(pixelWidth: 64)
         if let first = columns.first {
-            _ = panoramic.topOfColumn(first)
+            _ = panoramic.topOfColumn(first, pixelWidth: 64, pixelHeight: 48)
+            _ = panoramic.millimetresPerPixel(pixelWidth: 64)
+            _ = panoramic.visibleHeightMM(pixelWidth: 64, pixelHeight: 48)
             _ = panoramic.slabStep(for: first, sampleCount: 8)
             _ = first.positionMM
             _ = first.normal

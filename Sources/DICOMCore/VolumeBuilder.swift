@@ -270,32 +270,46 @@ public enum VolumeBuilder {
     /// Decide se i valori vanno etichettati come GV o come HU dichiarati.
     ///
     /// Applica il Contratto 4: su CBCT si scrive **GV**. Una CBCT si dichiara quasi sempre con
-    /// `Modality = CT`, quindi la modalità da sola non basta a distinguerla; si guardano anche
-    /// `RescaleType` e il fatto che l'intercetta valga −1024, che è la firma di una TC vera.
-    /// Nel dubbio si sceglie GV, che è l'etichetta prudente: dichiarare HU un valore che non lo
-    /// è offre al clinico un numero apparentemente confrontabile con la letteratura.
+    /// `Modality = CT`, quindi la modalità da sola non distingue nulla.
+    ///
+    /// - Important: `RescaleType = HU` **non basta**, e questo era un difetto vero. La versione
+    ///   precedente restituiva `.declaredHounsfield` alla prima riga, appena letto quel tag, e
+    ///   così ogni altro controllo — marchio dell'apparecchio, intercetta — non veniva mai
+    ///   raggiunto. Molte CBCT scrivono `HU` senza produrre unità Hounsfield, e su uno studio
+    ///   reale l'applicazione mostrava «HU» accanto a valori che arrivavano a 6000 con intercetta
+    ///   nulla. Sono valori grigi, e chiamarli HU offre un numero apparentemente confrontabile con
+    ///   la letteratura.
+    ///
+    /// Il discriminante affidabile è l'**intercetta**: una TC vera memorizza l'aria intorno a
+    /// −1000, e questo richiede un'intercetta ampiamente negativa. Con intercetta nulla la scala è
+    /// arbitraria, qualunque cosa dichiari `RescaleType`.
     static func inferDensityUnit(from dataset: DICOMDataset, series: ScannedSeries)
         -> DensityUnit
     {
-        let rescaleType = (dataset.string(DICOMTags.rescaleType) ?? "").uppercased()
-        if rescaleType == "HU" {
-            return .declaredHounsfield
-        }
-
         let intercept = dataset.double(DICOMTags.rescaleIntercept) ?? 0
+        let rescaleType = (dataset.string(DICOMTags.rescaleType) ?? "").uppercased()
         let modality = (series.modality ?? "").uppercased()
         let manufacturer = (dataset.string(DICOMTags.manufacturer) ?? "").uppercased()
 
-        // Marchi noti di apparecchi CBCT: se compare uno di questi, GV senza esitazioni.
+        // Marchi noti di apparecchi CBCT. Vengono prima di tutto, `RescaleType` compreso: se
+        // l'apparecchio è una CBCT, quello che dichiara sull'unità non cambia la fisica.
         let cbctMakers = [
             "NEWTOM", "IMAGING SCIENCES", "I-CAT", "PLANMECA", "MORITA", "VATECH",
             "CARESTREAM", "SIRONA", "DENTSPLY", "ACTEON", "CEFLA", "MYRAY", "OWANDY",
-            "GENORAY", "POINTNIX", "AJAT", "VILLA",
+            "GENORAY", "POINTNIX", "AJAT", "VILLA", "PREXION", "ASAHI", "TROPHY", "INSTRUMENTARIUM",
         ]
         if cbctMakers.contains(where: { manufacturer.contains($0) }) {
             return .greyValue
         }
 
+        // Firma di una TC calibrata: aria a −1000, quindi intercetta ampiamente negativa. La
+        // soglia è larga perché non tutte le TC usano esattamente −1024, ma nessuna scala
+        // calibrata in Hounsfield può avere intercetta prossima a zero.
+        let looksCalibrated = intercept <= -500
+
+        if rescaleType == "HU", looksCalibrated {
+            return .declaredHounsfield
+        }
         if modality == "CT", abs(intercept + 1024) < 1e-6 {
             return .declaredHounsfield
         }

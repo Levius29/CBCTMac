@@ -96,7 +96,8 @@ public final class PanoramicRenderer {
 
         for index in 0..<pixelWidth {
             let sample = samples[index]
-            let topMM = layout.topOfColumn(sample)
+            let topMM = layout.topOfColumn(
+                sample, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
             let slabStepMM = layout.slabStep(for: sample, sampleCount: slabCount)
 
             // Il punto porta la traslazione, il passo no.
@@ -118,7 +119,7 @@ public final class PanoramicRenderer {
         }
 
         // Il passo verticale è lo stesso per ogni colonna, quindi resta negli uniform.
-        let downStepMM = layout.downStepMM()
+        let downStepMM = layout.downStepMM(pixelWidth: pixelWidth)
         let texDownStep = toTexture.apply(toVector: downStepMM)
 
         let rawA = volume.rawValue(fromDensity: windowLevel.lowerBound)
