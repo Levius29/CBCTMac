@@ -107,8 +107,8 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | E3 | Lettere d'orientamento ai quattro bordi | ✅ | 3 | C |
 | E4 | Algoritmo di ricostruzione dichiarato | ✅ | 1 | C |
 | E5 | Maniglie del mirino sui bordi, colorate come i piani 3D | ✅ | 2 | I |
-| E6 | Etichette con **linea di richiamo** che non coprono l'anatomia | ❌ | 3 | F |
-| E7 | Etichette visibili su tutte le viste, 3D compreso | ❌ | 2 | F |
+| E6 | Etichette con **linea di richiamo** che non coprono l'anatomia | 🔶 | 3 | F |
+| E7 | Etichette visibili su tutte le viste, 3D compreso | 🔶 | 2 | F |
 | E8 | Barra di scala | ✅ | 2 | — |
 | E9 | Finestra e livello mostrati nel riquadro | ✅ | 2 | — |
 
@@ -206,7 +206,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | **C** | Spessore, proiezione e quote per riquadro — D1, D2, D7, E1…E4 | me | — | ✅ **fatto** |
 | **D** | Geometria delle sovraimpressioni 3D — H2…H6, H10 | Codex | VolumeKit | ✅ **fatto** |
 | **E** | Modello degli oggetti — C1…C12, A5, F9, J7 | Codex | tutti | ✅ **nucleo consegnato**, interfaccia nel lotto H |
-| **F** | Collocazione delle etichette — E6, E7 | Codex | E | da scrivere |
+| **F** | Collocazione delle etichette — E6, E7 | me (Codex esaurito) | E | ✅ **nucleo fatto**, il disegno nel lotto H |
 | **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | ✅ **fatto**, tranne H6 (il ritaglio vive solo nella sua finestra) |
 | **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | Codex | A, B, D, E | da scrivere |
 | **I** | Maniglie del mirino colorate — E5, H7 | me | — | ✅ **fatto** |
