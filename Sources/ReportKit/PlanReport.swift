@@ -87,6 +87,7 @@ public enum PlanReport {
     public static func html(_ input: PlanReportInput) -> String {
         var body = ""
         body += header(input)
+        body += reviewSection(input)
         body += provenanceSection(input)
         body += measurementsSection(input)
         body += implantsSection(input)
@@ -109,6 +110,30 @@ public enum PlanReport {
               generato il \(escape(formatter.string(from: input.generatedAt)))
             </p>
             """
+    }
+
+    /// Ciò che non torna, **prima** di tutto il resto.
+    ///
+    /// In cima e non in fondo: una relazione che elenca prima i numeri e poi i problemi si legge
+    /// nell'ordine sbagliato, e chi la stampa per firmarla vede i numeri.
+    private static func reviewSection(_ input: PlanReportInput) -> String {
+        let issues = PlanReview.issues(in: input)
+        guard !issues.isEmpty else { return "" }
+
+        let rows = issues.map { issue in
+            """
+            <li class="\(issue.severity == .blocking ? "danger" : issue.severity == .warning ? "caution" : "")">
+              <strong>\(escape(issue.title))</strong><br>
+              <span class="note">\(escape(issue.detail))</span>
+            </li>
+            """
+        }.joined()
+
+        let blocking = issues.filter { $0.severity == .blocking }.count
+        let heading = blocking > 0
+            ? "Da risolvere (\(blocking) bloccanti)"
+            : "Da guardare"
+        return "<h2>\(escape(heading))</h2><ul class=\"issues\">\(rows)</ul>"
     }
 
     private static func provenanceSection(_ input: PlanReportInput) -> String {
@@ -297,6 +322,10 @@ public enum PlanReport {
         td.caution { color: #b45309; }
         td.danger { color: #b91c1c; font-weight: 600; }
         ol.chain li { color: #444; }
+        ul.issues { padding-left: 20px; }
+        ul.issues li { margin-bottom: 10px; }
+        ul.issues li.danger::marker { color: #b91c1c; }
+        ul.issues li.caution::marker { color: #b45309; }
         @media print { body { margin: 0; } .warning { border-color: #000; } }
         </style>
         </head>

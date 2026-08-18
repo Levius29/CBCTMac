@@ -1,6 +1,7 @@
 import DICOMCore
 import ImplantKit
 import MeasureKit
+import ReportKit
 import StudyKit
 import SwiftUI
 
@@ -32,6 +33,8 @@ struct ReviewPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.spacingLarge) {
+            issuesSection
+            Divider().overlay(Palette.separator)
             volumeSection
             Divider().overlay(Palette.separator)
             implantSection
@@ -39,6 +42,62 @@ struct ReviewPanel: View {
             measurementSection
             Divider().overlay(Palette.separator)
             disclaimer
+        }
+    }
+
+    // MARK: Che cosa non torna
+
+    /// I problemi del piano, in cima e prima dei numeri.
+    ///
+    /// In cima perché è ciò che si deve vedere per primo: una scheda che elenca prima i valori e
+    /// poi i problemi si legge nell'ordine sbagliato. E qui e non solo nella relazione, perché la
+    /// relazione la si esporta a lavoro finito, mentre questi sono da vedere **mentre** lo si fa.
+    @ViewBuilder
+    private var issuesSection: some View {
+        let issues = model.planIssues
+        VStack(alignment: .leading, spacing: Metrics.spacing) {
+            SectionHeader("DA RISOLVERE")
+
+            if issues.isEmpty {
+                Text("Niente da segnalare su ciò che il programma sa verificare.")
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(issues) { issue in
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: symbol(for: issue.severity))
+                            .font(.system(size: 10))
+                            .foregroundStyle(colour(for: issue.severity))
+                            .padding(.top, 2)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(issue.title)
+                                .font(Typography.label)
+                                .foregroundStyle(colour(for: issue.severity))
+                            Text(issue.detail)
+                                .font(Typography.label)
+                                .foregroundStyle(Palette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func symbol(for severity: PlanIssueSeverity) -> String {
+        switch severity {
+        case .blocking: return "xmark.octagon.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .note: return "info.circle"
+        }
+    }
+
+    private func colour(for severity: PlanIssueSeverity) -> Color {
+        switch severity {
+        case .blocking: return Palette.danger
+        case .warning: return Palette.warning
+        case .note: return Palette.textSecondary
         }
     }
 

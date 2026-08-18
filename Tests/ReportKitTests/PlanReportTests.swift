@@ -85,6 +85,23 @@ struct PlanReportTests {
         #expect(html.contains("Nessuna misura"))
     }
 
+    @Test("I problemi stanno in cima, prima dei numeri")
+    func issuesComeBeforeTheNumbers() {
+        // Una relazione che elenca prima i numeri e poi i problemi si legge nell'ordine
+        // sbagliato: chi la stampa per firmarla vede i numeri.
+        let implant = ImplantPlacement(
+            model: ImplantModel(manufacturer: "P", line: "R", diameterMM: 4, lengthMM: 10),
+            platformMM: Vec3(0, 0, 10), axis: Vec3(0, 0, -1), label: "36")
+        let html = PlanReport.html(
+            PlanReportInput(
+                studyName: "Caso", annotations: [distance("m", context: context())],
+                implants: [implant]))
+
+        let issuesIndex = try! #require(html.range(of: "assenza di verifica")).lowerBound
+        let measuresIndex = try! #require(html.range(of: "<h2>Misure</h2>")).lowerBound
+        #expect(issuesIndex < measuresIndex)
+    }
+
     // MARK: La provenienza
 
     @Test("La catena del volume compare per intero")

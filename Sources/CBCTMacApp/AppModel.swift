@@ -2279,16 +2279,19 @@ final class AppModel {
         }
     }
 
-    /// Compone la relazione e la salva, poi la apre.
+    /// Ciò che non torna nel piano, sempre disponibile senza dover esportare.
     ///
-    /// HTML e non PDF: il PDF si ottiene stampando dal browser, che è un passaggio del sistema.
-    /// Generarlo qui vorrebbe dire scrivere un impaginatore e non poterlo verificare — mentre
-    /// del testo si prova che ogni avvertimento ci sia.
-    func exportReport() {
-        let input = PlanReportInput(
+    /// Calcolata su richiesta e non memorizzata: dipende da tutto — impianti, canali, misure,
+    /// dima — e tenerne una copia significherebbe doverla invalidare da dieci punti diversi.
+    /// Dimenticarne uno darebbe una lista vecchia, che è peggio di nessuna lista.
+    var planIssues: [PlanIssue] {
+        PlanReview.issues(in: reportInput())
+    }
+
+    /// I dati del piano nella forma che relazione e revisione si aspettano.
+    func reportInput() -> PlanReportInput {
+        PlanReportInput(
             studyName: library.selected?.name ?? "Studio",
-            // La catena dall'acquisito al volume in uso, un passo per riga: è ciò che dice se
-            // una misura viene dal dato o da un suo derivato.
             volumeProvenance: library.selected.map { entry in
                 library.ancestry(of: entry.id).map(\.summary)
             } ?? [],
@@ -2302,6 +2305,15 @@ final class AppModel {
             guideVolumeMM3: guideResult?.validation.volumeMM3,
             guideIsPrintable: guideResult?.validation.isPrintable,
             guideWarnings: guideResult?.validation.warnings ?? [])
+    }
+
+    /// Compone la relazione e la salva, poi la apre.
+    ///
+    /// HTML e non PDF: il PDF si ottiene stampando dal browser, che è un passaggio del sistema.
+    /// Generarlo qui vorrebbe dire scrivere un impaginatore e non poterlo verificare — mentre
+    /// del testo si prova che ogni avvertimento ci sia.
+    func exportReport() {
+        let input = reportInput()
 
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "relazione.html"
