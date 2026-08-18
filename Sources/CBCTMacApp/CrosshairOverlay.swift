@@ -124,14 +124,19 @@ struct CrosshairOverlay: View {
     /// Con una zona sensibile piena il centro del mirino diventerebbe una macchia morta: assorbe
     /// il clic perché la sagoma lo copre, e non fa nulla perché lì `grip` di proposito non
     /// risponde. Il punto più cliccato del riquadro smetterebbe di funzionare.
-    private static func brokenLine(of trace: CrosshairTrace) -> Path {
+    /// `nonisolated` perché la chiama anche `HitShape.path(in:)`, che `Shape` dichiara fuori dal
+    /// main actor. Senza, l'isolamento verrebbe dedotto dalla conformità a `View` e la chiamata
+    /// sarebbe implicitamente asincrona — cioè un avviso oggi e un errore alla prossima versione
+    /// del compilatore. La funzione è pura e non tocca stato condiviso, quindi non c'è niente da
+    /// proteggere.
+    nonisolated private static func brokenLine(of trace: CrosshairTrace) -> Path {
         var path = Path()
         appendSegment(&path, from: trace.start, towards: trace.pivot)
         appendSegment(&path, from: trace.end, towards: trace.pivot)
         return path
     }
 
-    private static func appendSegment(
+    nonisolated private static func appendSegment(
         _ path: inout Path, from end: PixelPoint, towards pivot: PixelPoint
     ) {
         let gap = CrosshairGeometry.centreGapPixels

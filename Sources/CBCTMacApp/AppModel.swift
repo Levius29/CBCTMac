@@ -462,12 +462,15 @@ final class AppModel {
             archVerticalCentreMM = vertical
         }
         rebuildCrossSections()
+        recordUndo("Aggiungi punto dell'arcata")
     }
 
     func moveArchPoint(at index: Int, to pointMM: Vec3) {
         var curve = archCurve
         curve.moveControlPoint(at: index, to: pointMM)
         archCurve = curve
+        // Raggruppato: trascinare un punto produce un evento per pixel.
+        recordContinuousUndo("Sposta punto dell'arcata")
     }
 
     func removeArchPoint(at index: Int) {
@@ -476,6 +479,7 @@ final class AppModel {
         archCurve = curve
         selectedArchPointIndex = nil
         rebuildCrossSections()
+        recordUndo("Togli punto dell'arcata")
     }
 
     func removeSelectedArchPoint() {
@@ -519,6 +523,278 @@ final class AppModel {
         archCurve = curve
         archVerticalCentreMM = vertical
         rebuildCrossSections()
+    }
+
+    // MARK: Oggetti del piano
+
+    /// Attributi comuni degli oggetti — nome, visibilità, colore, nota, ordine. Vedi
+    /// `PlanObjectRegistry`.
+    ///
+    /// Vive accanto agli oggetti invece che dentro di essi perché gli oggetti stanno in moduli
+    /// diversi — impianti in ImplantKit, curve in DentalKit, misure in MeasureKit — e mettere gli
+    /// attributi comuni dentro ciascuno significherebbe ripeterli tre volte e vederli divergere.
+    private(set) var registry = PlanObjectRegistry()
+
+    /// Allinea il registro agli oggetti realmente presenti.
+    ///
+    /// Si chiama dopo ogni mutazione del piano. Gli oggetti nuovi entrano con nome e colore
+    /// proposti; quelli spariti escono. Senza, l'elenco mostrerebbe voci per oggetti cancellati —
+    /// che si potrebbero selezionare senza che accada nulla.
+    func syncRegistry() {
+        var updated = registry
+
+        var live: Set<UUID> = []
+        for implant in implants {
+            live.insert(implant.id)
+            if updated[implant.id] == nil {
+                var info = PlanObjectInfo(
+                    id: implant.id, kind: .implant,
+                    name: implant.label.isEmpty
+                        ? updated.suggestedName(for: .implant) : implant.label,
+                    order: updated.objects(of: .implant).count)
+                info.colorHex = updated.suggestedColorHex(for: .implant)
+                updated.register(info)
+            }
+        }
+        for nerve in nerveCanals {
+            live.insert(nerve.id)
+            if updated[nerve.id] == nil {
+                var info = PlanObjectInfo(
+                    id: nerve.id, kind: .nerveCanal,
+                    name: updated.suggestedName(for: .nerveCanal),
+                    order: updated.objects(of: .nerveCanal).count)
+                info.colorHex = updated.suggestedColorHex(for: .nerveCanal)
+                updated.register(info)
+            }
+        }
+        for annotation in annotations {
+            live.insert(annotation.id)
+            if updated[annotation.id] == nil {
+                var info = PlanObjectInfo(
+                    id: annotation.id, kind: .annotation,
+                    name: annotation.metadata.label.isEmpty
+                        ? annotation.kindName : annotation.metadata.label,
+                    order: updated.objects(of: .annotation).count)
+                info.colorHex = updated.suggestedColorHex(for: .annotation)
+                updated.register(info)
+            }
+        }
+
+        for object in updated.objects where !live.contains(object.id) {
+            updated.remove(id: object.id)
+        }
+        registry = updated
+    }
+
+    /// Accende o spegne un oggetto.
+    func setObjectVisible(_ visible: Bool, id: UUID) {
+        registry.setVisible(visible, id: id)
+        // La visibilità vive in due posti per gli impianti — nel registro e nell'oggetto — perché
+        // il disegno 3D legge l'oggetto. Si tengono allineati qui, in un punto solo.
+        if let index = implants.firstIndex(where: { $0.id == id }) {
+            implants[index].isVisible = visible
+        }
+        if let index = annotations.firstIndex(where: { $0.id == id }) {
+            annotations[index].metadata.isHidden = !visible
+        }
+        if let index = nerveCanals.firstIndex(where: { $0.id == id }) {
+            nerveCanals[index].isVisible = visible
+        }
+        recordUndo(visible ? "Mostra oggetto" : "Nascondi oggetto")
+    }
+
+    func setObjectColor(_ hex: String, id: UUID) {
+        if var info = registry[id] {
+            info.colorHex = hex
+            registry[id] = info
+        }
+        if let index = implants.firstIndex(where: { $0.id == id }) {
+            implants[index].colorHex = hex.hasPrefix("#") ? hex : "#" + hex
+        }
+        if let index = annotations.firstIndex(where: { $0.id == id }) {
+            annotations[index].metadata.colorHex = hex.hasPrefix("#") ? hex : "#" + hex
+        }
+        if let index = nerveCanals.firstIndex(where: { $0.id == id }) {
+            nerveCanals[index].colorHex = hex.hasPrefix("#") ? hex : "#" + hex
+        }
+        recordUndo("Cambia colore")
+    }
+
+    func renameObject(_ name: String, id: UUID) {
+        registry.rename(name, id: id)
+        if let index = implants.firstIndex(where: { $0.id == id }) {
+            implants[index].label = name
+        }
+        recordUndo("Rinomina")
+    }
+
+    func setObjectLocked(_ locked: Bool, id: UUID) {
+        registry.setLocked(locked, id: id)
+    }
+
+    /// Porta tutte le viste su un oggetto.
+    ///
+    /// È l'azione più usata di un elenco di oggetti e la più facile da dimenticare: senza, per
+    /// tornare su un impianto pianificato mezz'ora prima bisogna cercarlo scorrendo le fette.
+    func centreOnObject(id: UUID) {
+        if let implant = implants.first(where: { $0.id == id }) {
+            moveCrosshair(to: implant.platformMM)
+            selectedImplantID = id
+            return
+        }
+        if let nerve = nerveCanals.first(where: { $0.id == id }), let first = nerve.nodes.first {
+            moveCrosshair(to: first.positionMM)
+            return
+        }
+        if let annotation = annotations.first(where: { $0.id == id }),
+            let handle = annotation.handlesMM.first
+        {
+            moveCrosshair(to: handle)
+            selectedAnnotationID = id
+        }
+    }
+
+    func deleteObject(id: UUID) {
+        implants.removeAll { $0.id == id }
+        nerveCanals.removeAll { $0.id == id }
+        annotations.removeAll { $0.id == id }
+        if selectedImplantID == id { selectedImplantID = nil }
+        if selectedAnnotationID == id { selectedAnnotationID = nil }
+        registry.remove(id: id)
+        recomputeSafety()
+        recordUndo("Cancella oggetto")
+    }
+
+    /// Cancella tutti gli oggetti di un tipo.
+    func deleteObjects(of kind: PlanObjectKind) {
+        let doomed = Set(registry.objects(of: kind).map(\.id))
+        guard !doomed.isEmpty else { return }
+        implants.removeAll { doomed.contains($0.id) }
+        nerveCanals.removeAll { doomed.contains($0.id) }
+        annotations.removeAll { doomed.contains($0.id) }
+        registry.removeAll(of: kind)
+        recomputeSafety()
+        recordUndo("Cancella tutti")
+    }
+
+    /// Duplica un impianto, spostandolo di un passo perché non resti nascosto sotto l'originale.
+    func duplicateImplant(id: UUID) {
+        guard let source = implants.first(where: { $0.id == id }) else { return }
+        var copy = source
+        copy.id = UUID()
+        copy.label = ""
+        // Cinque millimetri lungo l'arcata, non lungo un asse della macchina: si duplica un
+        // impianto per metterlo accanto al precedente nella stessa arcata.
+        let offset = archCurve.isUsable ? archTangent(near: source.platformMM) : Vec3(5, 0, 0)
+        copy.platformMM = source.platformMM + offset * 5
+        implants.append(copy)
+        selectedImplantID = copy.id
+        recomputeSafety()
+        syncRegistry()
+        recordUndo("Duplica impianto")
+    }
+
+    /// Specchia un impianto sul lato opposto, ribaltando la componente L-R.
+    ///
+    /// Ribalta rispetto a x = 0, che in LPS è il piano sagittale mediano nominale. Su un paziente
+    /// non centrato nella macchina non è il suo vero piano mediano, e il risultato va controllato:
+    /// è un punto di partenza, non una simmetria anatomica.
+    func mirrorImplant(id: UUID) {
+        guard let source = implants.first(where: { $0.id == id }) else { return }
+        var copy = source
+        copy.id = UUID()
+        copy.label = ""
+        copy.platformMM = Vec3(-source.platformMM.x, source.platformMM.y, source.platformMM.z)
+        copy.axis = Vec3(-source.axis.x, source.axis.y, source.axis.z)
+        implants.append(copy)
+        selectedImplantID = copy.id
+        recomputeSafety()
+        syncRegistry()
+        recordUndo("Specchia impianto")
+    }
+
+    /// Tangente all'arcata vicino a un punto, per duplicare lungo la curva.
+    private func archTangent(near pointMM: Vec3) -> Vec3 {
+        let samples = archCurve.resampled(count: 80)
+        var best = samples.first
+        var bestDistance = Double.infinity
+        for sample in samples {
+            let distance = sample.positionMM.distance(to: pointMM)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = sample
+            }
+        }
+        return best?.tangent ?? Vec3(1, 0, 0)
+    }
+
+    // MARK: Annulla e ripeti
+
+    /// Tutto ciò che «annulla» deve poter riportare indietro.
+    ///
+    /// Contiene il **piano**, non la vista: annotazioni, impianti, nervi, curve. Zoom, finestra di
+    /// densità e fetta corrente restano fuori di proposito. Sono navigazione, non lavoro: chi
+    /// preme ⌘Z dopo aver cancellato un impianto vuole l'impianto, non l'inquadratura di prima, e
+    /// una cronologia che mescola le due cose costringe a premere venti volte per tornare a
+    /// un'operazione vera.
+    struct PlanSnapshot: Equatable, Sendable {
+        var annotations: [Annotation]
+        var implants: [ImplantPlacement]
+        var nerveCanals: [NerveCanal]
+        var archCurves: [DentalArch: ArchCurve]
+    }
+
+    private var undoHistory = UndoHistory<PlanSnapshot>(initial: PlanSnapshot(
+        annotations: [], implants: [], nerveCanals: [], archCurves: [:]))
+
+    /// Vero mentre si sta applicando un annulla: le mutazioni che ne derivano non vanno
+    /// registrate, altrimenti annullare creerebbe un passo nuovo e «ripeti» non tornerebbe mai.
+    private var isRestoring = false
+
+    var canUndo: Bool { undoHistory.canUndo }
+    var canRedo: Bool { undoHistory.canRedo }
+    var undoLabel: String? { undoHistory.undoLabel }
+    var redoLabel: String? { undoHistory.redoLabel }
+
+    private var planSnapshot: PlanSnapshot {
+        PlanSnapshot(
+            annotations: annotations, implants: implants,
+            nerveCanals: nerveCanals, archCurves: archCurves)
+    }
+
+    /// Registra lo stato attuale come un passo annullabile.
+    func recordUndo(_ label: String) {
+        guard !isRestoring else { return }
+        undoHistory.commit(planSnapshot, label: label)
+    }
+
+    /// Come `recordUndo`, ma unisce le chiamate ravvicinate con la stessa etichetta.
+    ///
+    /// Da usare durante i trascinamenti: senza, spostare un impianto lascia in cronologia un
+    /// passo per ogni pixel percorso.
+    func recordContinuousUndo(_ label: String) {
+        guard !isRestoring else { return }
+        undoHistory.coalesce(planSnapshot, label: label, within: 1.2)
+    }
+
+    func undo() { apply(undoHistory.undo()) }
+    func redo() { apply(undoHistory.redo()) }
+
+    private func apply(_ snapshot: PlanSnapshot?) {
+        guard let snapshot else { return }
+        isRestoring = true
+        annotations = snapshot.annotations
+        implants = snapshot.implants
+        nerveCanals = snapshot.nerveCanals
+        archCurves = snapshot.archCurves
+        isRestoring = false
+
+        // Ciò che deriva dal piano si ricalcola invece di essere conservato nell'istantanea:
+        // sono funzioni dello stato, e tenerne una copia significherebbe poterle avere in
+        // disaccordo con esso.
+        recomputeSafety()
+        syncRegistry()
+        if archCurve.isUsable { rebuildCrossSections() }
     }
 
     // MARK: Nervo e impianti
@@ -570,6 +846,8 @@ final class AppModel {
         implants.append(placement)
         selectedImplantID = placement.id
         recomputeSafety()
+        syncRegistry()
+        recordUndo("Aggiungi impianto")
     }
 
     func updateSelectedImplant(_ transform: (inout ImplantPlacement) -> Void) {
@@ -600,6 +878,10 @@ final class AppModel {
         else { return }
         nerveCanals[index].addNode(NerveNode(positionMM: pointMM))
         recomputeSafety()
+        syncRegistry()
+        // Raggruppato: tracciare un canale sono venti clic di seguito, e annullarli uno per uno
+        // sarebbe venti pressioni per disfare un gesto solo.
+        recordContinuousUndo("Traccia nervo")
     }
 
     func finishTracingNerve() {
@@ -879,8 +1161,16 @@ final class AppModel {
         guard !preservingPlan else { return }
         resetArchCurves()
         annotations = []
+        implants = []
+        nerveCanals = []
         roiStatistics = [:]
         selectedAnnotationID = nil
+        selectedImplantID = nil
+        registry = PlanObjectRegistry()
+        // La cronologia riparte: annullare fin dentro il caso precedente non ha senso, e su dati
+        // clinici sarebbe pericoloso — riporterebbe nell'immagine di questo paziente gli impianti
+        // pianificati per un altro.
+        undoHistory.reset(to: planSnapshot)
     }
 
     // MARK: Piani
@@ -1185,6 +1475,8 @@ final class AppModel {
         annotations.append(annotation)
         selectedAnnotationID = annotation.id
         recomputeStatistics(for: annotation)
+        syncRegistry()
+        recordUndo("Aggiungi \(annotation.kindName.lowercased())")
     }
 
     func removeSelectedAnnotation() {
@@ -1192,6 +1484,8 @@ final class AppModel {
         annotations.removeAll { $0.id == id }
         roiStatistics.removeValue(forKey: id)
         selectedAnnotationID = nil
+        syncRegistry()
+        recordUndo("Cancella misura")
     }
 
     /// Ricalcola le statistiche di una ROI.

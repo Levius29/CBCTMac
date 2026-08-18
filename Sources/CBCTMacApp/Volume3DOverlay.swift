@@ -80,7 +80,14 @@ struct Volume3DOverlay: View {
         var visible = Path()
         var hidden = Path()
         for edge in edges {
-            append(edge, to: edge.isHidden ? &hidden : &visible)
+            // Un `if` e non un ternario: `&hidden : &visible` non compila, perché un `inout` non
+            // si può scegliere dentro un'espressione — Swift deve sapere staticamente quale
+            // variabile si sta prendendo in prestito.
+            if edge.isHidden {
+                append(edge, to: &hidden)
+            } else {
+                append(edge, to: &visible)
+            }
         }
         // Gli spigoli dietro sono tratteggiati e più deboli. È la convenzione del disegno
         // tecnico, e senza di essa una gabbia in fil di ferro è ambigua: lo stesso disegno si
@@ -125,7 +132,11 @@ struct Volume3DOverlay: View {
             var front = Path()
             var back = Path()
             for segment in segments {
-                append(segment, to: segment.isHidden ? &back : &front)
+                if segment.isHidden {
+                    append(segment, to: &back)
+                } else {
+                    append(segment, to: &front)
+                }
             }
             context.stroke(
                 back, with: .color(color.opacity(0.35)),
