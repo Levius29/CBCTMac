@@ -186,7 +186,47 @@ private struct ObjectRow: View {
             Spacer(minLength: 0)
         }
         .padding(.leading, 22)
+
+        // Profondità e inclinazione: gli stessi due movimenti che si fanno trascinando
+        // l'impianto nei riquadri, dichiarati anche qui.
+        //
+        // Non è una ripetizione inutile. Il trascinamento è il gesto giusto ma è invisibile —
+        // nulla, guardando l'immagine, dice che un impianto si possa afferrare — e su questo
+        // progetto una funzione che non si vede è già equivalsa tre volte a una funzione che non
+        // c'è. In più questi comandi fanno una cosa che il mouse non fa: passi **esatti**, e per
+        // la profondità di una piattaforma un decimo di millimetro conta.
+        HStack(spacing: 10) {
+            Text("Profondità")
+                .font(Typography.numericSmall)
+                .foregroundStyle(Palette.textSecondary)
+            Button { slide(-0.5) } label: { Image(systemName: "arrow.up") }
+                .help("Solleva l'impianto di mezzo millimetro lungo il suo asse")
+            Button { slide(0.5) } label: { Image(systemName: "arrow.down") }
+                .help("Affonda l'impianto di mezzo millimetro lungo il suo asse")
+
+            Text(angleLabel(implant))
+                .font(Typography.numericSmall)
+                .foregroundStyle(Palette.textSecondary)
+            Spacer(minLength: 0)
+        }
+        .controlSize(.mini)
+        .padding(.leading, 22)
         .padding(.bottom, 2)
+    }
+
+    private func slide(_ millimetres: Double) {
+        model.selectedImplantID = object.id
+        model.slideSelectedImplant(byMM: millimetres)
+    }
+
+    /// Inclinazione rispetto alla verticale del paziente.
+    ///
+    /// Si mostra perché è il numero che dice se un impianto è protesicamente ragionevole, e
+    /// perché è l'unico riscontro di un'inclinazione fatta trascinando: trascinando si vede la
+    /// forma muoversi, non di quanti gradi.
+    private func angleLabel(_ implant: ImplantPlacement) -> String {
+        guard let degrees = implant.angleDegrees(to: Vec3(0, 0, 1)) else { return "" }
+        return String(format: "· %.0f° dalla verticale", degrees)
     }
 
     private var row: some View {

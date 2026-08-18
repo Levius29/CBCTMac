@@ -1011,6 +1011,79 @@ final class AppModel {
         safetyReports = reports
     }
 
+    /// Presa sull'impianto in corso, con l'ultimo punto raggiunto.
+    ///
+    /// Sta nel modello e non nella vista perché un impianto si afferra in un riquadro e lo si
+    /// guarda in tutti: il trascinamento comincia sull'assiale e la sezione trasversale deve
+    /// mostrarlo muoversi nello stesso istante.
+    private(set) var implantDrag: (id: UUID, grip: ImplantGrip, lastMM: Vec3)?
+
+    /// Prova ad afferrare un impianto in un punto.
+    ///
+    /// - Parameter toleranceMM: quanto lontano dalla superficie si può premere, commisurato a
+    ///   quanto vale un pixel nel riquadro. Una tolleranza fissa in millimetri renderebbe la
+    ///   presa impossibile su una vista d'insieme e troppo facile su una molto ingrandita.
+    /// - Returns: `true` se qualcosa è stato afferrato, così chi chiama sa di non dover
+    ///   interpretare lo stesso gesto anche in altri modi.
+    @discardableResult
+    func beginImplantDrag(at pointMM: Vec3, toleranceMM: Double) -> Bool {
+        implantDrag = nil
+        guard workMode.isEditable else { return false }
+
+        // Il più vicino all'asse fra quelli che si possono afferrare, non il primo dell'elenco:
+        // su due impianti adiacenti a tre millimetri l'uno dall'altro le zone di presa si
+        // sovrappongono, e prendere sempre il primo renderebbe il secondo inafferrabile.
+        var best: (implant: ImplantPlacement, grip: ImplantGrip, distance: Double)?
+        for implant in implants where implant.isVisible {
+            guard
+                let grip = ImplantManipulation.grip(
+                    at: pointMM, of: implant, toleranceMM: toleranceMM)
+            else { continue }
+            let relative = pointMM - implant.platformMM
+            let z = relative.dot(implant.axis)
+            let radial = (relative - implant.axis * z).length
+            if best == nil || radial < best!.distance {
+                best = (implant, grip, radial)
+            }
+        }
+
+        guard let best else { return false }
+        implantDrag = (best.implant.id, best.grip, pointMM)
+        selectedImplantID = best.implant.id
+        return true
+    }
+
+    /// Continua il trascinamento di un impianto.
+    func dragImplant(toMM pointMM: Vec3) {
+        guard let drag = implantDrag,
+            let index = implants.firstIndex(where: { $0.id == drag.id })
+        else { return }
+
+        implants[index] = ImplantManipulation.dragged(
+            implants[index], grip: drag.grip, toMM: pointMM, fromMM: drag.lastMM)
+        implantDrag?.lastMM = pointMM
+        recomputeSafety()
+        recordContinuousUndo("Sposta impianto")
+    }
+
+    func endImplantDrag() {
+        implantDrag = nil
+    }
+
+    /// Fa scorrere l'impianto selezionato lungo il proprio asse.
+    ///
+    /// È la regolazione più frequente — quanto la piattaforma sta sotto la cresta — e merita un
+    /// comando esplicito: farla trascinando in diagonale costringerebbe a correggere subito dopo
+    /// la posizione trasversale, cioè a lottare col gesto invece di usarlo.
+    func slideSelectedImplant(byMM depth: Double) {
+        guard let id = selectedImplantID,
+            let index = implants.firstIndex(where: { $0.id == id })
+        else { return }
+        implants[index] = ImplantManipulation.slid(implants[index], byMM: depth)
+        recomputeSafety()
+        recordUndo("Profondità impianto")
+    }
+
     func addImplant(at pointMM: Vec3, axis: Vec3 = Vec3(0, 0, -1)) {
         // La piattaforma va dove l'utente ha cliccato e l'impianto scende da lì: è il gesto
         // atteso, perché si sceglie il punto di emergenza guardando la cresta.
@@ -1381,6 +1454,9 @@ final class AppModel {
 
     /// Adotta un volume: costruisce la texture, imposta mirino, finestra e inquadrature.
     func adopt(volume: Volume, preservingPlan: Bool = false) {
+        // La geometria **precedente**, prima di sostituirla: serve a decidere se le inquadrature
+        // restano valide. Una riduzione delle strie non cambia un voxel di posto, un ritaglio sì.
+        let previousGeometry = self.volume?.geometry
         self.volume = volume
 
         if let device {
@@ -1404,12 +1480,44 @@ final class AppModel {
         if !(preservingPlan && volume.geometry.containsPatientPoint(crosshairMM)) {
             crosshairMM = volume.geometry.centerMM
         }
-        windowLevel = DensityWindow.automatic(from: volume)
-        camera = VolumeCamera.fitted(to: volume.geometry)
         histogram = volume.rawHistogram(binCount: 256)
 
-        resetPlanes()
-        guard !preservingPlan else { return }
+        // Finestra e inquadratura **si conservano** passando da un volume all'altro dello stesso
+        // studio, e si ricalcolano solo aprendone uno nuovo.
+        //
+        // Si passa dall'originale alle strie ridotte per **confrontarli**, e un confronto in cui
+        // cambiano anche finestra di densità e punto di vista non confronta niente: le due
+        // immagini risulterebbero diverse per ragioni che non c'entrano con la correzione.
+        if !preservingPlan {
+            windowLevel = DensityWindow.automatic(from: volume)
+            camera = VolumeCamera.fitted(to: volume.geometry)
+        }
+
+        // Con la stessa geometria le inquadrature restano valide, e conservarle è il punto:
+        // confrontando due volumi si è ingranditi su un dente, e ripartire dall'inquadratura
+        // completa costringerebbe a ritrovarlo a ogni scambio. Se invece la geometria è
+        // cambiata — un ritaglio, un ricampionamento — l'inquadratura vecchia può cadere fuori
+        // dal volume nuovo, e allora si riparte.
+        if preservingPlan, previousGeometry == volume.geometry {
+            syncPlanesToCrosshair()
+        } else {
+            resetPlanes()
+        }
+
+        if preservingPlan {
+            // Tutto ciò che è **misurato sui voxel** va rifatto sul volume nuovo. Le annotazioni
+            // restano dove sono — i millimetri Patient sono gli stessi — ma i loro valori no:
+            // una ROI su un volume con le strie ridotte legge densità diverse, ed è esattamente
+            // la ragione per cui si è passati all'altro volume. Lasciare i numeri vecchi
+            // mostrerebbe la stessa cifra su due volumi diversi, cioè risponderebbe «nessuna
+            // differenza» a chiunque avesse fatto la correzione per vedere la differenza.
+            for annotation in annotations {
+                recomputeStatistics(for: annotation)
+            }
+            recomputeSafety()
+            return
+        }
+
         resetArchCurves()
         annotations = []
         implants = []
@@ -2044,6 +2152,14 @@ final class AppModel {
     /// sessanta fotogrammi al secondo diventano lavoro sprecato su un dato immobile.
     private(set) var profileSamples: [UUID: [ProfileSample]] = [:]
 
+    /// Se l'annotazione è una regione di cui ci si aspetta delle statistiche.
+    private func isROI(_ annotation: Annotation) -> Bool {
+        switch annotation {
+        case .ellipseROI, .polygonROI, .sphereROI: return true
+        default: return false
+        }
+    }
+
     func recomputeStatistics(for annotation: Annotation) {
         if case .profileLine(let line) = annotation, let volume {
             profileSamples[annotation.id] = ROISampler.profile(for: line, in: volume)
@@ -2062,8 +2178,13 @@ final class AppModel {
             default:
                 stats = nil
             }
+            // Assegnare **o togliere**: una ROI finita fuori dal volume nuovo non ha più
+            // statistiche, e lasciare le vecchie mostrerebbe un numero che non appartiene più a
+            // nulla. Prima il valore restava lì, indistinguibile da uno appena calcolato.
             if let stats {
                 roiStatistics[annotation.id] = stats
+            } else if isROI(annotation) {
+                roiStatistics.removeValue(forKey: annotation.id)
             }
         } catch {
             roiStatistics.removeValue(forKey: annotation.id)

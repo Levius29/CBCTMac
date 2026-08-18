@@ -784,6 +784,22 @@ struct CrossSectionCell: View {
     /// Dimensione del drawable in pixel, che è lo spazio in cui arrivano i clic.
     @State private var pixelSize: CGSize = .zero
 
+    /// Il punto Patient sotto un pixel di questa sezione, se le dimensioni sono note.
+    private func patientPoint(at point: CGPoint) -> Vec3? {
+        guard pixelSize.width > 0, pixelSize.height > 0 else { return nil }
+        let plane = zoomedPlane.matchingAspect(
+            pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
+        return plane.patientPoint(
+            atPixelX: Double(point.x), y: Double(point.y),
+            pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
+    }
+
+    /// Sei pixel convertiti alla scala della sezione. Vedi `ViewportGrid.grabToleranceMM`.
+    private var grabToleranceMM: Double {
+        guard pixelSize.width > 0 else { return 1 }
+        return zoomedPlane.widthMM / Double(pixelSize.width) * 6
+    }
+
     /// Un clic su una sezione: con la navigazione la sceglie, con uno strumento misura.
     ///
     /// Questa vista è arrivata tardi rispetto ai riquadri ortogonali, e per un po' l'unica cosa
@@ -799,14 +815,9 @@ struct CrossSectionCell: View {
             return
         }
 
-        guard pixelSize.width > 0, pixelSize.height > 0 else { return }
+        guard let patient = patientPoint(at: point) else { return }
         let plane = zoomedPlane.matchingAspect(
-            pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
-        // Non opzionale, a differenza dell'omonima della panorex: un piano è infinito, e un
-        // pixel ci cade sempre. È la curva a poter non esistere, non il piano.
-        let patient = plane.patientPoint(
-            atPixelX: Double(point.x), y: Double(point.y),
-            pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
+            pixelWidth: Int(max(pixelSize.width, 1)), pixelHeight: Int(max(pixelSize.height, 1)))
 
         let spacing = model.volume?.geometry.spacingMM ?? Vec3(1, 1, 1)
         model.applyToolClick(
@@ -827,7 +838,23 @@ struct CrossSectionCell: View {
                 renderer: model.mprRenderer,
                 windowLevel: model.windowLevel,
                 onClick: handleClick,
+                onDrag: { point, _ in
+                    guard model.implantDrag != nil, let patient = patientPoint(at: point) else {
+                        return
+                    }
+                    model.dragImplant(toMM: patient)
+                },
                 onDoubleClick: { model.closeToolSession() },
+                onDragBegan: { point in
+                    // Un impianto si aggiusta guardando la **sezione trasversale**: è lì che si
+                    // vede il rapporto con la corticale vestibolare e col canale, ed è quindi lì
+                    // che serve poterlo afferrare.
+                    guard model.activeTool == .navigate || model.activeTool == .implant,
+                        let patient = patientPoint(at: point)
+                    else { return }
+                    model.beginImplantDrag(at: patient, toleranceMM: grabToleranceMM)
+                },
+                onDragEnded: { model.endImplantDrag() },
                 onCancel: { model.cancelToolSession() },
                 onDrawableSize: { pixelSize = $0 }
             )

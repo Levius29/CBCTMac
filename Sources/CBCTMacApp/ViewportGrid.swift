@@ -275,6 +275,7 @@ struct ViewportContainer: View {
                 onDragBegan: handleDragBegan,
                 onCancel: { model.cancelToolSession() },
                 onDragEnded: {
+                    model.endImplantDrag()
                     finishTwoPointDrag()
 
                     // Un tracciato a mano libera si chiude alzando il dito: è il gesto con cui
@@ -415,6 +416,17 @@ struct ViewportContainer: View {
         model.applyToolClick(at: end, anchor: anchor)
     }
 
+    /// Quanto lontano dalla superficie di un impianto si può premere per afferrarlo.
+    ///
+    /// In millimetri, ma **derivata dai pixel**: sei pixel di schermo, convertiti alla scala
+    /// corrente del riquadro. Una tolleranza fissa in millimetri sarebbe impossibile da centrare
+    /// su una vista d'insieme — dove sei millimetri sono pochi pixel — e prenderebbe mezzo
+    /// riquadro su una vista molto ingrandita.
+    private var grabToleranceMM: Double {
+        guard let plane = adjustedPlane, pixelSize.width > 0 else { return 1 }
+        return plane.widthMM / Double(pixelSize.width) * 6
+    }
+
     /// Il piano di questo riquadro, per ancorarci la misura che comincia qui.
     private func toolAnchor() -> ToolAnchor? {
         guard let plane = adjustedPlane, let geometry = model.volume?.geometry else { return nil }
@@ -471,6 +483,18 @@ struct ViewportContainer: View {
         guard model.workMode.isEditable else { return }
 
         twoPointDrag = nil
+
+        // Un impianto afferrato viene prima di tutto il resto: chi preme sul corpo di un impianto
+        // sta spostando quello, non misurando né spostando il mirino. Solo con la navigazione o
+        // con lo strumento impianto in mano, però — con un righello in mano il gesto appartiene
+        // al righello, e afferrare l'impianto lo renderebbe impossibile da misurare.
+        if model.activeTool == .navigate || model.activeTool == .implant,
+            let patient = patientPoint(atPixel: pixelPoint),
+            model.beginImplantDrag(at: patient, toleranceMM: grabToleranceMM)
+        {
+            model.focusedSlot = slot
+            return
+        }
 
         // Uno strumento a due punti con la sessione vuota: si annota la pressione e **non** si
         // posa nulla. Posare qui il primo punto significherebbe che un clic fermo ne produce due
@@ -570,6 +594,11 @@ struct ViewportContainer: View {
             if let patient = patientPoint(atPixel: point) {
                 model.appendFreehandPoint(at: patient, anchor: toolAnchor())
             }
+            return
+        }
+
+        if model.implantDrag != nil {
+            if let patient = patientPoint(atPixel: point) { model.dragImplant(toMM: patient) }
             return
         }
 
