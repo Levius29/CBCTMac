@@ -2097,6 +2097,14 @@ final class AppModel {
     var scanLandmarks: [LandmarkPair] = []
     var isScanVisible = true
 
+    /// Contorno della scansione sulla **sezione trasversale selezionata**.
+    ///
+    /// Solo quella, e non tutte le visibili: la striscia ne mostra dieci, e intersecare
+    /// centomila triangoli dieci volte a ogni scorrimento renderebbe lo scorrimento viscoso. La
+    /// sezione selezionata è quella che si sta studiando, ed è lì che serve vedere se la
+    /// scansione segue lo smalto.
+    private(set) var selectedSectionContour: [[Vec3]] = []
+
     /// Contorno della scansione su ciascun riquadro, in millimetri Patient.
     ///
     /// Si ricalcola quando i piani cambiano, **non** a ogni ridisegno: intersecare centomila
@@ -2173,6 +2181,7 @@ final class AppModel {
     func rebuildScanContours() {
         guard let scan, isScanVisible else {
             scanContours = [:]
+            selectedSectionContour = []
             return
         }
         let placed = scan.transformed(by: scanTransform)
@@ -2184,6 +2193,17 @@ final class AppModel {
             if !contour.loops.isEmpty { contours[slot] = contour.loops }
         }
         scanContours = contours
+
+        if let section = crossSectionBrowser.selectedSection {
+            selectedSectionContour = MeshSlicer.contour(
+                of: placed,
+                planeOriginMM: section.plane.centerMM,
+                planeNormalMM: section.plane.normalMM,
+                toleranceMM: 1e-4
+            ).loops
+        } else {
+            selectedSectionContour = []
+        }
     }
 
     // MARK: - Dima chirurgica

@@ -22,11 +22,16 @@ import VolumeKit
 struct ScanContourOverlay: View {
 
     let model: AppModel
-    let slot: ViewportSlot
+    /// Riquadro ortogonale, quando il contorno viene da lì.
+    var slot: ViewportSlot?
+    /// Anelli e piano espliciti, per una sezione trasversale, che un riquadro non è.
+    var explicitLoops: [[Vec3]]?
+    var explicitPlane: MPRPlane?
 
     var body: some View {
         Canvas { context, size in
-            guard let loops = model.scanContours[slot], !loops.isEmpty,
+            let source = explicitLoops ?? slot.flatMap { model.scanContours[$0] }
+            guard let loops = source, !loops.isEmpty,
                 let plane = resolvedPlane(size: size)
             else { return }
 
@@ -71,7 +76,8 @@ struct ScanContourOverlay: View {
     }
 
     private func resolvedPlane(size: CGSize) -> MPRPlane? {
-        guard let plane = model.planes[slot], size.width > 0, size.height > 0 else { return nil }
+        let source = explicitPlane ?? slot.flatMap { model.planes[$0] }
+        guard let plane = source, size.width > 0, size.height > 0 else { return nil }
         return plane.matchingAspect(
             pixelWidth: Int(size.width), pixelHeight: Int(size.height))
     }
