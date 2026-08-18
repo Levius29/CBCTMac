@@ -53,6 +53,35 @@ struct CBCTMacApp: App {
                     .disabled(model.volume == nil)
             }
 
+            // Annulla e ripeti nel loro posto di sistema, con le scorciatoie che tutti
+            // conoscono. `replacing: .undoRedo` e non un menu nuovo: macOS ha già una voce per
+            // questo, e metterne una seconda accanto significa che metà delle volte si prova
+            // quella sbagliata.
+            CommandGroup(replacing: .undoRedo) {
+                Button(model.undoLabel.map { "Annulla \($0.lowercased())" } ?? "Annulla") {
+                    model.undo()
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!model.canUndo)
+
+                Button(model.redoLabel.map { "Ripeti \($0.lowercased())" } ?? "Ripeti") {
+                    model.redo()
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!model.canRedo)
+            }
+
+            CommandMenu("Modo") {
+                // Le cinque schede anche da tastiera: ⌃1…⌃5. Non ⌘ perché quelle sono già le
+                // disposizioni, e due significati per la stessa combinazione sono un errore in
+                // attesa.
+                ForEach(Array(WorkMode.allCases.enumerated()), id: \.element) { index, mode in
+                    Button(mode.localizedName) { model.activate(mode: mode) }
+                        .keyboardShortcut(
+                            KeyEquivalent(Character("\(index + 1)")), modifiers: .control)
+                }
+            }
+
             CommandMenu("Vista") {
                 ForEach(ViewportLayout.allCases, id: \.self) { layout in
                     Button(layout.localizedName) { model.layout = layout }
@@ -65,8 +94,12 @@ struct CBCTMacApp: App {
             }
 
             CommandMenu("Strumenti") {
-                ForEach(Tool.allCases, id: \.self) { tool in
+                // Le prime nove lettere della fila di casa non servono a nulla di mnemonico, e i
+                // numeri sono presi: si usano le iniziali dove non collidono, che è la
+                // convenzione dei visori — N per navigare, D per distanza, A per arcata.
+                ForEach(Array(Tool.allCases.enumerated()), id: \.element) { _, tool in
                     Button(tool.localizedName) { model.activeTool = tool }
+                        .keyboardShortcut(KeyEquivalent(tool.shortcut), modifiers: [])
                 }
                 Divider()
                 Button("Elimina misura selezionata") { model.removeSelectedAnnotation() }

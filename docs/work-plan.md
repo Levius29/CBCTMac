@@ -42,11 +42,11 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| A1 | Nome del paziente al centro della barra del titolo | ❌ | 2 | H |
+| A1 | Nome del paziente al centro della barra del titolo | ✅ | 2 | H |
 | A2 | Versione del programma visibile | 🔶 | 1 | H |
 | A3 | Cinque **modi di lavoro** a schede, non layout: ortogonale, curvo, personalizzato, obliquo, relazione | ✅ | 3 | K |
-| A4 | Pannelli laterali richiudibili con memoria dello stato | ❌ | 2 | H |
-| A5 | Pannello contestuale che cambia col tipo di oggetto attivo | ❌ | 3 | E, H |
+| A4 | Pannelli laterali richiudibili con memoria dello stato | ✅ | 2 | H |
+| A5 | Pannello contestuale che cambia col tipo di oggetto attivo | ✅ | 3 | E, H |
 | A6 | Galleria delle istantanee salvate | ❌ | 1 | J |
 | A7 | Menu applicazione con impostazioni | 🔶 | 1 | H |
 
@@ -65,25 +65,25 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | B9 | Strumento dente protesico | ❌ | 2 | M |
 | B10 | Profilo del viso / cefalometria | ❌ | 1 | M |
 | B11 | Piano di taglio arbitrario con varianti | 🔶 | 2 | J |
-| B12 | Strumenti **contestuali**: la palette cambia con la scheda | ❌ | 2 | H |
-| B13 | Varianti raggiungibili dal triangolino, non da un menu lontano | ❌ | 2 | H |
+| B12 | Strumenti **contestuali**: la palette cambia con la scheda | ✅ | 2 | H |
+| B13 | Varianti raggiungibili dal triangolino, non da un menu lontano | ✅ | 2 | H |
 
 ### C — Oggetti del piano
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| C1 | Elenco degli oggetti per tipo | 🔶 | 3 | E |
-| C2 | Visibilità per oggetto (occhio) | ❌ | 3 | E |
-| C3 | Colore per oggetto, scelto o assegnato | 🔶 | 2 | E |
-| C4 | Cancellazione per oggetto, e di tutto il tipo | 🔶 | 2 | E |
+| C1 | Elenco degli oggetti per tipo | ✅ | 3 | E |
+| C2 | Visibilità per oggetto (occhio) | ✅ | 3 | E |
+| C3 | Colore per oggetto, scelto o assegnato | ✅ | 2 | E |
+| C4 | Cancellazione per oggetto, e di tutto il tipo | ✅ | 2 | E |
 | C5 | Nota testuale allegata a un oggetto | ❌ | 1 | E |
-| C6 | «Porta al centro» un oggetto: tutte le viste ci si spostano | ❌ | 3 | E |
-| C7 | Selezione evidenziata, coerente fra elenco e viste | 🔶 | 3 | E |
+| C6 | «Porta al centro» un oggetto: tutte le viste ci si spostano | ✅ | 3 | E |
+| C7 | Selezione evidenziata, coerente fra elenco e viste | ✅ | 3 | E |
 | C8 | Parametri modificabili in linea con passo (L, Ø) | ❌ | 3 | E |
-| C9 | Duplica oggetto | ❌ | 2 | E |
-| C10 | Specchia oggetto sul lato opposto | ❌ | 2 | E |
-| C11 | Blocco di un oggetto contro modifiche accidentali | ❌ | 1 | E |
-| C12 | Ordine e rinomina | ❌ | 1 | E |
+| C9 | Duplica oggetto | ✅ | 2 | E |
+| C10 | Specchia oggetto sul lato opposto | ✅ | 2 | E |
+| C11 | Blocco di un oggetto contro modifiche accidentali | ✅ | 1 | E |
+| C12 | Ordine e rinomina | ✅ | 1 | E |
 
 ### D — Barra di ogni riquadro
 
@@ -175,8 +175,8 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 |---|---|---|---|---|
 | J1 | Relazione impaginata con immagini e misure | ❌ | 2 | J |
 | J2 | Stampa | ❌ | 1 | J |
-| J3 | Copia negli appunti | ❌ | 2 | J |
-| J4 | Istantanea di un riquadro | 🔶 | 2 | J |
+| J3 | Copia negli appunti | ✅ | 2 | J |
+| J4 | Istantanea di un riquadro | ✅ | 2 | J |
 | J5 | Esportazione della cartella DICOM | ❌ | 1 | J |
 | J6 | Esportazione su disco con visualizzatore | ❌ | 1 | — |
 | J7 | Note del caso | ❌ | 1 | E |
@@ -187,12 +187,12 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| K1 | Annulla e ripeti | 🔶 | 3 | O |
-| K2 | Preset di rendering come anteprime cliccabili | 🔶 | 2 | H |
+| K1 | Annulla e ripeti | ✅ | 3 | O |
+| K2 | Preset di rendering come anteprime cliccabili | ✅ | 2 | H |
 | K3 | Impostazioni del mouse configurabili | ❌ | 1 | H |
 | K4 | Stato della sessione conservato fra le schede | ✅ | 2 | K |
 | K5 | Salvataggio automatico del piano | ❌ | 2 | O |
-| K6 | Scorciatoie da tastiera coerenti | 🔶 | 2 | H |
+| K6 | Scorciatoie da tastiera coerenti | ✅ | 2 | H |
 
 ---
 
@@ -208,7 +208,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | **E** | Modello degli oggetti — C1…C12, A5, F9, J7 | Codex | tutti | ✅ **nucleo consegnato**, interfaccia nel lotto H |
 | **F** | Collocazione delle etichette — E6, E7 | me (Codex esaurito) | E | ✅ **nucleo fatto**, il disegno nel lotto H |
 | **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | ✅ **fatto**, tranne H6 (il ritaglio vive solo nella sua finestra) |
-| **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | Codex | A, B, D, E | da scrivere |
+| **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | me | A, B, D, E | ✅ **fatto**, restano A7 e K3 |
 | **I** | Maniglie del mirino colorate — E5, H7 | me | — | ✅ **fatto** |
 | **J** | Esportazione e relazione — J1…J5, J8, D4, D5, B11 | Codex | E | da scrivere |
 | **K** | Modi di lavoro e volumi multipli — A3, I6, J9, K4 | me | A | ✅ **fatto** |

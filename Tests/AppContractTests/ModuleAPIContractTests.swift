@@ -879,4 +879,57 @@ struct ModuleAPIContractTests {
         let section = try #require(browser.selectedSection)
         #expect(abs(section.plane.rightMM.dot(section.plane.normalMM)) < 1e-9)
     }
+
+    // MARK: Lotto H — colonna di sinistra, registro e cronologia
+
+    @Test("Le API che la colonna di sinistra e la cronologia usano")
+    func leftColumnAPI() throws {
+        let volume = try makeVolume()
+
+        // `AppModel.registry` e `ObjectListPanel`
+        var registry = PlanObjectRegistry()
+        let implantID = UUID()
+        var info = PlanObjectInfo(id: implantID, kind: .implant, name: "36", order: 0)
+        info.colorHex = registry.suggestedColorHex(for: .implant)
+        registry.register(info)
+        registry.setVisible(false, id: implantID)
+        registry.setLocked(true, id: implantID)
+        registry.rename("46", id: implantID)
+        #expect(registry.objects(of: .implant).count == 1)
+        #expect(!registry.isVisible(implantID))
+        #expect(registry.objects.count == 1)
+        for kind in PlanObjectKind.allCases {
+            _ = registry.objects(of: kind).count
+            _ = registry.suggestedName(for: kind)
+        }
+        registry.removeAll(of: .implant)
+        #expect(registry.objects.isEmpty)
+
+        // `AppModel.recordUndo` / `undo` / `redo`, sul tipo che l'app usa davvero.
+        struct Snapshot: Equatable, Sendable { var count: Int }
+        var history = UndoHistory(initial: Snapshot(count: 0))
+        history.commit(Snapshot(count: 1), label: "Aggiungi impianto")
+        history.coalesce(Snapshot(count: 2), label: "Sposta impianto", within: 1.2)
+        #expect(history.canUndo)
+        #expect(history.undoLabel == "Sposta impianto")
+        _ = history.undo()
+        _ = history.redo()
+        history.reset(to: Snapshot(count: 0))
+        #expect(!history.canUndo)
+
+        // `AdjustmentsPanel`: la striscia di anteprima campiona la transfer function.
+        for preset in TransferFunction.presets {
+            let densities = preset.value.stops.map(\.density)
+            #expect(!densities.isEmpty, "il preset \(preset.name) non ha punti di controllo")
+            let sample = preset.value.sample(at: densities.min() ?? 0)
+            _ = sample.color.red
+            _ = sample.opacity
+        }
+
+        // `ArchCurveOverlay.nearestControl`, che ora usa anche `ViewportGrid`.
+        _ = MPRPlane.fitted(plane: .axial, geometry: volume.geometry)
+
+        // `ProstheticTooth`, che il pannello protesico mostrerà.
+        #expect(ProstheticTooth.standard(forToothNumber: 36) != nil)
+    }
 }

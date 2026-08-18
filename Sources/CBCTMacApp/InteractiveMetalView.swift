@@ -70,7 +70,12 @@ final class InteractiveMetalView: MTKView {
     /// Il segnale deve arrivare dal pulsante del mouse e non da un timer di inattività: con un
     /// timer la prima frazione di secondo di rotazione girerebbe comunque a piena qualità, che
     /// è esattamente il momento in cui la fluidità conta di più.
-    var onDragBegan: (() -> Void)?
+    /// Inizio di un trascinamento, con il punto premuto in pixel.
+    ///
+    /// Il punto serve a decidere **che cosa** si è afferrato prima che il trascinamento cominci:
+    /// una maniglia del mirino, una linea, o niente. Deciderlo al primo movimento sarebbe già
+    /// tardi — il primo movimento è quello che sposta.
+    var onDragBegan: ((CGPoint) -> Void)?
     var onDragEnded: (() -> Void)?
 
     // MARK: Configurazione
@@ -271,7 +276,7 @@ final class InteractiveMetalView: MTKView {
         lastPixelLocation = pressLocation
         accumulatedMovement = 0
         exceededClickSlop = false
-        onDragBegan?()
+        onDragBegan?(pressLocation ?? .zero)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -318,7 +323,7 @@ final class InteractiveMetalView: MTKView {
     override func otherMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         lastPixelLocation = pixelLocation(of: event)
-        onDragBegan?()
+        onDragBegan?(pixelLocation(of: event))
     }
 
     override func otherMouseDragged(with event: NSEvent) {

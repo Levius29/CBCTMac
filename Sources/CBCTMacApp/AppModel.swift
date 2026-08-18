@@ -6,6 +6,7 @@ import Metal
 import StudyKit
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 import VolumeKit
 
 // Stato dell'applicazione.
@@ -44,6 +45,38 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .implant: return "Impianto"
         case .nerve: return "Traccia nervo"
         case .archCurve: return "Disegna arcata"
+        }
+    }
+
+    /// Una riga che dice come si usa. Compare sotto la palette, e vale piu' di un'icona: un
+    /// righello che chiede **due** clic non lo dice da se', e chi ne dà uno solo pensa sia rotto.
+    var hint: String? {
+        switch self {
+        case .navigate: return nil
+        case .distance: return "Fai clic sui due estremi."
+        case .angle: return "Fai clic sui tre punti, il vertice per primo."
+        case .ellipseROI: return "Trascina dal centro verso il bordo."
+        case .sphereROI: return "Fai clic sul centro, poi sul bordo."
+        case .text: return "Fai clic dove vuoi la nota."
+        case .implant: return "Fai clic sulla cresta: l'impianto scende da lì."
+        case .nerve: return "Fai clic lungo il canale, un nodo per volta."
+        case .archCurve: return "Fai clic sull'assiale per posare i punti. ⌥ clic per togliere."
+        }
+    }
+
+    /// Scorciatoia a tasto singolo, come nei visori: si cambia strumento senza modificatori,
+    /// perché lo si cambia venti volte in una sessione e ⌘ moltiplicato per venti si sente.
+    var shortcut: Character {
+        switch self {
+        case .navigate: return "n"
+        case .distance: return "d"
+        case .angle: return "g"
+        case .ellipseROI: return "e"
+        case .sphereROI: return "s"
+        case .text: return "t"
+        case .implant: return "i"
+        case .nerve: return "v"
+        case .archCurve: return "a"
         }
     }
 
@@ -189,6 +222,9 @@ final class AppModel {
         // In sola lettura nessuno strumento di modifica resta in mano.
         if !mode.isEditable { activeTool = .navigate }
     }
+
+    /// Variante dello strumento attivo, quando ne ha. Vedi `ToolPalette`.
+    var toolVariant: String = "distance"
 
     var activeTool: Tool = .navigate {
         didSet {
@@ -523,6 +559,83 @@ final class AppModel {
         archCurve = curve
         archVerticalCentreMM = vertical
         rebuildCrossSections()
+    }
+
+    // MARK: Esportazione
+
+    /// Le quattro azioni del pannello «Esporta», raccolte qui invece che nelle viste.
+    ///
+    /// Nelle viste ci stavano già, sparse: il CSV nell'ispettore, il salvataggio nel menu
+    /// dell'applicazione. Tre punti diversi per tre cose che l'utente vede come una sola famiglia,
+    /// e nessuno che le trovasse. Concentrarle nel modello significa che il pannello le chiama e
+    /// basta, e che aggiungerne una quinta non richiede di decidere dove metterla.
+
+    /// Messaggio dell'ultima azione, mostrato in barra di stato. `nil` quando non c'è nulla da
+    /// dire: un'azione riuscita in silenzio lascia il dubbio che non sia successo niente.
+    var lastActionMessage: String?
+
+    /// Istantanea del riquadro attivo, in PNG.
+    ///
+    /// Risoluzione fissa e generosa, indipendente da quella della finestra: chi esporta vuole
+    /// un'immagine da guardare altrove, non una copia di quanto sta a schermo.
+    func requestSnapshot() {
+        guard volume != nil, let plane = planes[focusedSlot] else {
+            lastActionMessage = "Nessuno studio aperto."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(focusedSlot.localizedName.lowercased()).png"
+        panel.allowedContentTypes = [.png]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try ImageExport.exportPNG(
+                plane: plane, model: self, pixelWidth: 1600, pixelHeight: 1200, to: url)
+            lastActionMessage = "Immagine salvata in \(url.lastPathComponent)."
+        } catch {
+            lastActionMessage = "Esportazione fallita: \(error.localizedDescription)"
+        }
+    }
+
+    func copyMeasurementsToClipboard() {
+        guard !annotations.isEmpty else {
+            lastActionMessage = "Nessuna misura da copiare."
+            return
+        }
+        let csv = makePlanDocument().measurementsCSV(unit: densityUnit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(csv, forType: .string)
+        lastActionMessage = "\(annotations.count) misure copiate negli appunti."
+    }
+
+    func exportMeasurementsCSV() {
+        guard !annotations.isEmpty else {
+            lastActionMessage = "Nessuna misura da esportare."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "misure.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let csv = makePlanDocument().measurementsCSV(unit: densityUnit)
+        do {
+            try csv.write(to: url, atomically: true, encoding: .utf8)
+            lastActionMessage = "Misure esportate in \(url.lastPathComponent)."
+        } catch {
+            lastActionMessage = "Esportazione fallita: \(error.localizedDescription)"
+        }
+    }
+
+    func savePlan() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(studyName).cbctplan"
+        panel.allowedContentTypes = [.data]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try ProjectDocument(from: self).write(to: url)
+            lastActionMessage = "Piano salvato in \(url.lastPathComponent)."
+        } catch {
+            lastActionMessage = "Salvataggio fallito: \(error.localizedDescription)"
+        }
     }
 
     // MARK: Oggetti del piano

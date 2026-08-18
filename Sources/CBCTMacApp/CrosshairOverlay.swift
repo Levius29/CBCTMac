@@ -1,4 +1,3 @@
-import AppKit
 import DICOMCore
 import StudyKit
 import SwiftUI
@@ -32,39 +31,18 @@ struct CrosshairOverlay: View {
     let model: AppModel
     let slot: ViewportSlot
 
-    /// Che cosa si sta trascinando. Deciso alla pressione e non riletto: cercare la presa a ogni
-    /// notifica farebbe saltare il gesto da una linea all'altra passandoci sopra.
-    @State private var drag: ActiveDrag?
-
-    private struct ActiveDrag {
-        let represented: ViewportSlot
-        let grip: CrosshairGrip
-        /// Posizione precedente, per gli spostamenti incrementali.
-        var lastPoint: PixelPoint
-        /// Se ruotare il solo piano afferrato invece di entrambi. Fissato alla pressione: se il
-        /// modificatore si rileggesse durante il gesto, alzare ⌥ a metà trascinamento cambierebbe
-        /// il significato di ciò che si è già fatto.
-        let isIndependent: Bool
-    }
-
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
             let items = traces(in: size)
 
-            ZStack {
-                Canvas { context, _ in
-                    for item in items { draw(item, in: &context) }
-                }
-                .allowsHitTesting(false)
-
-                // La zona sensibile è **solo** la sagoma delle linee e delle maniglie. Un
-                // rettangolo pieno, che sarebbe la via breve, intercetterebbe ogni clic del
-                // riquadro e lascerebbe l'immagine sotto senza navigazione.
-                Color.clear
-                    .contentShape(HitShape(traces: items))
-                    .gesture(dragGesture(in: size, traces: items))
+            Canvas { context, _ in
+                for item in items { draw(item, in: &context) }
             }
+            // Solo disegno. I gesti passano dal percorso eventi di `InteractiveMetalView`, in
+            // `ViewportGrid`: vedi lì il commento sul perché un `DragGesture` sopra un `MTKView`
+            // non riceve nulla.
+            .allowsHitTesting(false)
         }
     }
 
@@ -105,8 +83,7 @@ struct CrosshairOverlay: View {
             Self.brokenLine(of: trace), with: .color(color.opacity(0.85)), lineWidth: 1)
 
         for handle in [trace.startHandle, trace.endHandle].compactMap({ $0 }) {
-            let isActive = drag?.represented == item.represented
-            let radius: CGFloat = isActive ? 6 : 5
+            let radius: CGFloat = 5
             let rect = CGRect(
                 x: handle.x - radius, y: handle.y - radius,
                 width: radius * 2, height: radius * 2)
@@ -124,19 +101,28 @@ struct CrosshairOverlay: View {
     /// Con una zona sensibile piena il centro del mirino diventerebbe una macchia morta: assorbe
     /// il clic perché la sagoma lo copre, e non fa nulla perché lì `grip` di proposito non
     /// risponde. Il punto più cliccato del riquadro smetterebbe di funzionare.
-    /// `nonisolated` perché la chiama anche `HitShape.path(in:)`, che `Shape` dichiara fuori dal
-    /// main actor. Senza, l'isolamento verrebbe dedotto dalla conformità a `View` e la chiamata
-    /// sarebbe implicitamente asincrona — cioè un avviso oggi e un errore alla prossima versione
-    /// del compilatore. La funzione è pura e non tocca stato condiviso, quindi non c'è niente da
-    /// proteggere.
-    nonisolated private static func brokenLine(of trace: CrosshairTrace) -> Path {
+    private static func brokenLine(of trace: CrosshairTrace) -> Path {
         var path = Path()
         appendSegment(&path, from: trace.start, towards: trace.pivot)
         appendSegment(&path, from: trace.end, towards: trace.pivot)
         return path
     }
 
-    nonisolated private static func appendSegment(
+    private static func appendSegment(
+        _ path: inout Path, from end: PixelPoint, towards pivot: PixelPoint
+    ) {
+        let gap = CrosshairGeometry.centreGapPixels
+        let length = end.distance(to: pivot)
+        guard length > gap else { return }
+        let t = (length - gap) / length
+        path.move(to: CGPoint(x: end.x, y: end.y))
+        path.addLine(
+            to: CGPoint(
+                x: end.x + (pivot.x - end.x) * t,
+                y: end.y + (pivot.y - end.y) * t))
+    }
+
+    private static func appendSegment(
         _ path: inout Path, from end: PixelPoint, towards pivot: PixelPoint
     ) {
         let gap = CrosshairGeometry.centreGapPixels
@@ -176,91 +162,5 @@ struct CrosshairOverlay: View {
 
         private var lineSlop: CGFloat { 9 }
         private var handleRadius: CGFloat { 12 }
-    }
-
-    // MARK: Gesto
-
-    private func dragGesture(in size: CGSize, traces: [TraceItem]) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                let point = PixelPoint(x: value.location.x, y: value.location.y)
-
-                if drag == nil {
-                    model.focusedSlot = slot
-                    let start = PixelPoint(
-                        x: value.startLocation.x, y: value.startLocation.y)
-                    guard let found = grip(at: start, among: traces) else { return }
-                    // Il modificatore si legge da `NSEvent`: un `DragGesture` di SwiftUI non lo
-                    // riporta, ed è la via diretta su macOS.
-                    drag = ActiveDrag(
-                        represented: found.represented,
-                        grip: found.grip,
-                        lastPoint: start,
-                        isIndependent: NSEvent.modifierFlags.contains(.option))
-                }
-
-                guard var active = drag,
-                    let item = traces.first(where: { $0.represented == active.represented })
-                else { return }
-
-                apply(active, item: item, to: point, size: size)
-                active.lastPoint = point
-                drag = active
-            }
-            .onEnded { _ in drag = nil }
-    }
-
-    /// Presa più vicina fra tutte le tracce.
-    ///
-    /// Si sceglie la più vicina e non la prima che risponde: vicino all'incrocio le due linee sono
-    /// entrambe a portata, e prendere la prima dell'elenco significherebbe afferrare sempre la
-    /// stessa qualunque cosa si stia indicando.
-    private func grip(at point: PixelPoint, among traces: [TraceItem])
-        -> (represented: ViewportSlot, grip: CrosshairGrip)?
-    {
-        var best: (ViewportSlot, CrosshairGrip, Double)?
-        for item in traces {
-            guard let grip = item.trace.grip(at: point) else { continue }
-            let distance: Double
-            switch grip {
-            case .handle(let isStart):
-                let handle = isStart ? item.trace.startHandle : item.trace.endHandle
-                distance = handle.map { point.distance(to: $0) } ?? .greatestFiniteMagnitude
-            case .line:
-                distance = item.trace.distance(from: point)
-            }
-            if best == nil || distance < best!.2 {
-                best = (item.represented, grip, distance)
-            }
-        }
-        guard let best else { return nil }
-        return (best.0, best.1)
-    }
-
-    private func apply(_ active: ActiveDrag, item: TraceItem, to point: PixelPoint, size: CGSize) {
-        switch active.grip {
-        case .handle:
-            guard let angle = item.trace.rotation(from: active.lastPoint, to: point) else {
-                return
-            }
-            if active.isIndependent {
-                model.rotatePlane(
-                    active.represented, aboutAxis: item.trace.rotationAxisMM, byRadians: angle)
-            } else {
-                // Difetto: ruotano **entrambi** i piani perpendicolari a questo, dello stesso
-                // angolo, quindi restano perpendicolari fra loro e le sezioni trasversali
-                // continuano ad avere senso. ⌥ scollega la linea afferrata dall'altra, per chi
-                // vuole due obliquità indipendenti.
-                model.tiltPlanes(perpendicularTo: slot, byRadians: angle)
-            }
-
-        case .line:
-            guard let view = viewPlane(in: size) else { return }
-            let movement = item.trace.slide(
-                from: active.lastPoint, to: point,
-                in: view,
-                pixelWidth: Int(size.width), pixelHeight: Int(size.height))
-            model.moveCrosshair(to: model.crosshairMM + movement)
-        }
     }
 }

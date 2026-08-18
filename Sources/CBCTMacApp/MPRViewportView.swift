@@ -37,6 +37,10 @@ struct MPRViewportView: NSViewRepresentable {
     var onClick: (CGPoint) -> Void = { _ in }
     var onHover: (CGPoint?) -> Void = { _ in }
     var onDoubleClick: () -> Void = {}
+    /// Inizio del trascinamento, col punto premuto in pixel. Serve a decidere che cosa si è
+    /// afferrato **prima** che il primo movimento lo sposti.
+    var onDragBegan: (CGPoint) -> Void = { _ in }
+    var onDragEnded: () -> Void = {}
 
     /// Dimensione del drawable in pixel. Serve a chi sta sopra per convertire i clic in
     /// millimetri: senza di essa la conversione non è definita.
@@ -95,6 +99,8 @@ struct MPRViewportView: NSViewRepresentable {
         view.onWindowLevelDrag = onWindowLevelDrag
         view.onClick = onClick
         view.onHover = onHover
+        view.onDragBegan = onDragBegan
+        view.onDragEnded = onDragEnded
         view.onDoubleClick = onDoubleClick
     }
 

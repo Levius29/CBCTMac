@@ -73,13 +73,41 @@ struct ViewportContainer: View {
     /// punti e pixel sposterebbe le sovraimpressioni rispetto all'immagine.
     @State private var pixelSize: CGSize = .zero
 
+    /// Dimensione del riquadro in punti. Serve a convertire i pixel degli eventi nello spazio in
+    /// cui le sovraimpressioni disegnano, così ciò che si vede e ciò che si afferra coincidono.
+    @State private var pointSize: CGSize = .zero
+
     /// Primo estremo di una misura in corso.
     @State private var pendingStartMM: Vec3?
+
+    /// Presa sul mirino in corso, decisa alla pressione.
+    ///
+    /// # Perché l'interazione del mirino sta **qui** e non nella sua sovraimpressione
+    ///
+    /// Ci stava, con un `Color.clear` e un `DragGesture` di SwiftUI, e non funzionava: le
+    /// maniglie si disegnavano e non rispondevano. La ragione è che sotto c'è un `MTKView`, cioè
+    /// una `NSView` vera, e AppKit consegna il mouse alla vista più profonda sotto il puntatore.
+    /// Una sovraimpressione SwiftUI disegnata sopra non è un'altra `NSView`: è un livello della
+    /// stessa, e il gesto non riceve mai niente.
+    ///
+    /// Da qui la regola per tutto ciò che sta dentro un riquadro: **un solo percorso di eventi**,
+    /// quello di `InteractiveMetalView`, che è anche l'unico provato dall'uso. Un secondo percorso
+    /// che sembra funzionare e non funziona costa più di quanto risparmi.
+    @State private var crosshairDrag: CrosshairDrag?
+
+    private struct CrosshairDrag {
+        let represented: ViewportSlot
+        let grip: CrosshairGrip
+        var lastPoint: PixelPoint
+        let isIndependent: Bool
+    }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 metalContent
+                    .onAppear { pointSize = geometry.size }
+                    .onChange(of: geometry.size) { _, new in pointSize = new }
 
                 // La curva dell'arcata si vede e si disegna sull'assiale, dove il suo andamento
                 // corrisponde a quello che si ha davanti agli occhi.
@@ -179,6 +207,15 @@ struct ViewportContainer: View {
                     model.focusedSlot = slot
                     model.layout = model.layout == .single ? .grid2x2 : .single
                 },
+                onDragBegan: handleDragBegan,
+                onDragEnded: {
+                    // Le sezioni si ricostruiscono al rilascio e non durante il trascinamento:
+                    // ricampionare la spline e rigenerare cento piani a ogni movimento del mouse
+                    // renderebbe il gesto viscoso.
+                    if archDragIndex != nil { model.rebuildCrossSections() }
+                    crosshairDrag = nil
+                    archDragIndex = nil
+                },
                 onDrawableSize: { pixelSize = $0 }
             )
         } else {
@@ -249,17 +286,41 @@ struct ViewportContainer: View {
 
     private func handleClick(_ point: CGPoint) {
         model.focusedSlot = slot
+        // Una pressione su una maniglia che non si è mossa non è un clic sull'immagine: senza
+        // questo, sfiorare una maniglia sposterebbe il mirino invece di non fare nulla.
+        guard crosshairDrag == nil else { return }
         guard let patient = patientPoint(atPixel: point) else { return }
+
+        // Disegno dell'arcata: un solo gesto per tre azioni, distinte da ciò che l'utente fa e
+        // non da modalità da scegliere prima — clic su un punto lo seleziona, ⌥ clic lo cancella,
+        // clic nel vuoto ne posa uno nuovo nella posizione giusta dell'ordine di percorrenza.
+        if isEditingArch, let plane = adjustedPlane {
+            let index = ArchCurveOverlay.nearestControl(
+                in: model.archCurve, to: point, plane: plane,
+                width: Int(pixelSize.width), height: Int(pixelSize.height))
+            let optionHeld = NSEvent.modifierFlags.contains(.option)
+            if let index {
+                if optionHeld {
+                    model.removeArchPoint(at: index)
+                } else {
+                    model.selectedArchPointIndex = index
+                }
+                return
+            }
+            // ⌥ nel vuoto non fa nulla: cancellare è un'azione che deve colpire un bersaglio.
+            guard !optionHeld else { return }
+            model.addArchPoint(at: patient)
+            return
+        }
 
         switch model.activeTool {
         case .navigate:
             model.moveCrosshair(to: patient)
 
         case .archCurve:
-            // Sull'assiale questo caso non si raggiunge: lì `ArchCurveOverlay` sta sopra la vista
-            // Metal e intercetta il clic per posare o spostare un punto. Sugli altri riquadri il
-            // clic sposta il mirino, ed è ciò che serve davvero mentre si disegna: è così che si
-            // sceglie la fetta assiale su cui posare i punti, guardando la cresta di profilo.
+            // Sugli altri riquadri il clic sposta il mirino, ed è ciò che serve mentre si
+            // disegna: è così che si sceglie la fetta assiale su cui posare i punti, guardando la
+            // cresta di profilo. Sull'assiale invece posa o seleziona, sotto.
             model.moveCrosshair(to: patient)
 
         case .distance:
@@ -325,7 +386,132 @@ struct ViewportContainer: View {
         }
     }
 
+    // MARK: Mirino
+
+    /// Piano del riquadro nello **spazio in punti**, che è quello in cui le sovraimpressioni
+    /// disegnano. Le tracce del mirino si calcolano qui perché ciò che si vede e ciò che si
+    /// afferra devono essere la stessa geometria.
+    private var overlayPlane: MPRPlane? {
+        guard let plane = model.planes[slot], pointSize.width > 1, pointSize.height > 1 else {
+            return nil
+        }
+        return plane.matchingAspect(
+            pixelWidth: Int(pointSize.width), pixelHeight: Int(pointSize.height))
+    }
+
+    /// Dal punto di un evento, che è in pixel del drawable, al punto in unità di riquadro.
+    private func overlayPoint(fromPixel point: CGPoint) -> PixelPoint? {
+        guard pixelSize.width > 0, pointSize.width > 0 else { return nil }
+        let scale = pixelSize.width / pointSize.width
+        guard scale > 0 else { return nil }
+        return PixelPoint(x: Double(point.x / scale), y: Double(point.y / scale))
+    }
+
+    private func crosshairTraces() -> [(slot: ViewportSlot, trace: CrosshairTrace)] {
+        guard let view = overlayPlane, slot.anatomicalPlane != nil else { return [] }
+        return ViewportSlot.allCases.compactMap { other in
+            guard other != slot, other.anatomicalPlane != nil,
+                let plane = model.planes[other],
+                let trace = CrosshairGeometry.trace(
+                    of: plane, in: view, through: model.crosshairMM,
+                    pixelWidth: Int(pointSize.width), pixelHeight: Int(pointSize.height))
+            else { return nil }
+            return (other, trace)
+        }
+    }
+
+    /// Punto di controllo dell'arcata afferrato, se c'è.
+    @State private var archDragIndex: Int?
+
+    /// Decide alla pressione se si è afferrata una linea del mirino, e quale parte.
+    private func handleDragBegan(_ pixelPoint: CGPoint) {
+        crosshairDrag = nil
+        archDragIndex = nil
+        guard model.workMode.isEditable else { return }
+
+        // La curva viene prima del mirino: quando si sta disegnando l'arcata, i suoi punti sono
+        // ciò che si vuole afferrare, e il mirino può aspettare.
+        if isEditingArch, let plane = adjustedPlane {
+            archDragIndex = ArchCurveOverlay.nearestControl(
+                in: model.archCurve, to: pixelPoint, plane: plane,
+                width: Int(pixelSize.width), height: Int(pixelSize.height))
+            if archDragIndex != nil { return }
+        }
+
+        guard model.activeTool == .navigate, let point = overlayPoint(fromPixel: pixelPoint)
+        else { return }
+
+        // La più vicina fra tutte, non la prima che risponde: vicino all'incrocio le due linee
+        // sono entrambe a portata, e prendere la prima dell'elenco significherebbe afferrare
+        // sempre la stessa qualunque cosa si stia indicando.
+        var best: (ViewportSlot, CrosshairGrip, Double)?
+        for item in crosshairTraces() {
+            guard let grip = item.trace.grip(at: point) else { continue }
+            let distance: Double
+            switch grip {
+            case .handle(let isStart):
+                let handle = isStart ? item.trace.startHandle : item.trace.endHandle
+                distance = handle.map { point.distance(to: $0) } ?? .greatestFiniteMagnitude
+            case .line:
+                distance = item.trace.distance(from: point)
+            }
+            if best == nil || distance < best!.2 { best = (item.slot, grip, distance) }
+        }
+        guard let best else { return }
+
+        crosshairDrag = CrosshairDrag(
+            represented: best.0, grip: best.1, lastPoint: point,
+            isIndependent: NSEvent.modifierFlags.contains(.option))
+    }
+
+    /// Applica il trascinamento a una linea del mirino. Restituisce falso se non c'è presa.
+    private func dragCrosshair(to pixelPoint: CGPoint) -> Bool {
+        guard var active = crosshairDrag,
+            let point = overlayPoint(fromPixel: pixelPoint),
+            let item = crosshairTraces().first(where: { $0.slot == active.represented })
+        else { return false }
+
+        switch active.grip {
+        case .handle:
+            if let angle = item.trace.rotation(from: active.lastPoint, to: point) {
+                if active.isIndependent {
+                    model.rotatePlane(
+                        active.represented, aboutAxis: item.trace.rotationAxisMM, byRadians: angle)
+                } else {
+                    // Difetto: ruotano entrambi i piani perpendicolari a questo, dello stesso
+                    // angolo, quindi restano perpendicolari fra loro e le sezioni trasversali
+                    // continuano ad avere senso. ⌥ scollega la linea afferrata dall'altra.
+                    model.tiltPlanes(perpendicularTo: slot, byRadians: angle)
+                }
+            }
+        case .line:
+            guard let view = overlayPlane else { return true }
+            let movement = item.trace.slide(
+                from: active.lastPoint, to: point, in: view,
+                pixelWidth: Int(pointSize.width), pixelHeight: Int(pointSize.height))
+            model.moveCrosshair(to: model.crosshairMM + movement)
+        }
+
+        active.lastPoint = point
+        crosshairDrag = active
+        return true
+    }
+
+    /// Vero quando questo riquadro è quello su cui si disegna l'arcata.
+    private var isEditingArch: Bool {
+        slot == .axial && (model.isEditingArch || model.activeTool == .archCurve)
+    }
+
     private func handleDrag(_ point: CGPoint, _ delta: CGSize) {
+        // Un punto dell'arcata afferrato ha la precedenza su tutto.
+        if let index = archDragIndex, let patient = patientPoint(atPixel: point) {
+            model.moveArchPoint(at: index, to: patient)
+            return
+        }
+        // Poi il mirino: se si è afferrata una linea, trascinare deve ruotare o spostare quella,
+        // non l'immagine sotto.
+        if dragCrosshair(to: point) { return }
+
         // Con uno strumento di misura attivo il trascinamento appartiene allo strumento. La
         // panoramica resta comunque raggiungibile con ⌥ o col tasto centrale, che passano da
         // `handlePan` e non guardano lo strumento: un'immagine inchiodata mentre si misura era

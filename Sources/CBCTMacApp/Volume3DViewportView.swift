@@ -70,7 +70,7 @@ struct Volume3DViewportView: NSViewRepresentable {
         // La rotella regola lo zoom: sul 3D non ci sono slice da scorrere, e lasciarla inerte
         // sarebbe una piccola frustrazione ripetuta.
         view.onScroll = { steps in onMagnify(1.0 + steps * 0.05) }
-        view.onDragBegan = { onInteractionChanged(true) }
+        view.onDragBegan = { _ in onInteractionChanged(true) }
         view.onDragEnded = { onInteractionChanged(false) }
     }
 

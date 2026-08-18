@@ -25,7 +25,7 @@ struct ContentView: View {
 
             HStack(spacing: 0) {
                 if showSidebar {
-                    StudySidebar(model: model)
+                    LeftColumn(model: model)
                         .frame(width: Metrics.sidebarWidth)
                     Divider().overlay(Palette.separator)
                 }
@@ -80,9 +80,45 @@ struct ContentView: View {
             Button {
                 showSidebar.toggle()
             } label: {
-                Label("Barra laterale", systemImage: "sidebar.leading")
+                Label("Pannelli", systemImage: "sidebar.leading")
             }
-            .help("Mostra o nasconde l'elenco degli studi")
+            .help("Mostra o nasconde la colonna di sinistra")
+        }
+
+        // Annulla e ripeti nella barra, non solo da tastiera: l'etichetta dice **che cosa** si
+        // sta per disfare, e senza vederla si preme ⌘Z alla cieca sperando di indovinare quante
+        // volte.
+        ToolbarItem {
+            Button { model.undo() } label: {
+                Label("Annulla", systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!model.canUndo)
+            .help(model.undoLabel.map { "Annulla: \($0)" } ?? "Niente da annullare")
+        }
+
+        ToolbarItem {
+            Button { model.redo() } label: {
+                Label("Ripeti", systemImage: "arrow.uturn.forward")
+            }
+            .disabled(!model.canRedo)
+            .help(model.redoLabel.map { "Ripeti: \($0)" } ?? "Niente da ripetere")
+        }
+
+        // Il nome dello studio al centro della barra. Non è un vezzo preso dai visori
+        // commerciali: è ciò che si guarda per essere sicuri di lavorare sul caso giusto, e sta
+        // nel punto di massima attenzione dello schermo.
+        ToolbarItem(placement: .principal) {
+            VStack(spacing: 0) {
+                Text(model.studyName)
+                    .font(Typography.body.weight(.semibold))
+                    .foregroundStyle(Palette.textPrimary)
+                if let message = model.lastActionMessage {
+                    Text(message)
+                        .font(Typography.label)
+                        .foregroundStyle(Palette.textSecondary)
+                        .lineLimit(1)
+                }
+            }
         }
 
         ToolbarItem {
@@ -109,6 +145,10 @@ struct ContentView: View {
             .help("Disposizione dei riquadri")
         }
 
+        // La tendina degli strumenti non c'è più: adesso c'è la palette nella colonna di
+        // sinistra, che mostra quale strumento è in mano senza doverla aprire e costa un gesto
+        // invece di due. Resta qui il solo indicatore, che riporta lo stato senza duplicare il
+        // comando — due posti da cui cambiare la stessa cosa sono due posti che si disallineano.
         ToolbarItem {
             Menu {
                 ForEach(Tool.allCases, id: \.self) { tool in

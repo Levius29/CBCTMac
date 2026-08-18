@@ -618,12 +618,6 @@ struct ArchCurveOverlay: View {
     let plane: MPRPlane?
     let pixelSize: CGSize
 
-    @State private var draggingIndex: Int?
-    /// Vero quando il gesto in corso ha superato la soglia oltre cui è un trascinamento.
-    @State private var didDrag = false
-    /// Vero dopo la prima notifica del gesto: la presa si cerca una volta sola, alla pressione.
-    @State private var hasBegun = false
-
     /// La curva si modifica sia con lo strumento apposito sia con l'interruttore del workspace
     /// panoramico. Due vie allo stesso stato, perché si arriva a volerla correggere da entrambi i
     /// contesti.
@@ -640,11 +634,11 @@ struct ArchCurveOverlay: View {
                 }
                 .allowsHitTesting(false)
 
-                if isEditable {
-                    Color.clear
-                        .contentShape(.rect)
-                        .gesture(dragGesture(in: geometry.size))
-                }
+                // Niente `Color.clear` con un `DragGesture`: sotto c'è un `MTKView`, cioè una
+                // `NSView` vera, e AppKit consegna il mouse a quella. Il gesto non riceveva
+                // nulla, quindi i punti dell'arcata non si potevano né posare né spostare — pur
+                // vedendosi disegnati. Ora l'interazione passa da `ViewportGrid`, sull'unico
+                // percorso di eventi che il riquadro ha davvero.
             }
         }
     }
@@ -727,7 +721,7 @@ struct ArchCurveOverlay: View {
         for (index, control) in curve.controlPointsMM.enumerated() {
             let point = project(control)
             let isSelected = model.selectedArchPointIndex == index
-            let radius: CGFloat = draggingIndex == index ? 7 : (isSelected ? 6 : 5)
+            let radius: CGFloat = isSelected ? 6.5 : 5
             let rect = CGRect(
                 x: point.x - radius, y: point.y - radius,
                 width: radius * 2, height: radius * 2)
@@ -799,78 +793,16 @@ struct ArchCurveOverlay: View {
     ///
     /// La presa si cerca una volta sola, alla pressione, e non a ogni notifica: cercarla ogni
     /// volta farebbe "saltare" la presa a un punto vicino nel mezzo di un trascinamento.
-    private func dragGesture(in size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                guard let plane = adjusted(for: size) else { return }
-                let width = Int(size.width)
-                let height = Int(size.height)
-
-                if !hasBegun {
-                    hasBegun = true
-                    draggingIndex = nearestControl(
-                        to: value.startLocation, plane: plane, width: width, height: height)
-                }
-
-                if abs(value.translation.width) + abs(value.translation.height) > 3 {
-                    didDrag = true
-                }
-
-                guard didDrag, let index = draggingIndex else { return }
-                let patient = plane.patientPoint(
-                    atPixelX: Double(value.location.x),
-                    y: Double(value.location.y),
-                    pixelWidth: width,
-                    pixelHeight: height)
-                model.moveArchPoint(at: index, to: patient)
-            }
-            .onEnded { value in
-                let index = draggingIndex
-                let dragged = didDrag
-                defer {
-                    draggingIndex = nil
-                    didDrag = false
-                    hasBegun = false
-                }
-
-                if dragged {
-                    // Le sezioni si ricostruiscono al rilascio e non durante il trascinamento:
-                    // ricampionare la spline e rigenerare cento piani a ogni movimento del mouse
-                    // renderebbe il gesto viscoso.
-                    model.rebuildCrossSections()
-                    return
-                }
-
-                // Il modificatore si legge da `NSEvent` perché un `DragGesture` di SwiftUI non lo
-                // riporta. È la via diretta su macOS e non ha alternative pulite.
-                let optionHeld = NSEvent.modifierFlags.contains(.option)
-
-                if let index {
-                    if optionHeld {
-                        model.removeArchPoint(at: index)
-                    } else {
-                        model.selectedArchPointIndex = index
-                    }
-                    return
-                }
-
-                // ⌥ nel vuoto non fa nulla: cancellare è un'azione che deve colpire un bersaglio.
-                guard !optionHeld, let plane = adjusted(for: size) else { return }
-                let patient = plane.patientPoint(
-                    atPixelX: Double(value.location.x),
-                    y: Double(value.location.y),
-                    pixelWidth: Int(size.width),
-                    pixelHeight: Int(size.height))
-                model.addArchPoint(at: patient)
-            }
-    }
-
-    private func nearestControl(
-        to point: CGPoint, plane: MPRPlane, width: Int, height: Int
+    /// Punto di controllo più vicino, se entro la distanza di presa.
+    ///
+    /// Statico e interno perché lo usa anche `ViewportGrid`, che è dove l'interazione vive
+    /// adesso: la stessa regola di presa in due posti diventerebbe due regole diverse.
+    static func nearestControl(
+        in curve: ArchCurve, to point: CGPoint, plane: MPRPlane, width: Int, height: Int
     ) -> Int? {
         var best: Int?
         var bestDistance = Double.infinity
-        for (index, control) in model.archCurve.controlPointsMM.enumerated() {
+        for (index, control) in curve.controlPointsMM.enumerated() {
             let projected = plane.pixelPosition(
                 ofPatient: control, pixelWidth: width, pixelHeight: height)
             let dx = projected.x - Double(point.x)
