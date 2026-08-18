@@ -175,11 +175,12 @@ public struct PlanDocument: Hashable, Sendable, Codable {
     /// Versione del formato. Si incrementa a ogni cambiamento incompatibile, così una versione
     /// futura può rifiutare esplicitamente un file che non sa leggere invece di interpretarlo
     /// male in silenzio.
-    public static let currentFormatVersion = 1
+    public static let currentFormatVersion = 2
 
     public var formatVersion: Int
     public var study: StudyReference
     public var annotations: [Annotation]
+    public var registry: PlanObjectRegistry
     public var viewState: ViewState?
     public var auditLog: [AuditEntry]
     public var createdAt: Date
@@ -196,6 +197,7 @@ public struct PlanDocument: Hashable, Sendable, Codable {
     public init(
         study: StudyReference,
         annotations: [Annotation] = [],
+        registry: PlanObjectRegistry = PlanObjectRegistry(),
         viewState: ViewState? = nil,
         auditLog: [AuditEntry] = [],
         appVersion: String
@@ -203,12 +205,109 @@ public struct PlanDocument: Hashable, Sendable, Codable {
         self.formatVersion = Self.currentFormatVersion
         self.study = study
         self.annotations = annotations
+        self.registry = registry
         self.viewState = viewState
         self.auditLog = auditLog
         self.createdAt = Date()
         self.modifiedAt = Date()
         self.appVersion = appVersion
         self.disclaimer = Self.standardDisclaimer
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case formatVersion
+        case study
+        case annotations
+        case registry
+        case viewState
+        case auditLog
+        case createdAt
+        case modifiedAt
+        case appVersion
+        case disclaimer
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let foundVersion = try container.decode(Int.self, forKey: .formatVersion)
+
+        // La versione si controlla prima di leggere qualunque altro campo. Un file futuro può
+        // avere strutture che questa versione non conosce: decodificarlo a metà e poi salvarlo
+        // cancellerebbe silenziosamente quei dati.
+        guard foundVersion <= Self.currentFormatVersion else {
+            throw PlanDocumentError.unsupportedFormatVersion(
+                found: foundVersion, supported: Self.currentFormatVersion)
+        }
+
+        self.formatVersion = Self.currentFormatVersion
+        self.study = try container.decode(StudyReference.self, forKey: .study)
+        self.annotations = try container.decode([Annotation].self, forKey: .annotations)
+        self.viewState = try container.decodeIfPresent(ViewState.self, forKey: .viewState)
+        self.auditLog = try container.decode([AuditEntry].self, forKey: .auditLog)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.modifiedAt = try container.decode(Date.self, forKey: .modifiedAt)
+        self.appVersion = try container.decode(String.self, forKey: .appVersion)
+        self.disclaimer = try container.decode(String.self, forKey: .disclaimer)
+
+        if let decodedRegistry = try container.decodeIfPresent(
+            PlanObjectRegistry.self, forKey: .registry)
+        {
+            self.registry = decodedRegistry
+        } else {
+            self.registry = Self.registryMigrated(from: annotations)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(study, forKey: .study)
+        try container.encode(annotations, forKey: .annotations)
+        try container.encode(registry, forKey: .registry)
+        try container.encodeIfPresent(viewState, forKey: .viewState)
+        try container.encode(auditLog, forKey: .auditLog)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(modifiedAt, forKey: .modifiedAt)
+        try container.encode(appVersion, forKey: .appVersion)
+        try container.encode(disclaimer, forKey: .disclaimer)
+    }
+
+    private static func registryMigrated(from annotations: [Annotation]) -> PlanObjectRegistry {
+        var registry = PlanObjectRegistry()
+        var order = 0
+        for annotation in annotations {
+            var info = PlanObjectInfo(
+                id: annotation.id,
+                kind: .annotation,
+                name: registry.suggestedName(for: .annotation),
+                order: order)
+            let proposedColor = registry.suggestedColorHex(for: .annotation)
+            info.colorHex = normalizedLegacyColor(
+                annotation.metadata.colorHex, fallback: proposedColor)
+            info.note = annotation.metadata.comment
+            registry.register(info)
+            order += 1
+        }
+        return registry
+    }
+
+    private static func normalizedLegacyColor(_ color: String, fallback: String) -> String {
+        var candidate = color
+        if candidate.hasPrefix("#") {
+            candidate = String(candidate.dropFirst())
+        }
+        guard candidate.count == 6 else { return fallback }
+
+        // Il vecchio campo era una stringa libera. Si conserva soltanto un vero RRGGBB:
+        // propagare testo malformato sposterebbe l'errore fino al renderer o all'esportazione.
+        for scalar in candidate.unicodeScalars {
+            let value = scalar.value
+            let isDigit = value >= 48 && value <= 57
+            let isUppercaseHex = value >= 65 && value <= 70
+            let isLowercaseHex = value >= 97 && value <= 102
+            guard isDigit || isUppercaseHex || isLowercaseHex else { return fallback }
+        }
+        return candidate.uppercased()
     }
 
     // MARK: Serializzazione
@@ -275,11 +374,19 @@ public struct PlanDocument: Hashable, Sendable, Codable {
     }
 }
 
-public enum PlanDocumentError: Error, Hashable, Sendable {
+public enum PlanDocumentError: Error, Hashable, Sendable, LocalizedError {
     case unsupportedFormatVersion(found: Int, supported: Int)
     case geometryMismatch
 
+    public var errorDescription: String? {
+        message
+    }
+
     public var localizedDescription: String {
+        message
+    }
+
+    private var message: String {
         switch self {
         case .unsupportedFormatVersion(let found, let supported):
             return "Il piano è in formato versione \(found), questa versione di CBCTMac ne "
