@@ -81,6 +81,10 @@ struct CBCTMacApp: App {
                     .keyboardShortcut("m", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)
 
+                Button("Verifica di accuratezza…") { model.isShowingVerification = true }
+                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                    .disabled(model.volume == nil)
+
                 Divider()
 
                 Button("Apri piano…") { openPlan() }

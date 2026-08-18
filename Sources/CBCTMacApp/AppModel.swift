@@ -2010,6 +2010,19 @@ final class AppModel {
         }
     }
 
+    /// Se il volume aperto è il fantoccio sintetico di riferimento.
+    ///
+    /// Serve alla verifica di accuratezza, che confronta con grandezze note: su una CBCT di un
+    /// paziente quelle grandezze non esistono, e il confronto sarebbe privo di senso. Dirlo prima
+    /// evita di far leggere numeri che non significano nulla.
+    var isPhantomOpen: Bool {
+        if case .synthetic = library.selectedRootProvenance { return true }
+        return false
+    }
+
+    /// Finestra della verifica di accuratezza. Vedi `VerificationSheet`.
+    var isShowingVerification = false
+
     /// Come si sta misurando adesso: voxel, spessore attraversato, natura della vista.
     ///
     /// Vedi il Contratto 5. Si fotografa al momento della posa e viaggia con l'annotazione: chi

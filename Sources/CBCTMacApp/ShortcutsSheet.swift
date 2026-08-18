@@ -126,6 +126,7 @@ struct ShortcutsSheet: View {
             ("⇧⌘R", "Ritaglia e ricampiona il volume"),
             ("⇧⌘D", "Raddrizza sul piano occlusale"),
             ("⇧⌘M", "Riduci le strie da metallo"),
+            ("⇧⌘V", "Verifica di accuratezza sul fantoccio"),
             ("⇧⌘O", "Apri un piano salvato"),
             ("⌫", "Cancella la misura selezionata"),
             ("Esc", "Annulla la misura che stai posando"),

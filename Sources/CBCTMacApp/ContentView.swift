@@ -59,6 +59,7 @@ struct ContentView: View {
         .sheet(isPresented: $model.isShowingShortcuts) { ShortcutsSheet() }
         .sheet(isPresented: $model.isShowingReorient) { ReorientSheet(model: model) }
         .sheet(isPresented: $model.isShowingArtifact) { ArtifactSheet(model: model) }
+        .sheet(isPresented: $model.isShowingVerification) { VerificationSheet(model: model) }
         .navigationTitle(windowTitle)
     }
 
