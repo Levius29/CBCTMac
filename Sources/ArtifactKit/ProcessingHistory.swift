@@ -24,7 +24,13 @@ public struct ProcessingStep: Hashable, Sendable, Codable {
 }
 
 /// Storia delle elaborazioni applicate a un volume dopo l'acquisizione.
-public struct VolumeProvenance: Hashable, Sendable, Codable {
+///
+/// Si chiamava `VolumeProvenance` e collideva con l'omonimo di `StudyKit`, che descrive invece da
+/// **dove viene** un volume — letto, derivato, sintetico. Due significati legittimi della stessa
+/// parola, e un file che importa entrambi i moduli non compila più. Il nome nuovo è anche il più
+/// esatto dei due: questo tipo è letteralmente un elenco di `ProcessingStep`, cioè una storia di
+/// elaborazioni, non una provenienza.
+public struct ProcessingHistory: Hashable, Sendable, Codable {
     public var steps: [ProcessingStep]
 
     /// Costruisce una storia, vuota per un volume acquisito e non modificato.
@@ -54,12 +60,12 @@ public struct VolumeProvenance: Hashable, Sendable, Codable {
 /// Un volume con la sua storia e la maschera dei valori realmente alterati.
 public struct ProcessedVolume: Sendable {
     public let volume: Volume
-    public let provenance: VolumeProvenance
+    public let provenance: ProcessingHistory
     /// Voxel il cui valore è stato alterato; è più ampia della sola maschera del metallo.
     public let modifiedMask: VolumeMask
 
     /// Costruisce un risultato mantenendo insieme dati, storia e area modificata.
-    public init(volume: Volume, provenance: VolumeProvenance, modifiedMask: VolumeMask) {
+    public init(volume: Volume, provenance: ProcessingHistory, modifiedMask: VolumeMask) {
         self.volume = volume
         self.provenance = provenance
         self.modifiedMask = modifiedMask

@@ -139,7 +139,7 @@ public enum PolarStreakSuppression: Sendable {
         }
         return ProcessedVolume(
             volume: correctedVolume,
-            provenance: VolumeProvenance(steps: steps),
+            provenance: ProcessingHistory(steps: steps),
             modifiedMask: modifiedMask
         )
     }

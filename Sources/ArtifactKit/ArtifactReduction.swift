@@ -64,7 +64,7 @@ public enum ArtifactReduction: Sendable {
         guard metalVoxelCount > 0 else {
             return ProcessedVolume(
                 volume: volume,
-                provenance: VolumeProvenance(steps: []),
+                provenance: ProcessingHistory(steps: []),
                 modifiedMask: detection.mask
             )
         }

@@ -1,6 +1,5 @@
 import ArtifactKit
 import DICOMCore
-import SegmentKit
 import SwiftUI
 
 // Riduzione delle strie da metallo.

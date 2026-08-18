@@ -255,6 +255,28 @@ aggiunta dopo.
 
 ---
 
+## 3-ter. I tre controlli che girano prima di ogni consegna
+
+Su questo progetto la stessa classe di errore si è ripetuta, e ogni volta è costata un giro
+completo — pull, build sul Mac, incolla degli errori, correzione, ripush. Da qui tre controlli in
+`Tools/`, ognuno nato da un errore vero e verificato sull'errore che lo ha generato:
+
+| Controllo | Trova | Nato da |
+|---|---|---|
+| `check-exhaustive-switches.py` | `switch` a cui manca un caso | un `Tool` aggiunto senza completare `handleClick` |
+| `check-duplicate-declarations.py` | nomi dichiarati due volte nello stesso tipo | `Tool.hint` e `appendSegment` duplicati da due modifiche automatiche |
+| `check-cross-module-collisions.py` | tipi pubblici omonimi in moduli diversi, o omonimi di SwiftUI | `WindowLevel` (91 errori a cascata) e `VolumeProvenance` |
+
+Il terzo merita una nota. Due tipi pubblici omonimi non danno errore finché nessuno importa
+entrambi i moduli; poi qualcuno lo fa, e il messaggio del compilatore — «ambiguous for type
+lookup» — non nomina il colpevole. Il controllo li vede quando la collisione **nasce**, non quando
+esplode.
+
+Nessuno dei tre è un compilatore e nessuno pretende di esserlo. Ognuno prende una classe di errore
+che `swiftc -parse` non vede e che qui costerebbe un giro sul Mac.
+
+---
+
 ## 3-bis. Il difetto ricorrente: motore senza comando
 
 Tre volte su questo progetto è successa la stessa cosa. Un modulo funzionante, con i suoi test,

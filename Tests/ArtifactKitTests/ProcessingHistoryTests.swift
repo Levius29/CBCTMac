@@ -5,11 +5,11 @@ import SegmentKit
 import Testing
 
 @Suite("Provenienza del volume corretto")
-struct VolumeProvenanceTests {
+struct ProcessingHistoryTests {
     @Test("Il riepilogo distingue il volume originale dai passaggi applicati")
     func summaryDescribesProcessingSteps() {
-        let original = VolumeProvenance(steps: [])
-        let processed = VolumeProvenance(steps: [
+        let original = ProcessingHistory(steps: [])
+        let processed = ProcessingHistory(steps: [
             ProcessingStep(
                 name: "Soppressione strie da metallo",
                 parametersDescription: "raggio 40 mm",
@@ -38,7 +38,7 @@ struct VolumeProvenanceTests {
         mask.setLabel(1, i: 2, j: 1, k: 0)
         let result = ProcessedVolume(
             volume: volume,
-            provenance: VolumeProvenance(steps: []),
+            provenance: ProcessingHistory(steps: []),
             modifiedMask: mask
         )
 
