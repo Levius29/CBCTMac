@@ -167,7 +167,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | I6 | Più volumi nello studio, selezionabili | ✅ | 2 | K |
 | I7 | Ripristina / Salta nella finestra | ❌ | 1 | H |
 | I8 | Stima di memoria prima di procedere | ✅ | 2 | A |
-| I9 | Riorientamento del volume (piano occlusale orizzontale) | ❌ | 3 | N |
+| I9 | Riorientamento del volume (piano occlusale orizzontale) | 🔶 | 3 | N |
 
 ### J — Esportazione e relazione
 
@@ -187,7 +187,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| K1 | Annulla e ripeti | ❌ | 3 | O |
+| K1 | Annulla e ripeti | 🔶 | 3 | O |
 | K2 | Preset di rendering come anteprime cliccabili | 🔶 | 2 | H |
 | K3 | Impostazioni del mouse configurabili | ❌ | 1 | H |
 | K4 | Stato della sessione conservato fra le schede | ✅ | 2 | K |
@@ -212,10 +212,10 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | **I** | Maniglie del mirino colorate — E5, H7 | me | — | ✅ **fatto** |
 | **J** | Esportazione e relazione — J1…J5, J8, D4, D5, B11 | Codex | E | da scrivere |
 | **K** | Modi di lavoro e volumi multipli — A3, I6, J9, K4 | me | A | ✅ **fatto** |
-| **L** | Varianti di misura — B2, B3 | Codex | MeasureKit | da scrivere |
-| **M** | Oggetti protesici — B7, B8, B9, B10 | Codex | ImplantKit | da scrivere |
-| **N** | Automatismi — F10, I9 | Codex | SegmentKit | da scrivere |
-| **O** | Annulla/ripeti e salvataggio automatico — K1, K5 | Codex | E | da scrivere |
+| **L** | Varianti di misura — B2, B3 | me | MeasureKit | ✅ **nucleo fatto** |
+| **M** | Oggetti protesici — B7, B8, B9, B10 | me | ImplantKit | ✅ **nucleo fatto** |
+| **N** | Automatismi — F10, I9 | me | SegmentKit | ✅ **nucleo fatto** |
+| **O** | Annulla/ripeti e salvataggio automatico — K1, K5 | me | E | ✅ **nucleo fatto** |
 
 ### Note sui lotti meno ovvi
 

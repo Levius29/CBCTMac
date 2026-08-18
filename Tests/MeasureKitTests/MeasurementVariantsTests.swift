@@ -1,0 +1,146 @@
+import DICOMCore
+import Foundation
+import Testing
+
+@testable import MeasureKit
+
+// Test delle varianti di misura.
+//
+// Due controlli qui sotto verificano che una misura si **rifiuti** di rispondere: l'area di un
+// poligono sghembo e l'area di una spezzata aperta. Sono i più importanti del gruppo, perché il
+// modo in cui questi calcoli sbagliano non è restituire un errore — è restituire un numero
+// plausibile che finisce in una relazione.
+
+@Suite("Varianti di misura")
+struct MeasurementVariantsTests {
+
+    // MARK: Spezzata
+
+    @Test("La lunghezza di una spezzata nota, aperta e chiusa")
+    func polylineLength() {
+        let points = [Vec3(0, 0, 0), Vec3(3, 0, 0), Vec3(3, 4, 0)]
+        let open = PolylineMeasurement(pointsMM: points, isClosed: false)
+        #expect(abs(open.lengthMM - 7) < 1e-12)
+
+        // Chiudendo il triangolo 3-4-5 si aggiunge l'ipotenusa.
+        let closed = PolylineMeasurement(pointsMM: points, isClosed: true)
+        #expect(abs(closed.lengthMM - 12) < 1e-12)
+    }
+
+    @Test("Meno di due punti non è una lunghezza")
+    func degeneratePolyline() {
+        #expect(PolylineMeasurement(pointsMM: []).lengthMM == 0)
+        #expect(PolylineMeasurement(pointsMM: [Vec3(1, 2, 3)]).lengthMM == 0)
+    }
+
+    @Test("Un quadrato di 10 mm misura 100 mm², comunque sia orientato nello spazio")
+    func squareAreaIsOrientationIndependent() throws {
+        let flat = PolylineMeasurement(
+            pointsMM: [Vec3(0, 0, 0), Vec3(10, 0, 0), Vec3(10, 10, 0), Vec3(0, 10, 0)],
+            isClosed: true)
+        let flatArea = try #require(flat.areaMM2)
+        #expect(abs(flatArea - 100) < 1e-9)
+
+        // Lo stesso quadrato ruotato di 37° attorno a x e 24° attorno a z. L'area è una proprietà
+        // della figura, non della sua posa: se il calcolo passasse da una proiezione su un piano
+        // coordinato, qui uscirebbe un numero più piccolo.
+        let rotateX = try #require(Transform3D.rotation(axis: Vec3(1, 0, 0), angle: 0.6458))
+        let rotateZ = try #require(Transform3D.rotation(axis: Vec3(0, 0, 1), angle: 0.4189))
+        let oblique = PolylineMeasurement(
+            pointsMM: flat.pointsMM.map { rotateZ.apply(toPoint: rotateX.apply(toPoint: $0)) },
+            isClosed: true)
+        let obliqueArea = try #require(oblique.areaMM2)
+        #expect(abs(obliqueArea - 100) < 1e-9)
+    }
+
+    @Test("Quattro punti sghembi non hanno un'area")
+    func skewPolygonHasNoArea() {
+        // Gli stessi quattro vertici del quadrato, ma uno sollevato di due millimetri: non c'è
+        // più un piano che li contenga, e la formula del laccio darebbe comunque un numero.
+        let skew = PolylineMeasurement(
+            pointsMM: [Vec3(0, 0, 0), Vec3(10, 0, 0), Vec3(10, 10, 2), Vec3(0, 10, 0)],
+            isClosed: true)
+        #expect(skew.areaMM2 == nil)
+        // La lunghezza invece resta definita: il perimetro di una spezzata sghemba esiste.
+        #expect(skew.lengthMM > 0)
+    }
+
+    @Test("Una spezzata aperta non ha area nemmeno se complanare")
+    func openPolylineHasNoArea() {
+        let open = PolylineMeasurement(
+            pointsMM: [Vec3(0, 0, 0), Vec3(10, 0, 0), Vec3(10, 10, 0)],
+            isClosed: false)
+        #expect(open.areaMM2 == nil)
+    }
+
+    @Test("Tre punti allineati non hanno area")
+    func collinearPointsHaveNoArea() {
+        let line = PolylineMeasurement(
+            pointsMM: [Vec3(0, 0, 0), Vec3(5, 0, 0), Vec3(10, 0, 0)],
+            isClosed: true)
+        #expect(line.areaMM2 == nil)
+    }
+
+    // MARK: Angolo fra due rette
+
+    @Test("Trenta gradi restano trenta con tutti e quattro i versi dei segmenti")
+    func acuteAngleIsIndependentOfDirection() {
+        let angle = 30.0 * .pi / 180
+        let a0 = Vec3(0, 0, 0), a1 = Vec3(10, 0, 0)
+        let b0 = Vec3(0, 5, 0)
+        let b1 = b0 + Vec3(Foundation.cos(angle), Foundation.sin(angle), 0) * 10
+
+        // I quattro modi di tracciare gli stessi due segmenti. Senza il valore assoluto del
+        // coseno, due di questi darebbero 150°, e l'utente penserebbe a un difetto.
+        let combinations = [
+            (a0, a1, b0, b1), (a1, a0, b0, b1), (a0, a1, b1, b0), (a1, a0, b1, b0),
+        ]
+        for combination in combinations {
+            let measurement = LineAngleMeasurement(
+                firstStartMM: combination.0, firstEndMM: combination.1,
+                secondStartMM: combination.2, secondEndMM: combination.3)
+            #expect(abs(measurement.acuteDegrees - 30) < 1e-9)
+        }
+    }
+
+    @Test("Due rette parallele: angolo nullo e distanza pari alla separazione")
+    func parallelLines() {
+        let measurement = LineAngleMeasurement(
+            firstStartMM: Vec3(0, 0, 0), firstEndMM: Vec3(10, 0, 0),
+            secondStartMM: Vec3(-4, 7, 0), secondEndMM: Vec3(20, 7, 0))
+        #expect(abs(measurement.acuteDegrees) < 1e-9)
+        // Qui la formula chiusa per rette sghembe dividerebbe per zero.
+        #expect(abs(measurement.minimumDistanceMM - 7) < 1e-9)
+    }
+
+    @Test("Due rette incidenti hanno distanza nulla")
+    func intersectingLines() {
+        let measurement = LineAngleMeasurement(
+            firstStartMM: Vec3(-10, 0, 0), firstEndMM: Vec3(10, 0, 0),
+            secondStartMM: Vec3(0, -10, 0), secondEndMM: Vec3(0, 10, 0))
+        #expect(measurement.minimumDistanceMM < 1e-9)
+        #expect(measurement.isIntersecting)
+        #expect(abs(measurement.acuteDegrees - 90) < 1e-9)
+    }
+
+    @Test("Due rette sghembe con distanza nota per costruzione")
+    func skewLines() {
+        // Una lungo x sul piano z=0, l'altra lungo y sul piano z=6: non si incontrano mai, e la
+        // loro distanza minima è esattamente la separazione fra i due piani.
+        let measurement = LineAngleMeasurement(
+            firstStartMM: Vec3(-10, 0, 0), firstEndMM: Vec3(10, 0, 0),
+            secondStartMM: Vec3(3, -10, 6), secondEndMM: Vec3(3, 10, 6))
+        #expect(abs(measurement.minimumDistanceMM - 6) < 1e-9)
+        #expect(!measurement.isIntersecting)
+        #expect(abs(measurement.acuteDegrees - 90) < 1e-9)
+    }
+
+    @Test("Un segmento degenere non manda in crisi la misura")
+    func degenerateSegment() {
+        let measurement = LineAngleMeasurement(
+            firstStartMM: Vec3(1, 1, 1), firstEndMM: Vec3(1, 1, 1),
+            secondStartMM: Vec3(0, 0, 0), secondEndMM: Vec3(10, 0, 0))
+        #expect(measurement.acuteDegrees == 0)
+        #expect(measurement.minimumDistanceMM.isFinite)
+    }
+}
