@@ -2010,6 +2010,28 @@ final class AppModel {
         }
     }
 
+    /// Come si sta misurando adesso: voxel, spessore attraversato, natura della vista.
+    ///
+    /// Vedi il Contratto 5. Si fotografa al momento della posa e viaggia con l'annotazione: chi
+    /// assottiglia lo slab dopo aver misurato non rende retroattivamente attendibile una misura
+    /// presa su venti millimetri di proiezione.
+    ///
+    /// - Parameter curved: vero per la panorex, dove il punto sta su una superficie ricostruita.
+    func acquisitionContext(curved: Bool = false) -> AcquisitionContext? {
+        guard let geometry = volume?.geometry else { return nil }
+        let isDerived: Bool
+        if case .derived = library.selectedRootProvenance { isDerived = true } else { isDerived = false }
+
+        return AcquisitionContext(
+            voxelSpacingMM: geometry.spacingMM,
+            slabThicknessMM: slabThicknessMM,
+            // Solo le proiezioni lasciano indeterminata la profondità di ciò che si vede: una
+            // media viene da tutto lo spessore, e il suo centro è dove sembra.
+            projectsThroughSlab: projection == .maximum || projection == .minimum,
+            isCurvedSurface: curved,
+            isDerivedVolume: isDerived)
+    }
+
     /// Un clic su un riquadro qualsiasi, già convertito in millimetri Patient.
     ///
     /// - Parameters:
@@ -2020,6 +2042,9 @@ final class AppModel {
     ///     ovunque invece di legarsi a un piano che non esiste.
     func applyToolClick(at pointMM: Vec3, anchor: ToolAnchor? = nil) {
         toolSession.prepare(for: activeToolShape)
+        // La panorex passa `nil` come ancoraggio perché non ha un piano: è la stessa condizione
+        // che identifica una misura presa su superficie curva.
+        let acquisition = acquisitionContext(curved: anchor == nil && activeTool != .navigate)
 
         switch activeTool {
         case .navigate, .archCurve:
@@ -2039,14 +2064,16 @@ final class AppModel {
                         DistanceMeasurement(
                             metadata: AnnotationMetadata(
                                 colorHex: "#32B8C6",
-                                referencePlane: toolSession.anchor?.planeReference),
+                                referencePlane: toolSession.anchor?.planeReference,
+                                acquisition: acquisition),
                             startMM: points[0], endMM: points[1])))
             }
 
         case .angle:
             guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
             let metadata = AnnotationMetadata(
-                colorHex: "#FFD426", referencePlane: toolSession.anchor?.planeReference)
+                colorHex: "#FFD426", referencePlane: toolSession.anchor?.planeReference,
+                acquisition: acquisition)
             if points.count == 4 {
                 addAnnotation(
                     .lineAngle(
@@ -2079,13 +2106,14 @@ final class AppModel {
             addAnnotation(
                 .sphereROI(
                     SphereROI(
-                        metadata: AnnotationMetadata(colorHex: "#FFD426"),
+                        metadata: AnnotationMetadata(
+                            colorHex: "#FFD426", acquisition: acquisition),
                         centerMM: points[0], radiusMM: radius)))
 
         case .text:
             guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
             let noteMetadata = AnnotationMetadata(
-                referencePlane: toolSession.anchor?.planeReference)
+                referencePlane: toolSession.anchor?.planeReference, acquisition: acquisition)
             if toolVariant == "arrow" {
                 // Primo clic la coda, secondo la punta: si parte da dove c'è spazio per il testo e
                 // si finisce su ciò che si vuole indicare, che è l'ordine in cui si pensa.
@@ -2106,7 +2134,8 @@ final class AppModel {
                     ProfileLine(
                         metadata: AnnotationMetadata(
                             colorHex: "#C77DFF",
-                            referencePlane: toolSession.anchor?.planeReference),
+                            referencePlane: toolSession.anchor?.planeReference,
+                            acquisition: acquisition),
                         startMM: points[0], endMM: points[1])))
 
         case .freehand:
@@ -2163,14 +2192,18 @@ final class AppModel {
             addAnnotation(
                 .polygonROI(
                     PolygonROI(
-                        metadata: AnnotationMetadata(colorHex: "#4FCB6B", referencePlane: plane),
+                        metadata: AnnotationMetadata(
+                            colorHex: "#4FCB6B", referencePlane: plane,
+                            acquisition: acquisitionContext()),
                         verticesMM: points,
                         thicknessMM: max(spacing.x, max(spacing.y, spacing.z)))))
         case .freehand:
             addAnnotation(
                 .freehand(
                     FreehandPath(
-                        metadata: AnnotationMetadata(colorHex: "#FF9F0A", referencePlane: plane),
+                        metadata: AnnotationMetadata(
+                            colorHex: "#FF9F0A", referencePlane: plane,
+                            acquisition: acquisitionContext()),
                         pointsMM: points,
                         isClosed: false)))
         default:
@@ -2210,7 +2243,8 @@ final class AppModel {
         .polyline(
             PolylineMeasurement(
                 metadata: AnnotationMetadata(
-                    colorHex: "#32B8C6", referencePlane: toolSession.anchor?.planeReference),
+                    colorHex: "#32B8C6", referencePlane: toolSession.anchor?.planeReference,
+                    acquisition: acquisitionContext()),
                 pointsMM: pointsMM,
                 isClosed: closed))
     }
@@ -2227,7 +2261,8 @@ final class AppModel {
 
         return EllipseROI(
             metadata: AnnotationMetadata(
-                colorHex: "#4FCB6B", referencePlane: toolSession.anchor?.planeReference),
+                colorHex: "#4FCB6B", referencePlane: toolSession.anchor?.planeReference,
+                acquisition: acquisitionContext()),
             centerMM: start.lerp(to: end, t: 0.5),
             semiAxisAMM: right * (diagonal.dot(right) * 0.5),
             semiAxisBMM: down * (diagonal.dot(down) * 0.5),

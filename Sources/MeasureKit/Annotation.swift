@@ -57,6 +57,11 @@ public struct AnnotationMetadata: Hashable, Sendable, Codable, Identifiable {
     public var referencePlane: AnnotationPlaneReference?
     /// Nota libera dell'utente.
     public var comment: String
+    /// Come e su che cosa la misura è stata presa. Vedi il Contratto 5.
+    ///
+    /// Opzionale perché i documenti salvati prima che esistesse devono continuare a leggersi: chi
+    /// non ce l'ha mostra il valore senza incertezza, che è ciò che faceva comunque.
+    public var acquisition: AcquisitionContext?
 
     public init(
         id: UUID = UUID(),
@@ -65,7 +70,8 @@ public struct AnnotationMetadata: Hashable, Sendable, Codable, Identifiable {
         createdAt: Date = Date(),
         isHidden: Bool = false,
         referencePlane: AnnotationPlaneReference? = nil,
-        comment: String = ""
+        comment: String = "",
+        acquisition: AcquisitionContext? = nil
     ) {
         self.id = id
         self.label = label
@@ -74,6 +80,7 @@ public struct AnnotationMetadata: Hashable, Sendable, Codable, Identifiable {
         self.isHidden = isHidden
         self.referencePlane = referencePlane
         self.comment = comment
+        self.acquisition = acquisition
     }
 }
 
@@ -110,7 +117,7 @@ public struct DistanceMeasurement: AnnotationProtocol {
     public var handlesMM: [Vec3] { [startMM, endMM] }
 
     public var formattedValue: String {
-        MeasurementFormatter.length(lengthMM)
+        MeasurementFormatter.length(lengthMM, context: metadata.acquisition)
     }
 }
 
@@ -355,7 +362,9 @@ public struct ProfileLine: AnnotationProtocol {
 
     public var lengthMM: Double { (endMM - startMM).length }
     public var handlesMM: [Vec3] { [startMM, endMM] }
-    public var formattedValue: String { MeasurementFormatter.length(lengthMM) }
+    public var formattedValue: String {
+        MeasurementFormatter.length(lengthMM, context: metadata.acquisition)
+    }
 }
 
 // MARK: - Annotazioni non metriche
@@ -420,7 +429,9 @@ public struct FreehandPath: AnnotationProtocol {
     }
 
     public var handlesMM: [Vec3] { pointsMM }
-    public var formattedValue: String { MeasurementFormatter.length(lengthMM) }
+    public var formattedValue: String {
+        MeasurementFormatter.length(lengthMM, context: metadata.acquisition)
+    }
 }
 
 // MARK: - Contenitore
@@ -671,8 +682,38 @@ public struct OrthonormalBasis: Sendable {
 /// due decimali sono già generosi.
 public enum MeasurementFormatter {
 
+    /// Lunghezza **senza** contesto: due decimali, come si è sempre fatto.
+    ///
+    /// Resta per i documenti vecchi, che non portano il contesto di acquisizione, e per i punti
+    /// in cui la lunghezza non è una misura sul paziente — la lunghezza di un impianto, per
+    /// esempio, che è un dato di catalogo e non ha incertezza di misura.
     public static func length(_ mm: Double) -> String {
         String(format: "%.2f mm", mm)
+    }
+
+    /// Lunghezza misurata, **con la precisione che il dato giustifica**.
+    ///
+    /// Vedi il Contratto 5 e `MeasurementUncertainty`. Su voxel da 0,2 mm l'incertezza tipo è di
+    /// 0,12 mm, quindi si scrive un decimale: `12,5 mm`. Scriverne due sarebbe dichiarare dieci
+    /// micrometri su un dato che ne ha duecento.
+    public static func length(_ mm: Double, context: AcquisitionContext?) -> String {
+        guard let context else { return length(mm) }
+        let uncertainty = MeasurementUncertainty.lengthUncertaintyMM(context: context)
+        let decimals = MeasurementUncertainty.decimals(forUncertaintyMM: uncertainty)
+        return String(format: "%.\(decimals)f mm", mm)
+    }
+
+    /// Lunghezza con l'incertezza esplicita: `12,5 ± 0,1 mm`.
+    ///
+    /// È la forma completa, per l'ispettore e per l'esportazione. Nelle etichette sui riquadri si
+    /// usa quella breve: lì il ± moltiplicherebbe per due la larghezza di ogni etichetta, e la
+    /// collocazione delle etichette è già il vincolo più stretto del disegno.
+    public static func lengthWithUncertainty(_ mm: Double, context: AcquisitionContext?) -> String {
+        guard let context else { return length(mm) }
+        let uncertainty = MeasurementUncertainty.lengthUncertaintyMM(context: context)
+        let decimals = MeasurementUncertainty.decimals(forUncertaintyMM: uncertainty)
+        let rounded = MeasurementUncertainty.roundedUncertaintyMM(uncertainty)
+        return String(format: "%.\(decimals)f ± %.\(decimals)f mm", mm, rounded)
     }
 
     public static func angle(_ degrees: Double) -> String {

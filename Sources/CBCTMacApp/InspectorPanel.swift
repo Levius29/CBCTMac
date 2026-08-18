@@ -479,6 +479,14 @@ struct InspectorPanel: View {
                     // La curva sotto la riga della linea selezionata, non in una finestra a
                     // parte: il profilo è il **valore** di quella misura, come i millimetri lo
                     // sono per una distanza, e va letto accanto a ciò che lo produce.
+                    // Sotto la riga selezionata: che cosa vale davvero quel numero.
+                    if annotation.id == model.selectedAnnotationID,
+                        let context = annotation.metadata.acquisition
+                    {
+                        MeasurementQualityNote(annotation: annotation, context: context)
+                            .padding(.leading, Metrics.spacing)
+                    }
+
                     if annotation.id == model.selectedAnnotationID,
                         case .profileLine = annotation,
                         let samples = model.profileSamples[annotation.id], samples.count > 1
@@ -698,5 +706,82 @@ struct ProfileChart: View {
         let high = values.max() ?? 0
         return String(format: "%.0f – %.0f %@", low, high, unit.symbol)
             .replacingOccurrences(of: "-", with: "−")
+    }
+}
+
+
+// MARK: - Che cosa vale un numero
+
+/// Incertezza e avvertimenti della misura selezionata.
+///
+/// # Perché sta sotto la riga e non in un pannello a parte
+///
+/// Perché è **parte del numero**, non un'informazione accessoria. Un pannello separato si chiude,
+/// e allora resta la cifra sola: chi legge `12,5 mm` senza sapere che viene da una proiezione di
+/// venti millimetri sta leggendo un limite inferiore credendo di leggere una distanza. Il
+/// Contratto 5 dice che nessun numero dichiara più precisione di quanta ne abbia, e nasconderne
+/// le condizioni sarebbe lo stesso difetto travestito.
+struct MeasurementQualityNote: View {
+
+    let annotation: Annotation
+    let context: AcquisitionContext
+
+    private var quality: MeasurementQuality {
+        MeasurementUncertainty.quality(ofLengthMM: lengthMM, context: context)
+    }
+
+    /// La lunghezza su cui l'eccesso da slab si calcola. Per ciò che non è una lunghezza si usa
+    /// zero, e l'avvertimento resta quello generico dello spessore.
+    private var lengthMM: Double {
+        switch annotation {
+        case .distance(let a): return a.lengthMM
+        case .profileLine(let a): return a.lengthMM
+        case .polyline(let a): return a.lengthMM
+        case .freehand(let a): return a.lengthMM
+        default: return 0
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text("Incertezza")
+                    .foregroundStyle(Palette.textSecondary)
+                Text(uncertaintyText)
+                    .foregroundStyle(Palette.textPrimary)
+                Text(voxelText)
+                    .foregroundStyle(Palette.textSecondary)
+            }
+            .font(Typography.numericSmall)
+
+            ForEach(Array(quality.caveats.enumerated()), id: \.offset) { _, caveat in
+                HStack(alignment: .top, spacing: 5) {
+                    Image(systemName: caveat.invalidatesLength
+                        ? "exclamationmark.triangle.fill" : "info.circle")
+                        .font(.system(size: 9))
+                        .foregroundStyle(
+                            caveat.invalidatesLength ? Palette.warning : Palette.textSecondary)
+                    Text(caveat.localizedDescription)
+                        .font(Typography.label)
+                        .foregroundStyle(
+                            caveat.invalidatesLength ? Palette.warning : Palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var uncertaintyText: String {
+        let rounded = MeasurementUncertainty.roundedUncertaintyMM(quality.standardUncertaintyMM)
+        let decimals = MeasurementUncertainty.decimals(
+            forUncertaintyMM: quality.standardUncertaintyMM)
+        return String(format: "± %.\(decimals)f mm", rounded)
+            .replacingOccurrences(of: ".", with: ",")
+    }
+
+    /// Da dove viene l'incertezza, detto invece che lasciato indovinare.
+    private var voxelText: String {
+        String(format: "· voxel %.2f mm", context.governingSpacingMM)
+            .replacingOccurrences(of: ".", with: ",")
     }
 }

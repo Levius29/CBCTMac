@@ -8,7 +8,7 @@ Prosa in italiano, identificatori e codice in inglese.
 
 ---
 
-## 1. I quattro contratti
+## 1. I cinque contratti
 
 ### Contratto 1 — Tre spazi di coordinate, una sola matrice
 
@@ -144,6 +144,47 @@ Quindi:
 
 Un software che stampa «HU» su una CBCT sta dando al clinico un numero che sembra confrontabile
 con la letteratura e non lo è.
+
+---
+
+### Contratto 5 — Nessun numero dichiara più precisione di quanta ne abbia
+
+Il programma scriveva `12,47 mm`: due decimali sono dieci micrometri, su un volume campionato a
+duecento. È precisione inventata di un fattore venti, e non è un problema estetico. Chi legge
+`12,47` e poi `12,49` conclude che sono due misure diverse, mentre sono la stessa misura
+ripetuta; e su una decisione implantare — «restano 1,8 mm sopra il canale» — la differenza fra un
+numero e un numero **con la sua incertezza** è la differenza fra un dato e un'impressione.
+
+**Il modello.** Per un'estremità posata a mano su una vista MPR concorrono due contributi
+indipendenti, entrambi modellati come uniformi su una dimensione di voxel `s`:
+
+1. *campionamento e volume parziale* — il contorno vero sta da qualche parte dentro il voxel che
+   lo contiene: `s/√12`;
+2. *localizzazione dell'operatore* — anche su un contorno osseo netto, due posature dello stesso
+   punto differiscono dell'ordine di un voxel: `s/√12`.
+
+Per estremità `σₚ = s·√(2/12)`; per una lunghezza fra due estremità indipendenti
+`σ_L = √2·σₚ = s/√3 ≈ 0,58·s`. A 0,2 mm di voxel fa **0,12 mm**, che è l'ordine di grandezza
+riportato in letteratura per l'accuratezza lineare delle CBCT dentali. Su volumi anisotropi
+comanda l'asse peggiore, non la media: una misura obliqua ne raccoglie il contributo e quale
+direzione avrà non si sa in anticipo.
+
+**Come si scrive.** Regola metrologica: l'incertezza si arrotonda a una cifra significativa e il
+valore si riporta alla stessa posizione decimale. A 0,2 mm di voxel si scrive `12,5 mm`, non
+`12,47`.
+
+**Lo slab non entra nel ±.** Sarebbe la cosa comoda e sarebbe sbagliata. Entrambe le estremità
+stanno *sul piano* per costruzione, quindi la distanza misurata è una distanza nel piano ed è
+esatta come tale. Ciò che una proiezione a massima intensità rende ignoto è **dove stiano** le due
+strutture lungo la normale: la distanza vera è `√(L² + Δ²)`, quindi sempre **maggiore o uguale**
+a quella misurata. È un limite inferiore, e va dichiarato come tale invece di essere sciolto in un
+± che suggerirebbe simmetria. Lo stesso vale per una misura presa sulla panorex, che è una
+distanza fra due punti della *superficie ricostruita* e non fra due strutture anatomiche.
+
+Il contesto di acquisizione — voxel, spessore, tipo di proiezione, natura del volume — si
+fotografa **al momento della posa** e viaggia con l'annotazione: chi assottiglia lo slab dopo aver
+misurato non rende retroattivamente attendibile una misura presa su venti millimetri di
+proiezione.
 
 ---
 
