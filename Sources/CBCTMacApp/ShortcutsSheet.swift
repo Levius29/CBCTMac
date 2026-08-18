@@ -130,6 +130,7 @@ struct ShortcutsSheet: View {
             ("⇧⌘M", "Riduci le strie da metallo"),
             ("⇧⌘V", "Verifica di accuratezza sul fantoccio"),
             ("⇧⌘I", "Importa una scansione intraorale"),
+            ("⇧⌘G", "Costruisci la dima chirurgica"),
             ("⇧⌘O", "Apri un piano salvato"),
             ("⌫", "Cancella la misura selezionata"),
             ("Esc", "Annulla la misura che stai posando"),

@@ -54,7 +54,7 @@ import PackageDescription
             name: "CBCTMacApp",
             dependencies: [
                 "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
-                "SegmentKit", "ArtifactKit", "StudyKit",
+                "GuideKit", "SegmentKit", "ArtifactKit", "StudyKit",
             ]
         )
     ]

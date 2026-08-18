@@ -95,6 +95,10 @@ struct CBCTMacApp: App {
                 Button("Registra la scansione…") { model.isShowingScanRegistration = true }
                     .disabled(model.scan == nil)
 
+                Button("Costruisci la dima…") { model.isShowingGuide = true }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .disabled(model.scan == nil)
+
                 Divider()
 
                 Button("Apri piano…") { openPlan() }

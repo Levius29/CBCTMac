@@ -1,6 +1,7 @@
 import ArtifactKit
 import DICOMCore
 import DentalKit
+import GuideKit
 import ImplantKit
 import MeasureKit
 import MeshKit
@@ -1183,6 +1184,48 @@ final class AppModel {
         implantDrag = nil
     }
 
+    /// Propone e applica un asse migliore per l'impianto selezionato.
+    ///
+    /// Applica subito invece di chiedere conferma: la si annulla con ⌘Z come qualunque altra
+    /// modifica, e vedere l'asse spostato è il modo più rapido di giudicare se la proposta ha
+    /// senso. Una finestra di conferma chiederebbe di decidere prima di poter guardare.
+    func suggestAxisForSelectedImplant() {
+        guard let id = selectedImplantID,
+            let index = implants.firstIndex(where: { $0.id == id })
+        else { return }
+
+        guard
+            let suggestion = ImplantAxisAdvisor.suggest(
+                for: implants[index], nerves: nerveCanals, volume: volume,
+                thresholds: safetyThresholds)
+        else {
+            lastActionMessage =
+                "Niente su cui decidere: senza canali tracciati e senza volume, un asse vale "
+                + "l'altro."
+            return
+        }
+
+        if suggestion.allCandidatesUnsafe {
+            lastActionMessage =
+                "Nessuna inclinazione entro venti gradi rispetta il margine dal canale. Il "
+                + "problema non è l'asse: è il punto d'inserzione o l'impianto scelto."
+            return
+        }
+
+        implants[index].axis = suggestion.axis
+        recomputeSafety()
+        recordUndo("Proponi asse")
+
+        if abs(suggestion.nerveGainMM) < 0.05 {
+            lastActionMessage = "L'asse attuale è già il migliore fra quelli esaminati."
+        } else {
+            lastActionMessage = String(
+                format: "Asse proposto: %+.2f mm dal canale, inclinazione %.0f°.",
+                suggestion.nerveGainMM, suggestion.angulationDegrees
+            ).replacingOccurrences(of: ".", with: ",")
+        }
+    }
+
     /// Fa scorrere l'impianto selezionato lungo il proprio asse.
     ///
     /// È la regolazione più frequente — quanto la piattaforma sta sotto la cresta — e merita un
@@ -2140,6 +2183,115 @@ final class AppModel {
             if !contour.loops.isEmpty { contours[slot] = contour.loops }
         }
         scanContours = contours
+    }
+
+    // MARK: - Dima chirurgica
+
+    /// L'ultima dima costruita, con le sue verifiche.
+    private(set) var guideResult: GuideResult?
+    private(set) var isBuildingGuide = false
+    var isShowingGuide = false
+
+    /// Costruisce la dima sugli impianti pianificati.
+    ///
+    /// # Perché pretende una scansione registrata
+    ///
+    /// Perché una dima appoggia sui **denti**, e sa dove sono solo se la scansione è allineata
+    /// alla CBCT. Costruirla su una scansione non registrata darebbe un pezzo geometricamente
+    /// corretto e riferito a uno spazio che non è quello del paziente: entrerebbe in bocca in
+    /// nessun modo, e non ci sarebbe modo di accorgersene guardandolo.
+    ///
+    /// Su una registrazione **scarsa** si costruisce, ma il messaggio lo dice: mezzo millimetro
+    /// di disallineamento della scansione è mezzo millimetro che l'impianto sbaglia, e la dima
+    /// non lo può recuperare.
+    func buildGuide(
+        footprintRadiusMM: Double,
+        sleeveInnerDiameterMM: Double,
+        sleeveOuterDiameterMM: Double,
+        sleeveHeightMM: Double,
+        offsetToPlatformMM: Double,
+        configuration: GuideConfiguration
+    ) async {
+        guard let scan else {
+            lastActionMessage = "Serve una scansione intraorale: la dima appoggia sui denti."
+            return
+        }
+        guard scanRegistration != nil else {
+            lastActionMessage =
+                "La scansione non è registrata. Una dima costruita su una scansione non "
+                + "allineata è riferita a uno spazio che non è quello del paziente."
+            return
+        }
+        let visible = implants.filter(\.isVisible)
+        guard !visible.isEmpty else {
+            lastActionMessage = "Nessun impianto da guidare."
+            return
+        }
+
+        isBuildingGuide = true
+        defer { isBuildingGuide = false }
+
+        // La scansione **registrata**: è in questo spazio che stanno gli impianti.
+        let placed = scan.transformed(by: scanTransform)
+        let footprint = GuideFootprint.aroundImplants(
+            scan: placed, implants: visible, radiusMM: footprintRadiusMM)
+        guard footprint.includedCount > 0 else {
+            lastActionMessage =
+                "Nessun vertice della scansione entro \(Int(footprintRadiusMM)) mm dagli "
+                + "impianti. Allarga l'appoggio, o la scansione non copre i siti."
+            return
+        }
+
+        let sleeves = visible.map {
+            GuideSleeve.forImplant(
+                $0,
+                innerDiameterMM: sleeveInnerDiameterMM,
+                outerDiameterMM: sleeveOuterDiameterMM,
+                heightMM: sleeveHeightMM,
+                offsetToPlatformMM: offsetToPlatformMM)
+        }
+
+        let mask = footprint.mask
+        let outcome = await Task.detached(priority: .userInitiated) {
+            Result {
+                try GuideBuilder.build(
+                    scan: placed, footprint: mask, sleeves: sleeves,
+                    configuration: configuration)
+            }
+        }.value
+
+        switch outcome {
+        case .success(let result):
+            guideResult = result
+            let quality = scanRegistration?.quality ?? .poor
+            let caveat = quality == .good
+                ? ""
+                : " Attenzione: la registrazione è «\(quality.localizedName.lowercased())», e "
+                    + "il disallineamento della scansione la dima non lo recupera."
+            lastActionMessage = String(
+                format: "Dima costruita: %.1f cm³, %d boccole.%@",
+                result.validation.volumeMM3 / 1000, result.sleeves.count, caveat)
+        case .failure(let error):
+            guideResult = nil
+            lastActionMessage =
+                (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    /// Esporta la dima in STL.
+    func exportGuide() {
+        guard let result = guideResult else { return }
+        do {
+            let data = try GuideExport.stl(result)
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = "dima.stl"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            try data.write(to: url)
+            lastActionMessage = "Dima esportata in \(url.lastPathComponent)."
+        } catch {
+            lastActionMessage =
+                (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
     }
 
     /// Se il volume aperto è il fantoccio sintetico di riferimento.

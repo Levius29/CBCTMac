@@ -207,6 +207,17 @@ private struct ObjectRow: View {
             Text(angleLabel(implant))
                 .font(Typography.numericSmall)
                 .foregroundStyle(Palette.textSecondary)
+
+            Button {
+                model.selectedImplantID = object.id
+                model.suggestAxisForSelectedImplant()
+            } label: {
+                Image(systemName: "wand.and.stars")
+            }
+            .help(
+                "Cerca l'inclinazione più lontana dal canale e in osso migliore, entro venti "
+                + "gradi. Propone: la scelta resta tua, e ⌘Z la annulla.")
+
             Spacer(minLength: 0)
         }
         .controlSize(.mini)
