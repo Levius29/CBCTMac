@@ -837,7 +837,6 @@ struct CrossSectionCell: View {
                 volumeTexture: model.volumeTexture,
                 renderer: model.mprRenderer,
                 windowLevel: model.windowLevel,
-                onClick: handleClick,
                 onDrag: { point, _ in
                     guard let patient = patientPoint(at: point) else { return }
                     if model.annotationDrag != nil || model.nerveDrag != nil {
@@ -846,6 +845,7 @@ struct CrossSectionCell: View {
                         model.dragImplant(toMM: patient)
                     }
                 },
+                onClick: handleClick,
                 onDoubleClick: { model.closeToolSession() },
                 onDragBegan: { point in
                     guard let grabbed = patientPoint(at: point) else { return }

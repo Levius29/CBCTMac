@@ -273,7 +273,6 @@ struct ViewportContainer: View {
                     model.layout = model.layout == .single ? .grid2x2 : .single
                 },
                 onDragBegan: handleDragBegan,
-                onCancel: { model.cancelToolSession() },
                 onDragEnded: {
                     model.endHandleDrag()
                     model.endImplantDrag()
@@ -292,6 +291,7 @@ struct ViewportContainer: View {
                     crosshairDrag = nil
                     archDragIndex = nil
                 },
+                onCancel: { model.cancelToolSession() },
                 onDrawableSize: { pixelSize = $0 }
             )
         } else {
