@@ -715,4 +715,41 @@ struct ModuleAPIContractTests {
         _ = report.angulationDegrees
         _ = report.worstLevel
     }
+
+    // MARK: Comandi delle sezioni trasversali
+
+    @Test("Le API che l'ispettore usa per passo, spessore e disposizione della striscia")
+    func crossSectionControlsAPI() throws {
+        let volume = try makeVolume()
+        let curve = ArchCurve(
+            controlPointsMM: stride(from: -20.0, through: 20.0, by: 10.0).map {
+                Vec3($0, $0 * $0 / 60 - 15, 0)
+            })
+
+        // `AppModel.crossSectionLayout` con i valori scelti dai menu dell'ispettore.
+        let layout = CrossSectionLayout(
+            curve: curve,
+            intervalMM: 0.15,
+            widthMM: 30,
+            heightMM: 40,
+            verticalCentreMM: 0,
+            thicknessMM: 0.3,
+            angleOffsetRadians: 0)
+        let sections = layout.sections()
+        #expect(!sections.isEmpty)
+
+        // Lo spessore scelto arriva davvero nelle sezioni: è la ragione per cui il comando
+        // esiste, e un parametro che si imposta senza effetto sarebbe peggio della sua assenza.
+        #expect(sections.allSatisfy { $0.plane.slabThicknessMM == 0.3 })
+
+        // `AppModel.crossSectionBrowser.visibleCount`, dal menu «Per fila».
+        var browser = CrossSectionBrowser(sections: sections, visibleCount: 10)
+        browser.visibleCount = 3
+        #expect(browser.visibleCount == 3)
+        #expect(browser.visibleRange.count <= 3)
+
+        // `AppModel.reconstructionStepLabel`
+        _ = volume.geometry.isIsotropic()
+        _ = volume.geometry.spacingMM
+    }
 }

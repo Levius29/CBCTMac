@@ -290,19 +290,51 @@ struct InspectorPanel: View {
             Divider().overlay(Palette.separator)
             SectionHeader("SEZIONI TRASVERSALI")
 
+            // I passi fini partono da 150 µm, non da mezzo millimetro. Non è un vezzo: su una
+            // cresta stretta due sezioni a un millimetro possono cadere una davanti e una dietro
+            // la corticale vestibolare senza mostrarla, e il difetto si scambia per assenza di
+            // osso. A 150 µm si vede.
             LabeledControl("Intervallo") {
-                Menu(
-                    String(format: "%.1f mm", model.crossSectionIntervalMM)
-                        .replacingOccurrences(of: ".", with: ",")
-                ) {
-                    ForEach([0.5, 1.0, 1.5, 2.0, 3.0, 5.0], id: \.self) { interval in
-                        Button(
-                            String(format: "%.1f mm", interval)
-                                .replacingOccurrences(of: ".", with: ",")
-                        ) {
+                Menu(Self.spacingText(model.crossSectionIntervalMM)) {
+                    ForEach(AppModel.crossSectionIntervalPresetsMM, id: \.self) { interval in
+                        Button(Self.spacingText(interval)) {
                             model.crossSectionIntervalMM = interval
                             model.rebuildCrossSections()
                         }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+
+            // Spessore della singola sezione: c'era nel modello e non aveva un comando. Una
+            // trasversale a fetta singola è rumorosa e la corticale si perde nel granulo; qualche
+            // decimo di millimetro di media la fa emergere senza sfumare il profilo.
+            LabeledControl("Spessore") {
+                Menu(
+                    model.crossSectionThicknessMM <= 0
+                        ? "Fetta singola" : Self.spacingText(model.crossSectionThicknessMM)
+                ) {
+                    Button("Fetta singola") {
+                        model.crossSectionThicknessMM = 0
+                        model.rebuildCrossSections()
+                    }
+                    Divider()
+                    ForEach([0.15, 0.3, 0.5, 1.0, 2.0], id: \.self) { value in
+                        Button(Self.spacingText(value)) {
+                            model.crossSectionThicknessMM = value
+                            model.rebuildCrossSections()
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+
+            // Quante sezioni per fila. È la «1×N» delle barre dei visori commerciali: poche e
+            // grandi per giudicare una cresta, molte e piccole per scorrere un'arcata intera.
+            LabeledControl("Per fila") {
+                Menu("\(model.crossSectionBrowser.visibleCount)") {
+                    ForEach([1, 3, 5, 7, 10, 14], id: \.self) { count in
+                        Button("\(count)") { model.crossSectionBrowser.visibleCount = count }
                     }
                 }
                 .menuStyle(.borderlessButton)
@@ -333,6 +365,17 @@ struct InspectorPanel: View {
                     .frame(maxWidth: .infinity)
             }
         }
+    }
+
+    /// Un passo in millimetri o in micrometri, secondo quale dei due si legge meglio.
+    ///
+    /// Sotto il millimetro i micrometri evitano lo zero iniziale — «150 µm» invece di «0,15 mm» —
+    /// e a colpo d'occhio si distinguono meglio fra loro, che è tutto ciò che serve in un menu di
+    /// sei voci.
+    static func spacingText(_ value: Double) -> String {
+        value < 1
+            ? "\(Int((value * 1000).rounded())) µm"
+            : String(format: "%.1f mm", value).replacingOccurrences(of: ".", with: ",")
     }
 
     // MARK: Rendering 3D

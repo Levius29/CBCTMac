@@ -93,17 +93,28 @@ struct ViewportActions: View {
                 model.applyViewportSettingsToAll(from: slot)
             }
         } label: {
-            Text(thickness <= 0 ? "Fetta" : Self.thicknessText(thickness))
-                .font(Typography.numericSmall)
-                .frame(height: 18)
-                .padding(.horizontal, 4)
-                .background(Palette.chrome.opacity(0.75), in: .rect(cornerRadius: 3))
+            // Lo spessore e, accanto, il **passo di ricostruzione**. Sono due numeri diversi che
+            // si confondono di continuo: lo spessore è quanto volume si somma in una immagine, il
+            // passo è ogni quanto ci sono dati. Uno spessore di 0,2 mm su un passo di 0,3 mm non
+            // è una fetta più sottile del voxel — è una fetta interpolata, e chi legge un dettaglio
+            // sottile deve sapere quale delle due cose sta guardando.
+            HStack(spacing: 4) {
+                Text(thickness <= 0 ? "Fetta" : Self.thicknessText(thickness))
+                if let step = model.reconstructionStepLabel {
+                    Text("·").foregroundStyle(Palette.separator)
+                    Text(step).foregroundStyle(Palette.textSecondary)
+                }
+            }
+            .font(Typography.numericSmall)
+            .frame(height: 18)
+            .padding(.horizontal, 4)
+            .background(Palette.chrome.opacity(0.75), in: .rect(cornerRadius: 3))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
         .foregroundStyle(thickness > 0 ? Palette.accent : Palette.textSecondary)
-        .help("Spessore dello slab di questo riquadro")
+        .help("Spessore dello slab di questo riquadro, e passo di ricostruzione del volume")
     }
 
     /// Proiezione dello slab di **questo** riquadro. Disabilitata a fetta singola, perché con una

@@ -290,6 +290,15 @@ final class AppModel {
     /// trovare l'apice di una radice con uno slab sottile bisogna poterla attraversare.
     var panoramicNormalOffsetMM: Double = 0
 
+    /// Passi disponibili fra una sezione trasversale e l'altra.
+    ///
+    /// Parte da 150 µm e non da mezzo millimetro. Su una cresta stretta due sezioni a un
+    /// millimetro possono cadere una davanti e una dietro la corticale vestibolare senza mai
+    /// mostrarla, e l'osso che c'è si scambia per osso che manca.
+    static let crossSectionIntervalPresetsMM: [Double] = [
+        0.15, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0,
+    ]
+
     var crossSectionIntervalMM: Double = 1.0
     var crossSectionWidthMM: Double = 30
     var crossSectionHeightMM: Double = 45
@@ -775,6 +784,23 @@ final class AppModel {
             return "FANTOCCIO · \(volume.densityUnit.symbol)"
         }
         return volume.densityUnit.symbol
+    }
+
+    /// Passo di ricostruzione del volume: ogni quanto ci sono dati veri.
+    ///
+    /// Va scritto accanto allo spessore perché sono due numeri diversi che si confondono di
+    /// continuo. Lo spessore dice quanto volume si somma in un'immagine; il passo dice ogni quanto
+    /// ci sono campioni. Chiedere una fetta di 0,15 mm a un volume con passo 0,3 mm non produce
+    /// più dettaglio: produce interpolazione, e chi valuta una corticale sottile deve poter
+    /// distinguere le due cose senza aprire un pannello.
+    var reconstructionStepLabel: String? {
+        guard let geometry = volume?.geometry else { return nil }
+        let s = geometry.spacingMM
+        if geometry.isIsotropic() {
+            return String(format: "%.2f", s.x).replacingOccurrences(of: ".", with: ",")
+        }
+        return String(format: "%.2f/%.2f/%.2f", s.x, s.y, s.z)
+            .replacingOccurrences(of: ".", with: ",")
     }
 
     /// Accoglie un volume **derivato** — un ritaglio, un ricampionamento — accanto a quello da

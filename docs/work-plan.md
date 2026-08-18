@@ -89,23 +89,23 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| D1 | **Spessore per riquadro**, da un elenco di 14 valori fissi | ❌ | 3 | C |
-| D2 | **Proiezione per riquadro** (media, MIP, MinIP) | ❌ | 3 | C |
+| D1 | **Spessore per riquadro**, da un elenco di 14 valori fissi | ✅ | 3 | C |
+| D2 | **Proiezione per riquadro** (media, MIP, MinIP) | ✅ | 3 | C |
 | D3 | Adatta alla finestra | ✅ | 3 | — |
 | D4 | Istantanea del riquadro | ❌ | 2 | J |
 | D5 | Salvataggio dell'immagine con dropdown di formati | 🔶 | 1 | J |
-| D6 | Disposizione interna del riquadro (1×1, 1×5) | 🔶 | 2 | B |
-| D7 | Collegamento fra riquadri: zoom e finestra condivisi | ❌ | 2 | C |
-| D8 | Passo di ricostruzione mostrato accanto allo spessore | ❌ | 2 | B |
+| D6 | Disposizione interna del riquadro (1×1, 1×5) | ✅ | 2 | B |
+| D7 | Collegamento fra riquadri: zoom e finestra condivisi | ✅ | 2 | C |
+| D8 | Passo di ricostruzione mostrato accanto allo spessore | ✅ | 2 | B |
 
 ### E — Sovraimpressioni dei riquadri 2D
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| E1 | **Quota in millimetri** invece del numero di fetta | 🔶 | 3 | C |
-| E2 | Fattore di zoom scritto | ❌ | 2 | C |
-| E3 | Lettere d'orientamento ai quattro bordi | 🔶 | 3 | C |
-| E4 | Algoritmo di ricostruzione dichiarato | ❌ | 1 | C |
+| E1 | **Quota in millimetri** invece del numero di fetta | ✅ | 3 | C |
+| E2 | Fattore di zoom scritto | ✅ | 2 | C |
+| E3 | Lettere d'orientamento ai quattro bordi | ✅ | 3 | C |
+| E4 | Algoritmo di ricostruzione dichiarato | ✅ | 1 | C |
 | E5 | Maniglie del mirino sui bordi, colorate come i piani 3D | ✅ | 2 | I |
 | E6 | Etichette con **linea di richiamo** che non coprono l'anatomia | ❌ | 3 | F |
 | E7 | Etichette visibili su tutte le viste, 3D compreso | ❌ | 2 | F |
@@ -131,14 +131,14 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| G1 | **Posizione in millimetri** su ogni sezione | ❌ | 3 | B |
-| G2 | Passo configurabile, fine (150 µm) | 🔶 | 3 | B |
-| G3 | Spessore configurabile per la striscia | 🔶 | 3 | B |
-| G4 | Disposizione 1×N scelta dall'utente | 🔶 | 2 | B |
-| G5 | Scorrimento della striscia legato al panorex e all'assiale | 🔶 | 3 | B |
-| G6 | Sezione corrente evidenziata | ❌ | 2 | B |
+| G1 | **Posizione in millimetri** su ogni sezione | ✅ | 3 | B |
+| G2 | Passo configurabile, fine (150 µm) | ✅ | 3 | B |
+| G3 | Spessore configurabile per la striscia | ✅ | 3 | B |
+| G4 | Disposizione 1×N scelta dall'utente | ✅ | 2 | B |
+| G5 | Scorrimento della striscia legato al panorex e all'assiale | ✅ | 3 | B |
+| G6 | Sezione corrente evidenziata | ✅ | 2 | B |
 | G7 | Larghezza e altezza della sezione regolabili | ✅ | 2 | — |
-| G8 | Clic su una sezione porta le altre viste lì | 🔶 | 3 | B |
+| G8 | Clic su una sezione porta le altre viste lì | ✅ | 3 | B |
 
 ### H — Riquadro 3D
 
@@ -160,13 +160,13 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
 | I1 | Ritaglio a un riquadro | ✅ (SegmentKit) | 2 | — |
-| I2 | **Ricampionamento** a un passo scelto | ❌ | 2 | A |
-| I3 | Riquadro di ritaglio con maniglie su tre viste | ❌ | 2 | A, H |
-| I4 | Riquadri **collegati**: uno solo parallelepipedo | ❌ | 2 | A |
-| I5 | Nome e descrizione del volume prodotto | ❌ | 1 | A |
+| I2 | **Ricampionamento** a un passo scelto | ✅ | 2 | A |
+| I3 | Riquadro di ritaglio con maniglie su tre viste | ✅ | 2 | A, H |
+| I4 | Riquadri **collegati**: uno solo parallelepipedo | ✅ | 2 | A |
+| I5 | Nome e descrizione del volume prodotto | ✅ | 1 | A |
 | I6 | Più volumi nello studio, selezionabili | ✅ | 2 | K |
 | I7 | Ripristina / Salta nella finestra | ❌ | 1 | H |
-| I8 | Stima di memoria prima di procedere | ❌ | 2 | A |
+| I8 | Stima di memoria prima di procedere | ✅ | 2 | A |
 | I9 | Riorientamento del volume (piano occlusale orizzontale) | ❌ | 3 | N |
 
 ### J — Esportazione e relazione
@@ -201,9 +201,9 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | Lotto | Contenuto | Autore | Dipende da | Brief |
 |---|---|---|---|---|
 | **0** | ArtifactKit — strie da metallo | Codex | SegmentKit | ✅ **consegnato e verificato** |
-| **A** | Ricampionamento e piano di riformattazione — I2, I3, I4, I5, I8 | Codex | SegmentKit | ✅ **consegnato e verificato** |
-| **B** | Navigazione delle sezioni — G1…G8, D6, D8 | Codex | DentalKit | da scrivere |
-| **C** | Spessore, proiezione e quote per riquadro — D1, D2, D7, E1…E4 | me | — | — |
+| **A** | Ricampionamento e piano di riformattazione — I2, I3, I4, I5, I8 | Codex | SegmentKit | ✅ **fatto**, interfaccia compresa |
+| **B** | Navigazione delle sezioni — G1…G8, D6, D8 | Codex + me | DentalKit | ✅ **fatto** |
+| **C** | Spessore, proiezione e quote per riquadro — D1, D2, D7, E1…E4 | me | — | ✅ **fatto** |
 | **D** | Geometria delle sovraimpressioni 3D — H2…H6, H10 | Codex | VolumeKit | da scrivere |
 | **E** | Modello degli oggetti — C1…C12, A5, F9, J7 | Codex | tutti | da scrivere |
 | **F** | Collocazione delle etichette — E6, E7 | Codex | E | da scrivere |
