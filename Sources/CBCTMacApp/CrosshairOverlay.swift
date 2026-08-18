@@ -97,10 +97,6 @@ struct CrosshairOverlay: View {
     /// Il vuoto centrale non è un vezzo. Senza, le due linee coprirebbero esattamente il voxel
     /// che si sta puntando, che è l'unico che interessa vedere.
     ///
-    /// La usano **sia** il disegno sia la zona sensibile ai clic, e devono essere la stessa forma.
-    /// Con una zona sensibile piena il centro del mirino diventerebbe una macchia morta: assorbe
-    /// il clic perché la sagoma lo copre, e non fa nulla perché lì `grip` di proposito non
-    /// risponde. Il punto più cliccato del riquadro smetterebbe di funzionare.
     private static func brokenLine(of trace: CrosshairTrace) -> Path {
         var path = Path()
         appendSegment(&path, from: trace.start, towards: trace.pivot)
@@ -120,47 +116,5 @@ struct CrosshairOverlay: View {
             to: CGPoint(
                 x: end.x + (pivot.x - end.x) * t,
                 y: end.y + (pivot.y - end.y) * t))
-    }
-
-    private static func appendSegment(
-        _ path: inout Path, from end: PixelPoint, towards pivot: PixelPoint
-    ) {
-        let gap = CrosshairGeometry.centreGapPixels
-        let length = end.distance(to: pivot)
-        guard length > gap else { return }
-        let t = (length - gap) / length
-        path.move(to: CGPoint(x: end.x, y: end.y))
-        path.addLine(
-            to: CGPoint(
-                x: end.x + (pivot.x - end.x) * t,
-                y: end.y + (pivot.y - end.y) * t))
-    }
-
-    /// Sagoma sensibile ai clic: le stesse linee spezzate, ingrossate, più le maniglie.
-    ///
-    /// Lo spessore è il doppio della tolleranza di presa di `grip`, così la sagoma e il criterio
-    /// di presa concordano: dentro la sagoma `grip` risponde sempre, fuori non serve chiederglielo.
-    private struct HitShape: Shape {
-        let traces: [TraceItem]
-
-        func path(in rect: CGRect) -> Path {
-            var lines = Path()
-            var result = Path()
-            for item in traces {
-                lines.addPath(CrosshairOverlay.brokenLine(of: item.trace))
-                let handles = [item.trace.startHandle, item.trace.endHandle]
-                for handle in handles.compactMap({ $0 }) {
-                    result.addEllipse(
-                        in: CGRect(
-                            x: handle.x - handleRadius, y: handle.y - handleRadius,
-                            width: handleRadius * 2, height: handleRadius * 2))
-                }
-            }
-            result.addPath(lines.strokedPath(StrokeStyle(lineWidth: lineSlop * 2)))
-            return result
-        }
-
-        private var lineSlop: CGFloat { 9 }
-        private var handleRadius: CGFloat { 12 }
     }
 }

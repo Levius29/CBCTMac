@@ -94,18 +94,6 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// Suggerimento mostrato quando lo strumento è attivo.
-    var hint: String? {
-        switch self {
-        case .archCurve:
-            return "Clicca sull'assiale per posare i punti dell'arcata · trascina per spostarli"
-                + " · ⌥ clic per cancellarne uno"
-        case .nerve:
-            return "Clicca lungo il canale mandibolare per tracciarlo"
-        default:
-            return nil
-        }
-    }
 }
 
 // MARK: - Layout
@@ -293,6 +281,9 @@ final class AppModel {
 
     /// Vero quando è aperta la finestra di ritaglio e ricampionamento.
     var isShowingReformat = false
+
+    /// Legenda dei comandi. Vedi `ShortcutsSheet`.
+    var isShowingShortcuts = false
 
     /// Vero mentre l'utente sta disegnando o correggendo la curva sull'assiale.
     var isEditingArch = false

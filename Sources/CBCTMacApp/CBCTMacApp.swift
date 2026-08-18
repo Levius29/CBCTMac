@@ -71,6 +71,11 @@ struct CBCTMacApp: App {
                 .disabled(!model.canRedo)
             }
 
+            CommandGroup(replacing: .help) {
+                Button("Comandi di CBCTMac") { model.isShowingShortcuts = true }
+                    .keyboardShortcut("?", modifiers: [])
+            }
+
             CommandMenu("Modo") {
                 // Le cinque schede anche da tastiera: ⌃1…⌃5. Non ⌘ perché quelle sono già le
                 // disposizioni, e due significati per la stessa combinazione sono un errore in

@@ -46,6 +46,7 @@ struct ContentView: View {
         .background(Palette.chrome)
         .toolbar { toolbarContent }
         .overlay { loadingOverlay }
+        .sheet(isPresented: $model.isShowingShortcuts) { ShortcutsSheet() }
         .navigationTitle(windowTitle)
     }
 
@@ -119,6 +120,13 @@ struct ContentView: View {
                         .lineLimit(1)
                 }
             }
+        }
+
+        ToolbarItem {
+            Button { model.isShowingShortcuts = true } label: {
+                Label("Comandi", systemImage: "questionmark.circle")
+            }
+            .help("Legenda dei comandi da mouse e tastiera")
         }
 
         ToolbarItem {

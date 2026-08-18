@@ -48,7 +48,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | A4 | Pannelli laterali richiudibili con memoria dello stato | ✅ | 2 | H |
 | A5 | Pannello contestuale che cambia col tipo di oggetto attivo | ✅ | 3 | E, H |
 | A6 | Galleria delle istantanee salvate | ❌ | 1 | J |
-| A7 | Menu applicazione con impostazioni | 🔶 | 1 | H |
+| A7 | Menu applicazione con impostazioni | ✅ | 1 | H |
 
 ### B — Palette degli strumenti
 
@@ -208,7 +208,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | **E** | Modello degli oggetti — C1…C12, A5, F9, J7 | Codex | tutti | ✅ **nucleo consegnato**, interfaccia nel lotto H |
 | **F** | Collocazione delle etichette — E6, E7 | me (Codex esaurito) | E | ✅ **nucleo fatto**, il disegno nel lotto H |
 | **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | ✅ **fatto**, tranne H6 (il ritaglio vive solo nella sua finestra) |
-| **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | me | A, B, D, E | ✅ **fatto**, restano A7 e K3 |
+| **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | me | A, B, D, E | ✅ **fatto**, resta K3 |
 | **I** | Maniglie del mirino colorate — E5, H7 | me | — | ✅ **fatto** |
 | **J** | Esportazione e relazione — J1…J5, J8, D4, D5, B11 | Codex | E | da scrivere |
 | **K** | Modi di lavoro e volumi multipli — A3, I6, J9, K4 | me | A | ✅ **fatto** |
