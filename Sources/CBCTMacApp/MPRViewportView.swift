@@ -41,6 +41,8 @@ struct MPRViewportView: NSViewRepresentable {
     /// afferrato **prima** che il primo movimento lo sposti.
     var onDragBegan: (CGPoint) -> Void = { _ in }
     var onDragEnded: () -> Void = {}
+    /// Esc premuto mentre il riquadro ha il fuoco.
+    var onCancel: () -> Void = {}
 
     /// Dimensione del drawable in pixel. Serve a chi sta sopra per convertire i clic in
     /// millimetri: senza di essa la conversione non è definita.
@@ -101,6 +103,7 @@ struct MPRViewportView: NSViewRepresentable {
         view.onHover = onHover
         view.onDragBegan = onDragBegan
         view.onDragEnded = onDragEnded
+        view.onCancel = onCancel
         view.onDoubleClick = onDoubleClick
     }
 

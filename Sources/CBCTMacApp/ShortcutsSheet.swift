@@ -96,11 +96,16 @@ struct ShortcutsSheet: View {
     private var general: [Entry] {
         [
             ("⌘Z / ⇧⌘Z", "Annulla e ripeti"),
+            ("?", "Apre e chiude questa legenda"),
             ("⌘0", "Adatta le viste alla finestra"),
             ("⌘S", "Salva il piano"),
             ("⌘E", "Esporta l'immagine del riquadro attivo"),
             ("⇧⌘R", "Ritaglia e ricampiona il volume"),
+            ("⇧⌘D", "Raddrizza sul piano occlusale"),
+            ("⇧⌘M", "Riduci le strie da metallo"),
+            ("⇧⌘O", "Apri un piano salvato"),
             ("⌫", "Cancella la misura selezionata"),
+            ("Esc", "Annulla la misura che stai posando"),
         ]
     }
 

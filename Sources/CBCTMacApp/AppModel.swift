@@ -62,13 +62,13 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
     var hint: String? {
         switch self {
         case .navigate: return nil
-        case .distance: return "Fai clic sui due estremi."
+        case .distance: return "Trascina fra i due estremi, o fai clic su ciascuno."
         case .angle: return "Fai clic sui tre punti, il vertice per primo."
-        case .ellipseROI: return "Trascina dal centro verso il bordo."
-        case .sphereROI: return "Fai clic sul centro, poi sul bordo."
+        case .ellipseROI: return "Trascina dal centro al bordo, o fai clic sui due punti."
+        case .sphereROI: return "Trascina dal centro al bordo, o fai clic sui due punti."
         case .text: return "Fai clic dove vuoi la nota."
-        case .profile: return "Fai clic sui due estremi: legge le densità lungo il segmento."
-        case .freehand: return "Trascina per disegnare. Doppio clic per chiudere il contorno."
+        case .profile: return "Trascina lungo il segmento: legge le densità che attraversa."
+        case .freehand: return "Trascina per disegnare: il tracciato si chiude alzando il dito."
         case .implant: return "Fai clic sulla cresta: l'impianto scende da lì."
         case .nerve: return "Fai clic lungo il canale, un nodo per volta."
         case .archCurve: return "Fai clic sull'assiale per posare i punti. ⌥ clic per togliere."
@@ -1739,6 +1739,29 @@ final class AppModel {
     /// Punti già posati dallo strumento attivo.
     var toolSession = ToolSession()
 
+    /// Che cosa fare con lo strumento **e la variante** in mano.
+    ///
+    /// `Tool.hint` conosce lo strumento e non la variante, e con le varianti la stessa icona fa
+    /// cose diverse: il righello a due punti si chiude da sé, la spezzata no e va detto. Una
+    /// riga di istruzioni che descrive un altro gesto è peggio di nessuna riga — chi la segue
+    /// conclude che il programma è rotto, e ha ragione a metà.
+    var activeToolHint: String? {
+        switch (activeTool, toolVariant) {
+        case (.distance, "polyline"):
+            return "Fai clic lungo il percorso. Doppio clic per chiudere, Esc per annullare."
+        case (.distance, "perimeter"):
+            return "Fai clic sui vertici. Doppio clic chiude il perimetro, Esc annulla."
+        case (.angle, "lines"):
+            return "Fai clic sui due estremi della prima retta, poi della seconda."
+        case (.ellipseROI, "polygon"):
+            return "Fai clic sui vertici del contorno. Doppio clic per chiuderlo."
+        case (.text, "arrow"):
+            return "Trascina da dove sta il testo a ciò che vuoi indicare."
+        default:
+            return activeTool.hint
+        }
+    }
+
     /// Forma che lo strumento attivo chiede, con la variante corrente.
     var activeToolShape: ToolShape {
         switch activeTool {
@@ -1867,9 +1890,11 @@ final class AppModel {
                         startMM: points[0], endMM: points[1])))
 
         case .freehand:
-            // Facendo clic si posa un vertice per volta; trascinando il tracciato si accumula da
-            // sé. Entrambe le vie finiscono qui, e chiudono col doppio clic.
-            toolSession.add(pointMM, anchor: anchor)
+            // Nulla: la mano libera si disegna **trascinando**, e il punto della pressione lo ha
+            // già posato `appendFreehandPoint`. Aggiungerne uno anche qui significherebbe che un
+            // clic senza movimento lascia un tracciato di due punti coincidenti, cioè un oggetto
+            // lungo zero millimetri che compare nell'elenco e non si vede da nessuna parte.
+            break
 
         case .implant:
             // L'asse predefinito è verticale verso il basso. Su una cresta inclinata andrà
@@ -1904,7 +1929,11 @@ final class AppModel {
 
         // Un poligono ha bisogno di tre vertici; una spezzata di due punti. Chiedere tre punti a
         // una spezzata impedirebbe di misurare una cresta in due tratti.
-        let minimum = activeTool == .ellipseROI ? 3 : 2
+        //
+        // Anche la mano libera ne chiede tre: il gesto comincia posando un punto alla pressione,
+        // quindi un clic fermo ne lascerebbe uno solo e un tremito due. Sotto i tre punti non
+        // c'è un tracciato, c'è un clic andato storto.
+        let minimum = activeTool == .ellipseROI || activeTool == .freehand ? 3 : 2
         guard let points = toolSession.close(minimumPoints: minimum) else { return false }
 
         let plane = toolSession.anchor?.planeReference

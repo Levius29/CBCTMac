@@ -80,7 +80,7 @@ struct ToolPalette: View {
                 .help("Fai prima clic sul punto da togliere. Equivale a ⌥ clic sul punto.")
             }
 
-            if let hint = model.activeTool.hint {
+            if let hint = model.activeToolHint {
                 Text(hint)
                     .font(Typography.label)
                     .foregroundStyle(Palette.textSecondary)

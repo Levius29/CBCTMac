@@ -142,6 +142,15 @@ struct ViewportContainer: View {
     /// che sembra funzionare e non funziona costa più di quanto risparmi.
     @State private var crosshairDrag: CrosshairDrag?
 
+    /// Pressione e ultimo punto di un trascinamento in corso, in pixel del drawable.
+    ///
+    /// Servono a far funzionare **col trascinamento** gli strumenti a due punti — distanza, ROI
+    /// ellittica, sferica, profilo, freccia. Il suggerimento della ROI ellittica prometteva già
+    /// «trascina dal centro verso il bordo» e il codice chiedeva due clic: la promessa era
+    /// giusta, mancava l'attuazione. Adesso valgono entrambe le vie, che è la convenzione di
+    /// qualunque visore: chi trascina ottiene la forma, chi preferisce mirare due volte pure.
+    @State private var twoPointDrag: (start: CGPoint, last: CGPoint)?
+
     private struct CrosshairDrag {
         let represented: ViewportSlot
         let grip: CrosshairGrip
@@ -264,7 +273,10 @@ struct ViewportContainer: View {
                     model.layout = model.layout == .single ? .grid2x2 : .single
                 },
                 onDragBegan: handleDragBegan,
+                onCancel: { model.cancelToolSession() },
                 onDragEnded: {
+                    finishTwoPointDrag()
+
                     // Un tracciato a mano libera si chiude alzando il dito: è il gesto con cui
                     // chiunque smette di disegnare, e chiedere in più un doppio clic sarebbe un
                     // passo che nessuno si aspetta.
@@ -381,6 +393,28 @@ struct ViewportContainer: View {
         model.applyToolClick(at: patient, anchor: toolAnchor())
     }
 
+    /// Chiude un trascinamento a due punti, se c'è stato movimento a sufficienza.
+    ///
+    /// La soglia è la stessa che distingue un clic da un trascinamento in `InteractiveMetalView`:
+    /// sotto quella il rilascio è già arrivato come clic, e trattarlo anche come trascinamento
+    /// creerebbe due misure per un gesto solo.
+    private func finishTwoPointDrag() {
+        guard let drag = twoPointDrag else { return }
+        twoPointDrag = nil
+
+        let moved = abs(drag.last.x - drag.start.x) + abs(drag.last.y - drag.start.y)
+        let scale = pointSize.width > 0 ? pixelSize.width / pointSize.width : 1
+        guard moved > InteractiveMetalView.clickSlopPoints * max(scale, 1) else { return }
+
+        guard let start = patientPoint(atPixel: drag.start),
+            let end = patientPoint(atPixel: drag.last)
+        else { return }
+
+        let anchor = toolAnchor()
+        model.applyToolClick(at: start, anchor: anchor)
+        model.applyToolClick(at: end, anchor: anchor)
+    }
+
     /// Il piano di questo riquadro, per ancorarci la misura che comincia qui.
     private func toolAnchor() -> ToolAnchor? {
         guard let plane = adjustedPlane, let geometry = model.volume?.geometry else { return nil }
@@ -435,6 +469,16 @@ struct ViewportContainer: View {
         crosshairDrag = nil
         archDragIndex = nil
         guard model.workMode.isEditable else { return }
+
+        twoPointDrag = nil
+
+        // Uno strumento a due punti con la sessione vuota: si annota la pressione e **non** si
+        // posa nulla. Posare qui il primo punto significherebbe che un clic fermo ne produce due
+        // coincidenti, cioè una misura lunga zero — il rilascio senza movimento passa da
+        // `onClick`, che è la via giusta per chi mira invece di trascinare.
+        if model.activeToolShape == .twoPoints, model.toolSession.isEmpty {
+            twoPointDrag = (pixelPoint, pixelPoint)
+        }
 
         // La mano libera viene prima di tutto: mentre si disegna un contorno, il trascinamento è
         // il disegno e non deve significare anche pan o presa del mirino.
@@ -526,6 +570,11 @@ struct ViewportContainer: View {
             if let patient = patientPoint(atPixel: point) {
                 model.appendFreehandPoint(at: patient, anchor: toolAnchor())
             }
+            return
+        }
+
+        if twoPointDrag != nil {
+            twoPointDrag?.last = point
             return
         }
 

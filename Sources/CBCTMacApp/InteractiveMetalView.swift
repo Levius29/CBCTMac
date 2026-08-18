@@ -77,6 +77,13 @@ final class InteractiveMetalView: MTKView {
     /// tardi — il primo movimento è quello che sposta.
     var onDragBegan: ((CGPoint) -> Void)?
     var onDragEnded: (() -> Void)?
+    /// Esc: annulla la misura in corso.
+    ///
+    /// Sta qui e non fra i comandi del menu perché Esc ha già un significato in ogni finestra di
+    /// dialogo — «annulla» — e occuparlo globalmente romperebbe la chiusura delle finestre. Il
+    /// riquadro è primo responder appena lo si tocca, e riceve il tasto solo mentre è lui a
+    /// essere usato, che è esattamente quando la misura in corso è sua.
+    var onCancel: (() -> Void)?
 
     // MARK: Configurazione
 
@@ -85,6 +92,16 @@ final class InteractiveMetalView: MTKView {
     override var isFlipped: Bool { true }
 
     override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        // 53 è Esc. Il confronto sul codice e non sui caratteri: `charactersIgnoringModifiers`
+        // per Esc restituisce un carattere di controllo che cambia con la disposizione tastiera.
+        guard event.keyCode == 53 else {
+            super.keyDown(with: event)
+            return
+        }
+        onCancel?()
+    }
 
     /// Frazione della risoluzione nativa a cui rendere: 1 è piena, 0,5 un quarto dei pixel.
     ///
@@ -157,7 +174,14 @@ final class InteractiveMetalView: MTKView {
     ///
     /// Tre punti sono abbastanza per assorbire il tremito della mano su un trackpad e abbastanza
     /// pochi perché un trascinamento voluto venga riconosciuto subito.
-    private static let clickSlopPoints: CGFloat = 3
+    /// Movimento oltre il quale una pressione smette di essere un clic e diventa un
+    /// trascinamento, in punti di schermo.
+    ///
+    /// Non è privata perché la stessa soglia serve a chi sta sopra: uno strumento a due punti si
+    /// completa col trascinamento, e deve distinguerlo dal clic **con lo stesso metro**. Due
+    /// soglie diverse darebbero un intervallo in cui il gesto conta sia come clic sia come
+    /// trascinamento, cioè due misure per un gesto solo.
+    static let clickSlopPoints: CGFloat = 3
 
     /// Radianti per punto di trascinamento orizzontale nella rotazione nel piano.
     ///
@@ -276,7 +300,15 @@ final class InteractiveMetalView: MTKView {
         lastPixelLocation = pressLocation
         accumulatedMovement = 0
         exceededClickSlop = false
-        onDragBegan?(pressLocation ?? .zero)
+
+        // `onDragBegan` significa «sta cominciando un gesto **dello strumento**», ed è lì che chi
+        // sta sopra decide che cosa si è afferrato. Con ⌥ o ⇧ premuti il gesto è dichiaratamente
+        // panoramica o rotazione: annunciarlo lo stesso faceva afferrare una maniglia del mirino
+        // che poi nessuno muoveva, e con la mano libera posava un punto che il trascinamento non
+        // avrebbe mai continuato.
+        if dragMode == .tool {
+            onDragBegan?(pressLocation ?? .zero)
+        }
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -299,9 +331,11 @@ final class InteractiveMetalView: MTKView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        let wasToolGesture = dragMode == .tool
         defer {
             pressLocation = nil
-            onDragEnded?()
+            // Simmetrico all'inizio: si chiude solo ciò che si era annunciato aperto.
+            if wasToolGesture { onDragEnded?() }
         }
         guard let pressLocation, !exceededClickSlop else { return }
         // Il clic si riferisce al punto della **pressione**, non del rilascio: se la mano ha
@@ -323,7 +357,9 @@ final class InteractiveMetalView: MTKView {
     override func otherMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         lastPixelLocation = pixelLocation(of: event)
-        onDragBegan?(pixelLocation(of: event))
+        // Niente `onDragBegan`: il tasto centrale è sempre e solo panoramica, e non c'è nulla da
+        // afferrare. Annunciarlo faceva credere a chi sta sopra che stesse cominciando un gesto
+        // dello strumento — con la mano libera, un punto posato a ogni panoramica.
     }
 
     override func otherMouseDragged(with event: NSEvent) {
@@ -331,7 +367,7 @@ final class InteractiveMetalView: MTKView {
     }
 
     override func otherMouseUp(with event: NSEvent) {
-        onDragEnded?()
+        // Nulla da chiudere: il tasto centrale non apre alcun gesto dello strumento.
     }
 
     override func mouseMoved(with event: NSEvent) {

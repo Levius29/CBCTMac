@@ -43,6 +43,8 @@ struct PanoramicViewportView: NSViewRepresentable {
     /// capire se si è afferrata la linea di taglio prima che il primo movimento la sposti.
     var onDragBegan: (Double, Double) -> Void = { _, _ in }
     var onDragEnded: () -> Void = {}
+    /// Esc premuto mentre il riquadro ha il fuoco.
+    var onCancel: () -> Void = {}
     /// Trascinamento in corso, in frazione di larghezza e di altezza.
     var onDragMoved: (Double, Double) -> Void = { _, _ in }
     /// Ingrandimento: fattore e pixel orizzontale su cui ancorarlo.
@@ -151,6 +153,7 @@ struct PanoramicViewportView: NSViewRepresentable {
                 Double(point.y) / Double(view.drawableSize.height))
         }
         view.onDragEnded = onDragEnded
+        view.onCancel = onCancel
 
         view.onDrag = { [weak view] point, delta in
             guard let view, view.drawableSize.width > 0, view.drawableSize.height > 0 else {
@@ -483,6 +486,7 @@ struct PanoramicWorkspace: View {
                 onScrollVertical: { model.movePanoramicVertical(byMM: $0) },
                 onDragBegan: beginCutLineDrag,
                 onDragEnded: { cutLineDrag = nil },
+                onCancel: { model.cancelToolSession() },
                 onDragMoved: moveCutLine,
                 onZoom: { factor, x, width in
                     model.zoomPanoramic(by: factor, atPixelX: x, pixelWidth: width)
@@ -824,6 +828,7 @@ struct CrossSectionCell: View {
                 windowLevel: model.windowLevel,
                 onClick: handleClick,
                 onDoubleClick: { model.closeToolSession() },
+                onCancel: { model.cancelToolSession() },
                 onDrawableSize: { pixelSize = $0 }
             )
             .clipShape(.rect(cornerRadius: 3))
