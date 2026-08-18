@@ -838,4 +838,45 @@ struct ModuleAPIContractTests {
                 of: section.plane, clippedTo: geometry, projector: projector)
         }
     }
+
+    // MARK: ArchCurveOverlay: bordi dello slab e trattini delle sezioni
+
+    @Test("Le API che l'assiale usa per bordi dello slab e trattini delle sezioni")
+    func archOverlayAPI() throws {
+        let curve = ArchCurve(
+            controlPointsMM: stride(from: -22.0, through: 22.0, by: 11.0).map {
+                Vec3($0, $0 * $0 / 55 - 16, 0)
+            })
+
+        // `drawCurve`: i bordi dello slab sono la curva spostata lungo la **normale**, che è la
+        // direzione vestibolo-linguale. Spostarla lungo la tangente la farebbe scorrere su se
+        // stessa senza allargare nulla, ed è l'errore che questo controllo esclude.
+        let samples = curve.resampled(count: 160)
+        #expect(samples.count == 160)
+        let first = try #require(samples.first)
+        #expect(abs(first.normal.dot(first.tangent)) < 1e-9)
+        let displaced = first.positionMM + first.normal * 10
+        #expect(abs(displaced.distance(to: first.positionMM) - 10) < 1e-9)
+
+        // `drawSectionTicks`
+        let layout = CrossSectionLayout(
+            curve: curve, intervalMM: 2, widthMM: 30, heightMM: 40,
+            verticalCentreMM: 0, thicknessMM: 0, angleOffsetRadians: 0)
+        var browser = CrossSectionBrowser(sections: layout.sections(), visibleCount: 5)
+        browser.select(nearestToArcLengthMM: 20)
+        let range = browser.visibleRange
+        #expect(!range.isEmpty)
+        for index in range {
+            let section = browser.sections[index]
+            _ = section.originMM
+            _ = section.plane.rightMM
+            _ = section.plane.widthMM
+        }
+        _ = browser.selectedIndex
+
+        // Il trattino giace **sul** piano della sezione: `rightMM` deve essere perpendicolare
+        // alla normale del piano, altrimenti indicherebbe una direzione che la sezione non ha.
+        let section = try #require(browser.selectedSection)
+        #expect(abs(section.plane.rightMM.dot(section.plane.normalMM)) < 1e-9)
+    }
 }

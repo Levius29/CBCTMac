@@ -118,12 +118,12 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 |---|---|---|---|---|
 | F1 | Curva disegnabile per punti | ✅ | 3 | — |
 | F2 | Due curve indipendenti, superiore e inferiore | ✅ | 3 | — |
-| F3 | **Bordi dello slab disegnati** ai lati della curva | ❌ | 3 | G |
-| F4 | Punti di controllo con aspetto diverso in modifica | 🔶 | 2 | G |
+| F3 | **Bordi dello slab disegnati** ai lati della curva | ✅ | 3 | G |
+| F4 | Punti di controllo con aspetto diverso in modifica | ✅ | 2 | G |
 | F5 | Curva estendibile oltre l'arcata, fino ai rami | ✅ | 2 | — |
 | F6 | Scostamento vestibolo-linguale sulla rotella | ✅ | 3 | — |
 | F7 | Scorrimento lungo l'arcata, con ingrandimento | ✅ | 2 | — |
-| F8 | **Frecce sull'assiale** che indicano le sezioni mostrate | ❌ | 3 | G |
+| F8 | **Frecce sull'assiale** che indicano le sezioni mostrate | ✅ | 3 | G |
 | F9 | Anteprima della curva nell'elenco degli oggetti | ❌ | 1 | E |
 | F10 | Curva proposta automaticamente dall'anatomia | 🔶 | 2 | N |
 
@@ -207,7 +207,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | **D** | Geometria delle sovraimpressioni 3D — H2…H6, H10 | Codex | VolumeKit | ✅ **fatto** |
 | **E** | Modello degli oggetti — C1…C12, A5, F9, J7 | Codex | tutti | ✅ **nucleo consegnato**, interfaccia nel lotto H |
 | **F** | Collocazione delle etichette — E6, E7 | Codex | E | da scrivere |
-| **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | 🔶 **3D fatto**, restano F3/F4/F8 sul 2D e H6 |
+| **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | ✅ **fatto**, tranne H6 (il ritaglio vive solo nella sua finestra) |
 | **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | Codex | A, B, D, E | da scrivere |
 | **I** | Maniglie del mirino colorate — E5, H7 | me | — | ✅ **fatto** |
 | **J** | Esportazione e relazione — J1…J5, J8, D4, D5, B11 | Codex | E | da scrivere |

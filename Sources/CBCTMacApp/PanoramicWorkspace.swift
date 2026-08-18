@@ -669,12 +669,37 @@ struct ArchCurveOverlay: View {
         // altrimenti l'utente vedrebbe una linea diversa da quella che genera il panorex.
         if curve.isUsable {
             let samples = curve.resampled(count: 160)
+
+            // I **bordi dello slab**, cioè fin dove arriva ciò che il panorex sta mediando.
+            //
+            // Senza di essi lo spessore è un numero in un pannello e non si sa a quanta anatomia
+            // corrisponda. Con essi si vede subito se la fascia comprende le corticali o se ne
+            // taglia una via, che è la domanda che ci si pone davvero regolando quel cursore. Le
+            // due curve seguono l'offset in profondità, quindi sfogliando in vestibolo-linguale
+            // si spostano insieme all'immagine.
+            let half = model.panoramicSlabThicknessMM * 0.5
+            if half > 0.05 {
+                var borders = Path()
+                for side in [1.0, -1.0] {
+                    let offset = model.panoramicNormalOffsetMM + half * side
+                    for (index, sample) in samples.enumerated() {
+                        let point = project(sample.positionMM + sample.normal * offset)
+                        if index == 0 { borders.move(to: point) } else { borders.addLine(to: point) }
+                    }
+                }
+                context.stroke(
+                    borders, with: .color(Palette.accent.opacity(0.35)),
+                    style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            }
+
             var path = Path()
             for (index, sample) in samples.enumerated() {
                 let point = project(sample.positionMM)
                 if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
             }
             context.stroke(path, with: .color(Palette.accent.opacity(0.9)), lineWidth: 2)
+
+            drawSectionTicks(&context, project: project)
         } else if curve.controlPointsMM.count == 1 {
             // Un punto solo non è una curva, ma va mostrato: altrimenti il primo clic sembra non
             // aver fatto nulla.
@@ -685,7 +710,19 @@ struct ArchCurveOverlay: View {
                 lineWidth: 1)
         }
 
-        guard isEditable else { return }
+        // Fuori dalla modifica i punti restano visibili ma minuti e spenti. Prima sparivano del
+        // tutto, e sparendo portavano via l'informazione che la curva **ha** dei punti: chi non
+        // sapeva già dell'interruttore di modifica non aveva modo di scoprire che fosse
+        // modificabile. Piccoli e grigi dicono «ci sono, ma adesso non sono in mano tua».
+        guard isEditable else {
+            for control in curve.controlPointsMM {
+                let point = project(control)
+                context.fill(
+                    Path(ellipseIn: CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)),
+                    with: .color(Palette.textSecondary.opacity(0.7)))
+            }
+            return
+        }
 
         for (index, control) in curve.controlPointsMM.enumerated() {
             let point = project(control)
@@ -709,6 +746,45 @@ struct ArchCurveOverlay: View {
                 Text("1").font(Typography.numericSmall).foregroundStyle(Palette.textPrimary),
                 at: CGPoint(x: point.x + 10, y: point.y - 10))
         }
+    }
+
+    /// Dove cadono, sull'assiale, le sezioni che la striscia sta mostrando.
+    ///
+    /// È il legame che mancava fra la striscia in basso e l'anatomia: guardando una sezione
+    /// stretta non si sa a quale punto dell'arcata appartenga, e finora l'unico modo di
+    /// scoprirlo era selezionarla e guardare dove saltava il mirino. Ogni trattino è
+    /// perpendicolare alla curva, cioè giace **sul** piano della sezione che rappresenta:
+    /// disegnarlo parallelo alla curva sarebbe più facile e indicherebbe la direzione sbagliata.
+    private func drawSectionTicks(
+        _ context: inout GraphicsContext, project: (Vec3) -> CGPoint
+    ) {
+        let browser = model.crossSectionBrowser
+        let range = browser.visibleRange
+        guard !range.isEmpty else { return }
+
+        var ticks = Path()
+        var selected = Path()
+        for index in range {
+            guard browser.sections.indices.contains(index) else { continue }
+            let section = browser.sections[index]
+            let isSelected = index == browser.selectedIndex
+            // Metà larghezza della sezione per quella scelta, un cenno per le altre: la
+            // selezionata è quella che le altre viste stanno seguendo, e deve distinguersi senza
+            // che si debba cercarla.
+            let halfMM = isSelected ? section.plane.widthMM * 0.5 : 3.0
+            let direction = section.plane.rightMM
+            let a = project(section.originMM + direction * halfMM)
+            let b = project(section.originMM - direction * halfMM)
+            if isSelected {
+                selected.move(to: a)
+                selected.addLine(to: b)
+            } else {
+                ticks.move(to: a)
+                ticks.addLine(to: b)
+            }
+        }
+        context.stroke(ticks, with: .color(Palette.textPrimary.opacity(0.45)), lineWidth: 1)
+        context.stroke(selected, with: .color(.white.opacity(0.9)), lineWidth: 1.5)
     }
 
     // MARK: Trascinamento
