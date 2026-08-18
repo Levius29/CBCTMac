@@ -21,13 +21,6 @@ struct CrossSectionCutLine: View {
     /// Quanto in alto arriva la maniglia di rotazione, in frazione dell'altezza.
     private let handleFraction: CGFloat = 0.12
 
-    @State private var dragMode: DragMode?
-
-    private enum DragMode {
-        case position
-        case angle
-    }
-
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
@@ -57,11 +50,16 @@ struct CrossSectionCutLine: View {
 
                     positionLabel(at: x, in: size)
                 }
-                .contentShape(.rect)
-                .gesture(gesture(in: size))
             }
         }
-        .allowsHitTesting(model.crossSectionBrowser.selectedSection != nil)
+        // **Solo disegno.** Aveva `contentShape` e un `DragGesture`, e sotto c'è un `MTKView`:
+        // AppKit consegna il mouse alla vista più profonda, quindi il gesto non riceveva niente —
+        // ma la sovraimpressione **assorbiva comunque la rotella**, e con essa lo sfogliamento in
+        // profondità del panorex, che era la cosa che funzionava prima. Un difetto che toglie una
+        // funzione che c'era per aggiungerne una che non c'è.
+        //
+        // I due gesti vivono adesso in `PanoramicWorkspace`, sul percorso eventi del riquadro.
+        .allowsHitTesting(false)
     }
 
     // MARK: Posizione
@@ -103,41 +101,5 @@ struct CrossSectionCutLine: View {
                     x: x < size.width - 70 ? x + 42 : x - 42,
                     y: size.height * handleFraction)
         }
-    }
-
-    // MARK: Gesti
-
-    private func gesture(in size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 1)
-            .onChanged { value in
-                if dragMode == nil {
-                    // La modalità si decide alla prima notifica e non cambia più: leggerla a ogni
-                    // evento farebbe commutare fra spostamento e rotazione a metà gesto.
-                    dragMode =
-                        value.startLocation.y < size.height * handleFraction * 2
-                        ? .angle : .position
-                }
-
-                switch dragMode {
-                case .angle:
-                    // L'angolo dallo spostamento orizzontale della maniglia rispetto alla base
-                    // della linea: è la stessa geometria che la linea disegna, quindi la maniglia
-                    // segue il dito.
-                    guard let x = lineX(in: size) else { return }
-                    let half = size.height / 2
-                    guard half > 1 else { return }
-                    let offset = Double((x - value.location.x) / half)
-                    let angle = Foundation.atan(offset)
-                    // Oltre i sessanta gradi la sezione diventa quasi tangente alla curva e non
-                    // rappresenta più una trasversale: si ferma prima invece di produrre immagini
-                    // senza significato.
-                    model.crossSectionAngleOffset = min(max(angle, -.pi / 3), .pi / 3)
-
-                case .position, .none:
-                    model.selectCrossSection(
-                        nearestToArcLengthMM: arcLength(atX: value.location.x, in: size))
-                }
-            }
-            .onEnded { _ in dragMode = nil }
     }
 }

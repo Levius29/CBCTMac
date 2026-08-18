@@ -32,6 +32,12 @@ struct PanoramicViewportView: NSViewRepresentable {
     var onScrollDepth: (Double) -> Void = { _ in }
     /// Spostamento della quota verticale, in millimetri.
     var onScrollVertical: (Double) -> Void = { _ in }
+    /// Inizio del trascinamento, con l'ascissa premuta in **frazione di larghezza**: serve a
+    /// capire se si è afferrata la linea di taglio prima che il primo movimento la sposti.
+    var onDragBegan: (Double, Double) -> Void = { _, _ in }
+    var onDragEnded: () -> Void = {}
+    /// Trascinamento in corso, in frazione di larghezza e di altezza.
+    var onDragMoved: (Double, Double) -> Void = { _, _ in }
     /// Ingrandimento: fattore e pixel orizzontale su cui ancorarlo.
     var onZoom: (Double, Double, Int) -> Void = { _, _, _ in }
 
@@ -121,7 +127,28 @@ struct PanoramicViewportView: NSViewRepresentable {
             // quota di lavoro.
             onScrollVertical(Double(delta.height) * millimetresPerPixel)
         }
-        view.onDrag = { _, delta in drag(delta) }
+        // Il trascinamento ha due significati, e quale valga si decide alla pressione: sulla
+        // linea di taglio la sposta o la ruota, altrove scorre l'immagine. Deciderlo al primo
+        // movimento sarebbe tardi, perché il primo movimento è quello che sposta.
+        view.onDragBegan = { [weak view] point in
+            guard let view, view.drawableSize.width > 0, view.drawableSize.height > 0 else {
+                return
+            }
+            onDragBegan(
+                Double(point.x) / Double(view.drawableSize.width),
+                Double(point.y) / Double(view.drawableSize.height))
+        }
+        view.onDragEnded = onDragEnded
+
+        view.onDrag = { [weak view] point, delta in
+            guard let view, view.drawableSize.width > 0, view.drawableSize.height > 0 else {
+                return
+            }
+            onDragMoved(
+                Double(point.x) / Double(view.drawableSize.width),
+                Double(point.y) / Double(view.drawableSize.height))
+            drag(delta)
+        }
         view.onPan = drag
 
         view.onZoom = { [weak view] factor, anchor in
@@ -213,6 +240,16 @@ struct PanoramicWorkspace: View {
     @State private var panoramicPixelSize: CGSize = .zero
     @State private var hoverArcLengthMM: Double?
 
+    /// Che cosa si sta trascinando sulla linea di taglio, deciso alla pressione.
+    @State private var cutLineDrag: CutLineDrag?
+
+    private enum CutLineDrag {
+        /// Il corpo della linea: sceglie **dove** tagliare.
+        case position
+        /// La maniglia in cima: sceglie **con che angolo**.
+        case angle
+    }
+
     /// Sezioni mostrate contemporaneamente nella griglia.
 
     /// Larghezza dell'assiale e altezza della striscia, ricordate fra una sessione e l'altra.
@@ -253,6 +290,62 @@ struct PanoramicWorkspace: View {
             }
             .padding(Metrics.viewportGap)
             .background(Palette.viewportBackground)
+        }
+    }
+
+    // MARK: La linea di taglio
+
+    // # Perché questi due gesti vivono qui e non nella sovraimpressione che li disegna
+    //
+    // Ci vivevano, con un `DragGesture` di SwiftUI, e non funzionavano: sotto c'è un `MTKView`,
+    // cioè una `NSView` vera, e AppKit consegna il mouse a quella. La sovraimpressione però
+    // **assorbiva la rotella**, e con essa lo sfogliamento in profondità del panorex — una
+    // funzione che c'era, tolta per aggiungerne una che non c'era. È la stessa lezione delle
+    // maniglie del mirino, e la stessa regola: dentro un riquadro, un solo percorso di eventi.
+
+    /// Quanto vicino alla linea bisogna premere per afferrarla, in frazione di larghezza.
+    private let cutLineGrabFraction = 0.02
+
+    /// Quanto in alto arriva la maniglia di rotazione, in frazione dell'altezza.
+    private let cutHandleFraction = 0.24
+
+    private func beginCutLineDrag(atFractionX x: Double, y: Double) {
+        cutLineDrag = nil
+        guard let section = model.crossSectionBrowser.selectedSection else { return }
+
+        let range = model.panoramicLayout.visibleArcRangeMM
+        let span = max(range.upperBound - range.lowerBound, 1e-6)
+        let lineX = (section.arcLengthMM - range.lowerBound) / span
+        guard abs(x - lineX) < cutLineGrabFraction else { return }
+
+        // In cima è la maniglia dell'angolo, sotto è il corpo della linea. Due significati sullo
+        // stesso oggetto, distinti da dove lo si afferra: sono le due libertà di una sezione
+        // trasversale, e tenerle insieme è ciò che rende il gesto immediato.
+        cutLineDrag = y < cutHandleFraction ? .angle : .position
+    }
+
+    private func moveCutLine(toFractionX x: Double, y: Double) {
+        guard let drag = cutLineDrag else { return }
+        switch drag {
+        case .position:
+            let range = model.panoramicLayout.visibleArcRangeMM
+            let span = range.upperBound - range.lowerBound
+            model.selectCrossSection(
+                nearestToArcLengthMM: range.lowerBound + min(max(x, 0), 1) * span)
+
+        case .angle:
+            guard let section = model.crossSectionBrowser.selectedSection else { return }
+            let range = model.panoramicLayout.visibleArcRangeMM
+            let span = max(range.upperBound - range.lowerBound, 1e-6)
+            let lineX = (section.arcLengthMM - range.lowerBound) / span
+            // L'angolo dallo scostamento orizzontale della maniglia rispetto alla base della
+            // linea, con l'altezza del riquadro come braccio. Oltre i sessanta gradi la sezione
+            // diventa quasi tangente alla curva e non rappresenta più una trasversale.
+            let aspect = panoramicPixelSize.height > 0
+                ? Double(panoramicPixelSize.width / panoramicPixelSize.height) : 2
+            let offset = (lineX - x) * aspect / max(0.5 - cutHandleFraction, 0.1) * 0.5
+            let angle = Foundation.atan(offset)
+            model.crossSectionAngleOffset = min(max(angle, -.pi / 3), .pi / 3)
         }
     }
 
@@ -367,6 +460,9 @@ struct PanoramicWorkspace: View {
                 onScrollArc: { model.scrollPanoramic(byArcMM: $0) },
                 onScrollDepth: { model.movePanoramicDepth(byMM: $0) },
                 onScrollVertical: { model.movePanoramicVertical(byMM: $0) },
+                onDragBegan: beginCutLineDrag,
+                onDragEnded: { cutLineDrag = nil },
+                onDragMoved: moveCutLine,
                 onZoom: { factor, x, width in
                     model.zoomPanoramic(by: factor, atPixelX: x, pixelWidth: width)
                 }
@@ -444,6 +540,54 @@ struct PanoramicWorkspace: View {
             }
             .padding(Metrics.spacing)
             .allowsHitTesting(false)
+        }
+        // Comandi della profondità, in basso a sinistra e sempre presenti.
+        //
+        // La rotella li fa già, ed è il gesto migliore: le dita restano sull'immagine. Ma un
+        // gesto che nessuno documenta è un gesto che non esiste, e questo è già andato perso una
+        // volta senza che nulla lo dichiarasse — una sovraimpressione che assorbiva la rotella lo
+        // aveva spento in silenzio. Con i pulsanti la funzione si vede, e se il gesto smette di
+        // funzionare si nota subito che è il gesto e non la funzione.
+        .overlay(alignment: .bottomLeading) {
+            HStack(spacing: 4) {
+                Button {
+                    model.movePanoramicDepth(byMM: -0.5)
+                } label: {
+                    Image(systemName: "arrow.left.to.line")
+                        .font(.system(size: 10))
+                        .frame(width: 22, height: 20)
+                        .background(Palette.chrome.opacity(0.8), in: .rect(cornerRadius: 3))
+                }
+                .buttonStyle(.plain)
+                .help("Sposta la fetta di mezzo millimetro verso il linguale")
+
+                Button {
+                    model.movePanoramicDepth(byMM: 0.5)
+                } label: {
+                    Image(systemName: "arrow.right.to.line")
+                        .font(.system(size: 10))
+                        .frame(width: 22, height: 20)
+                        .background(Palette.chrome.opacity(0.8), in: .rect(cornerRadius: 3))
+                }
+                .buttonStyle(.plain)
+                .help("Sposta la fetta di mezzo millimetro verso il vestibolare")
+
+                if abs(model.panoramicNormalOffsetMM) > 0.001 {
+                    Button {
+                        model.panoramicNormalOffsetMM = 0
+                    } label: {
+                        Text("Sulla curva")
+                            .font(Typography.label)
+                            .padding(.horizontal, 6)
+                            .frame(height: 20)
+                            .background(Palette.chrome.opacity(0.8), in: .rect(cornerRadius: 3))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Riporta la fetta sulla curva disegnata")
+                }
+            }
+            .foregroundStyle(Palette.textPrimary)
+            .padding(Metrics.spacing)
         }
         .overlay(alignment: .topTrailing) {
             // Una via di ritorno all'arcata intera, come nei riquadri MPR: scorrendo e

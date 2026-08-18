@@ -138,13 +138,25 @@ private struct ToolButton: View {
     @Bindable var model: AppModel
     let entry: ToolEntry
 
-    @State private var isShowingVariants = false
-
     private var isActive: Bool { model.activeTool == entry.tool }
 
+    // # Perché `Menu` con azione primaria e non una pressione prolungata
+    //
+    // Prima erano un `Button` con `.onLongPressGesture` e un `.popover`, e non succedeva niente:
+    // il gesto del bottone e quello di pressione prolungata si contendono lo stesso evento, e
+    // vince il bottone. Il rimedio non è insistere con i gesti — è usare il controllo che AppKit
+    // ha già per questo: un menu con un'azione primaria fa la cosa ovvia al clic e apre l'elenco
+    // se si tiene premuto, esattamente come le palette a cui somiglia.
     var body: some View {
-        Button {
-            model.activeTool = entry.tool
+        Menu {
+            ForEach(entry.variants) { variant in
+                Button {
+                    model.activeTool = entry.tool
+                    model.toolVariant = variant.id
+                } label: {
+                    Label(variant.name, systemImage: variant.systemImage)
+                }
+            }
         } label: {
             Image(systemName: iconName)
                 .font(.system(size: 13))
@@ -174,41 +186,13 @@ private struct ToolButton: View {
                 }
                 .foregroundStyle(isActive ? Palette.accent : Palette.textPrimary)
                 .contentShape(.rect)
+        } primaryAction: {
+            model.activeTool = entry.tool
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .help(helpText)
-        // Pressione prolungata per le varianti, come nelle palette a cui somiglia. Il clic
-        // normale resta immediato: chi vuole la variante sa aspettare, chi vuole lo strumento
-        // non deve.
-        .onLongPressGesture(minimumDuration: 0.35) {
-            guard !entry.variants.isEmpty else { return }
-            isShowingVariants = true
-        }
-        .popover(isPresented: $isShowingVariants, arrowEdge: .trailing) {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(entry.variants) { variant in
-                    Button {
-                        model.activeTool = entry.tool
-                        model.toolVariant = variant.id
-                        isShowingVariants = false
-                    } label: {
-                        Label(variant.name, systemImage: variant.systemImage)
-                            .font(Typography.body)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(
-                                model.toolVariant == variant.id
-                                    ? Palette.accent.opacity(0.2) : .clear,
-                                in: .rect(cornerRadius: 4))
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(6)
-            .frame(width: 240)
-        }
     }
 
     private var iconName: String {
