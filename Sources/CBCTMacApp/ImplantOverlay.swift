@@ -205,14 +205,23 @@ struct ImplantOverlay: View {
             context.stroke(Path(ellipseIn: rect), with: .color(colour.opacity(0.9)), lineWidth: 1.5)
         }
 
-        // Nodi tracciati, visibili solo mentre si sta tracciando.
-        guard model.tracingNerveID == canal.id else { return }
+        // Nodi tracciati: **sempre**, non solo mentre si traccia.
+        //
+        // Prima comparivano solo durante il tracciamento e sparivano appena finito. Adesso un
+        // nodo si può trascinare per correggerlo e togliere con ⌥ clic, e un punto afferrabile
+        // che non si vede è una funzione che non esiste — è già successo tre volte su questo
+        // progetto. Finito il tracciamento restano più piccoli e più discreti: servono a essere
+        // trovati quando li si cerca, non a coprire l'anatomia mentre si guarda altro.
+        let isTracing = model.tracingNerveID == canal.id
+        let size: CGFloat = isTracing ? 8 : 5
         for node in canal.nodes {
             let projected = plane.pixelPosition(
                 ofPatient: node.positionMM, pixelWidth: width, pixelHeight: height)
             guard abs(projected.distanceMM) < 3 else { continue }
-            let rect = CGRect(x: projected.x - 4, y: projected.y - 4, width: 8, height: 8)
-            context.fill(Path(ellipseIn: rect), with: .color(colour))
+            let rect = CGRect(
+                x: projected.x - size / 2, y: projected.y - size / 2, width: size, height: size)
+            context.fill(
+                Path(ellipseIn: rect), with: .color(colour.opacity(isTracing ? 1 : 0.75)))
             context.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: 1)
         }
     }

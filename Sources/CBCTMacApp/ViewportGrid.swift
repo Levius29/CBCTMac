@@ -275,6 +275,7 @@ struct ViewportContainer: View {
                 onDragBegan: handleDragBegan,
                 onCancel: { model.cancelToolSession() },
                 onDragEnded: {
+                    model.endHandleDrag()
                     model.endImplantDrag()
                     finishTwoPointDrag()
 
@@ -388,6 +389,15 @@ struct ViewportContainer: View {
             return
         }
 
+        // ⌥ clic su un nodo del nervo lo toglie: lo stesso gesto della curva d'arcata, perché è
+        // la stessa operazione — togliere un punto da una polilinea tracciata a mano — e due
+        // gesti diversi per la stessa cosa sono uno da ricordare in più.
+        if NSEvent.modifierFlags.contains(.option),
+            model.removeNerveNode(near: patient, toleranceMM: grabToleranceMM)
+        {
+            return
+        }
+
         // Da qui in poi lo strumento è dell'applicazione, non del riquadro: la conversione in
         // millimetri l'ha fatta questa vista, che è l'unica a conoscere il proprio piano, e il
         // resto vale identico ovunque. Vedi `AppModel.applyToolClick`.
@@ -483,6 +493,17 @@ struct ViewportContainer: View {
         guard model.workMode.isEditable else { return }
 
         twoPointDrag = nil
+
+        // Le maniglie delle misure e i nodi dei nervi vengono per primi: sono più piccoli di un
+        // impianto e stanno spesso sopra di esso, quindi dando la precedenza all'impianto
+        // resterebbero irraggiungibili. Valgono con qualunque strumento in mano, perché
+        // correggere è un'operazione che non appartiene a uno strumento in particolare.
+        if let patient = patientPoint(atPixel: pixelPoint),
+            model.beginHandleDrag(at: patient, toleranceMM: grabToleranceMM)
+        {
+            model.focusedSlot = slot
+            return
+        }
 
         // Un impianto afferrato viene prima di tutto il resto: chi preme sul corpo di un impianto
         // sta spostando quello, non misurando né spostando il mirino. Solo con la navigazione o
@@ -594,6 +615,11 @@ struct ViewportContainer: View {
             if let patient = patientPoint(atPixel: point) {
                 model.appendFreehandPoint(at: patient, anchor: toolAnchor())
             }
+            return
+        }
+
+        if model.annotationDrag != nil || model.nerveDrag != nil {
+            if let patient = patientPoint(atPixel: point) { model.dragHandle(toMM: patient) }
             return
         }
 

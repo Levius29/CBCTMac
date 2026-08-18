@@ -36,6 +36,7 @@ struct ShortcutsSheet: View {
                     VStack(alignment: .leading, spacing: Metrics.spacingLarge) {
                         group("Nei riquadri", mouse)
                         group("Mirino", crosshair)
+                        group("Correggere", editing)
                     }
                     VStack(alignment: .leading, spacing: Metrics.spacingLarge) {
                         group("Strumenti", tools)
@@ -71,6 +72,15 @@ struct ShortcutsSheet: View {
             ("⇧ Trascina ↔", "Inclina il taglio: ruota gli altri due piani"),
             ("⇧ Trascina ↕", "Raddrizza l'immagine nel suo piano"),
             ("Tasto destro", "Finestra e livello"),
+        ]
+    }
+
+    private var editing: [Entry] {
+        [
+            ("Trascina una maniglia", "Correggi un punto di una misura già posata"),
+            ("Trascina un impianto", "Dal corpo lo sposta, dagli estremi lo inclina"),
+            ("Trascina un nodo", "Correggi il percorso del nervo"),
+            ("⌥ Clic su un nodo", "Toglie quel nodo, dal nervo o dall'arcata"),
         ]
     }
 

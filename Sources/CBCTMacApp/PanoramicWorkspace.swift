@@ -839,13 +839,18 @@ struct CrossSectionCell: View {
                 windowLevel: model.windowLevel,
                 onClick: handleClick,
                 onDrag: { point, _ in
-                    guard model.implantDrag != nil, let patient = patientPoint(at: point) else {
-                        return
+                    guard let patient = patientPoint(at: point) else { return }
+                    if model.annotationDrag != nil || model.nerveDrag != nil {
+                        model.dragHandle(toMM: patient)
+                    } else if model.implantDrag != nil {
+                        model.dragImplant(toMM: patient)
                     }
-                    model.dragImplant(toMM: patient)
                 },
                 onDoubleClick: { model.closeToolSession() },
                 onDragBegan: { point in
+                    guard let grabbed = patientPoint(at: point) else { return }
+                    if model.beginHandleDrag(at: grabbed, toleranceMM: grabToleranceMM) { return }
+
                     // Un impianto si aggiusta guardando la **sezione trasversale**: è lì che si
                     // vede il rapporto con la corticale vestibolare e col canale, ed è quindi lì
                     // che serve poterlo afferrare.
@@ -854,7 +859,10 @@ struct CrossSectionCell: View {
                     else { return }
                     model.beginImplantDrag(at: patient, toleranceMM: grabToleranceMM)
                 },
-                onDragEnded: { model.endImplantDrag() },
+                onDragEnded: {
+                    model.endHandleDrag()
+                    model.endImplantDrag()
+                },
                 onCancel: { model.cancelToolSession() },
                 onDrawableSize: { pixelSize = $0 }
             )

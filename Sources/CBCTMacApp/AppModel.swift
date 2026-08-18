@@ -1011,6 +1011,109 @@ final class AppModel {
         safetyReports = reports
     }
 
+    /// Maniglia di annotazione afferrata.
+    private(set) var annotationDrag: (id: UUID, handle: Int)?
+    /// Nodo di nervo afferrato.
+    private(set) var nerveDrag: (canal: UUID, node: UUID)?
+
+    /// Prova ad afferrare la maniglia di una misura o il nodo di un nervo.
+    ///
+    /// `handlesMM` esisteva dall'inizio e nessuno lo manipolava: una misura posata un millimetro
+    /// più in là andava cancellata e rifatta, e su un angolo a tre punti significava rifarne tre.
+    /// Lo stesso per un nervo, che si traccia con quindici clic e per un nodo sbagliato si
+    /// ricominciava da capo.
+    ///
+    /// - Returns: `true` se qualcosa è stato afferrato.
+    @discardableResult
+    func beginHandleDrag(at pointMM: Vec3, toleranceMM: Double) -> Bool {
+        annotationDrag = nil
+        nerveDrag = nil
+        guard workMode.isEditable else { return false }
+
+        // Il più vicino in assoluto fra tutti i candidati, misure e nodi insieme: su un nervo che
+        // passa sotto una misura le due prese si sovrappongono, e decidere per categoria invece
+        // che per distanza renderebbe una delle due irraggiungibile.
+        var bestDistance = Double.infinity
+        var chosen: (() -> Void)?
+
+        for annotation in annotations where !annotation.metadata.isHidden {
+            guard let hit = annotation.nearestHandle(to: pointMM, toleranceMM: toleranceMM),
+                hit.distanceMM < bestDistance
+            else { continue }
+            bestDistance = hit.distanceMM
+            let id = annotation.id
+            chosen = { [self] in
+                annotationDrag = (id, hit.index)
+                nerveDrag = nil
+                selectedAnnotationID = id
+            }
+        }
+
+        for canal in nerveCanals {
+            guard let node = canal.nearestNode(to: pointMM, toleranceMM: toleranceMM) else {
+                continue
+            }
+            let distance = node.positionMM.distance(to: pointMM)
+            guard distance < bestDistance else { continue }
+            bestDistance = distance
+            chosen = { [self] in
+                nerveDrag = (canal.id, node.id)
+                annotationDrag = nil
+            }
+        }
+
+        chosen?()
+        return chosen != nil
+    }
+
+    /// Continua il trascinamento di una maniglia.
+    func dragHandle(toMM pointMM: Vec3) {
+        if let drag = annotationDrag,
+            let index = annotations.firstIndex(where: { $0.id == drag.id })
+        {
+            annotations[index] = annotations[index].movingHandle(at: drag.handle, toMM: pointMM)
+            recomputeStatistics(for: annotations[index])
+            recordContinuousUndo("Correggi misura")
+            return
+        }
+
+        if let drag = nerveDrag,
+            let canalIndex = nerveCanals.firstIndex(where: { $0.id == drag.canal }),
+            let nodeIndex = nerveCanals[canalIndex].nodes.firstIndex(where: { $0.id == drag.node })
+        {
+            nerveCanals[canalIndex].nodes[nodeIndex].positionMM = pointMM
+            recomputeSafety()
+            recordContinuousUndo("Correggi nervo")
+        }
+    }
+
+    func endHandleDrag() {
+        annotationDrag = nil
+        nerveDrag = nil
+    }
+
+    /// Toglie il nodo di nervo più vicino a un punto. È il ⌥ clic, come sulla curva d'arcata.
+    @discardableResult
+    func removeNerveNode(near pointMM: Vec3, toleranceMM: Double) -> Bool {
+        for index in nerveCanals.indices {
+            guard let node = nerveCanals[index].nearestNode(to: pointMM, toleranceMM: toleranceMM)
+            else { continue }
+            nerveCanals[index].removeNode(id: node.id)
+            // Un canale rimasto senza nodi a sufficienza non è più un canale: toglierlo evita un
+            // oggetto nell'elenco che non si disegna e non si può più afferrare.
+            if nerveCanals[index].nodes.count < 2 {
+                let doomed = nerveCanals[index].id
+                nerveCanals.removeAll { $0.id == doomed }
+                if tracingNerveID == doomed { tracingNerveID = nil }
+            }
+            recomputeSafety()
+            syncRegistry()
+            recordUndo("Togli nodo del nervo")
+            return true
+        }
+        return false
+    }
+
     /// Presa sull'impianto in corso, con l'ultimo punto raggiunto.
     ///
     /// Sta nel modello e non nella vista perché un impianto si afferra in un riquadro e lo si
