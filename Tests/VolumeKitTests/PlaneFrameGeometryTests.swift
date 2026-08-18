@@ -167,8 +167,8 @@ struct PlaneFrameGeometryTests {
         }
     }
 
-    @Test("Il riquadro ha dodici spigoli e quattro sono posteriori")
-    func boundingBoxHasTwelveEdgesAndFourHidden() throws {
+    @Test("Il riquadro ha dodici spigoli, e nascosti sono quelli dietro il centro")
+    func boundingBoxHasTwelveEdgesAndHidesTheFarOnes() throws {
         let geometry = try makeGeometry()
         let projector = frontProjector(targetMM: geometry.centerMM)
         let segments = PlaneFrameGeometry.boundingBoxEdges(
@@ -181,8 +181,29 @@ struct PlaneFrameGeometryTests {
         )
 
         #expect(segments.count == 12)
-        #expect(segments.filter { (segment: ScreenSegment) in segment.isHidden }.count == 4)
         #expect(arbitraryBox.count == 12)
+
+        // Contare quanti sono nascosti **non basta**, e questa è la ragione per cui il test è
+        // scritto così. Un riquadro visto di fronte ha quattro spigoli sulla faccia vicina,
+        // quattro su quella lontana e quattro equatoriali: invertendo il confronto di profondità
+        // il conteggio resta quattro, e un test sul solo numero passa anche col segno sbagliato.
+        // Quello che va verificato è **quali**.
+        for segment in segments {
+            // La proiezione è affine, quindi la profondità del punto medio è la media delle due.
+            let midpointDepth = (segment.from.depthMM + segment.to.depthMM) / 2
+            if midpointDepth > 1e-9 {
+                #expect(segment.isHidden, "uno spigolo dietro il centro deve essere nascosto")
+            } else if midpointDepth < -1e-9 {
+                #expect(!segment.isHidden, "uno spigolo davanti al centro deve essere in vista")
+            }
+        }
+
+        // E almeno uno per parte deve esistere davvero: se tutti gli spigoli cadessero
+        // sull'equatore il ciclo qui sopra non verificherebbe nulla e passerebbe comunque.
+        let far = segments.filter { (s: ScreenSegment) in (s.from.depthMM + s.to.depthMM) / 2 > 1e-9 }
+        let near = segments.filter { (s: ScreenSegment) in (s.from.depthMM + s.to.depthMM) / 2 < -1e-9 }
+        #expect(far.count == 4)
+        #expect(near.count == 4)
     }
 
     @Test("La banda ha il contorno atteso e ad altezza zero resta una polilinea")
