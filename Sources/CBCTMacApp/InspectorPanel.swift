@@ -475,6 +475,17 @@ struct InspectorPanel: View {
                     )
                     .contentShape(.rect)
                     .onTapGesture { model.selectedAnnotationID = annotation.id }
+
+                    // La curva sotto la riga della linea selezionata, non in una finestra a
+                    // parte: il profilo è il **valore** di quella misura, come i millimetri lo
+                    // sono per una distanza, e va letto accanto a ciò che lo produce.
+                    if annotation.id == model.selectedAnnotationID,
+                        case .profileLine = annotation,
+                        let samples = model.profileSamples[annotation.id], samples.count > 1
+                    {
+                        ProfileChart(samples: samples, unit: model.densityUnit)
+                            .padding(.leading, Metrics.spacing)
+                    }
                 }
 
                 Button {
@@ -610,5 +621,82 @@ struct MeasurementRow: View {
         lines.append("")
         lines.append(statistics.unit.explanation)
         return lines.joined(separator: "\n")
+    }
+}
+
+
+// MARK: - Curva del profilo
+
+/// Le densità lette lungo una linea di profilo.
+///
+/// # Perché una curva e non un numero
+///
+/// Un profilo risponde a domande che una media non può: dove comincia la corticale, quanto è
+/// spessa, se sotto c'è spongiosa o un vuoto. Sono tutte domande sull'**andamento**, e ridurle a
+/// un valore le cancella. Per questo la linea di profilo è uno strumento a sé e non una variante
+/// del righello.
+struct ProfileChart: View {
+
+    let samples: [ProfileSample]
+    let unit: DensityUnit
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Canvas { context, size in
+                guard samples.count > 1 else { return }
+                let values = samples.map(\.value)
+                let low = values.min() ?? 0
+                let high = values.max() ?? 1
+                let span = max(high - low, 1)
+                let total = max(samples[samples.count - 1].distanceMM, 1e-6)
+
+                func point(_ sample: ProfileSample) -> CGPoint {
+                    CGPoint(
+                        x: sample.distanceMM / total * size.width,
+                        y: (1 - (sample.value - low) / span) * size.height)
+                }
+
+                var path = Path()
+                path.move(to: point(samples[0]))
+                for sample in samples.dropFirst() { path.addLine(to: point(sample)) }
+                context.stroke(
+                    path, with: .color(Palette.accent),
+                    style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+
+                // Una riga alla quota zero quando l'intervallo la contiene: su una CBCT lo zero
+                // GV è all'incirca l'acqua, ed è il riferimento rispetto a cui si legge se un
+                // tratto è osso o tessuto molle.
+                if low < 0, high > 0 {
+                    let y = (1 - (0 - low) / span) * size.height
+                    var axis = Path()
+                    axis.move(to: CGPoint(x: 0, y: y))
+                    axis.addLine(to: CGPoint(x: size.width, y: y))
+                    context.stroke(
+                        axis, with: .color(Palette.textSecondary.opacity(0.4)),
+                        style: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                }
+            }
+            .frame(height: 64)
+            .background(Palette.chrome, in: .rect(cornerRadius: 4))
+
+            HStack {
+                Text(range)
+                Spacer()
+                Text(
+                    String(format: "%.1f mm", samples[samples.count - 1].distanceMM)
+                        .replacingOccurrences(of: ".", with: ",")
+                )
+            }
+            .font(Typography.numericSmall)
+            .foregroundStyle(Palette.textSecondary)
+        }
+    }
+
+    private var range: String {
+        let values = samples.map(\.value)
+        let low = values.min() ?? 0
+        let high = values.max() ?? 0
+        return String(format: "%.0f – %.0f %@", low, high, unit.symbol)
+            .replacingOccurrences(of: "-", with: "−")
     }
 }

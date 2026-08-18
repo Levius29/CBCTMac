@@ -116,9 +116,24 @@ struct ToolPalette: View {
                         id: "lines", name: "Angolo fra due rette",
                         systemImage: "line.diagonal.arrow"),
                 ]),
-            ToolEntry(tool: .ellipseROI),
+            ToolEntry(
+                tool: .ellipseROI,
+                variants: [
+                    ToolVariant(id: "ellipse", name: "ROI ellittica", systemImage: "oval"),
+                    ToolVariant(
+                        id: "polygon", name: "ROI poligonale", systemImage: "pentagon"),
+                ]),
             ToolEntry(tool: .sphereROI),
-            ToolEntry(tool: .text),
+            ToolEntry(
+                tool: .text,
+                variants: [
+                    ToolVariant(id: "note", name: "Nota di testo", systemImage: "textformat"),
+                    ToolVariant(
+                        id: "arrow", name: "Freccia con nota",
+                        systemImage: "arrow.up.left"),
+                ]),
+            ToolEntry(tool: .profile),
+            ToolEntry(tool: .freehand),
         ]
 
         if model.workMode.usesArchCurve {

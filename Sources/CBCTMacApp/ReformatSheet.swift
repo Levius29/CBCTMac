@@ -67,6 +67,64 @@ struct ReformatSheet: View {
 
     // MARK: Anteprime
 
+    /// Dimensione del drawable di ciascuna vista, in pixel: è lo spazio in cui arrivano i clic.
+    @State private var pixelSizes: [AnatomicalPlane: CGSize] = [:]
+    /// Lato afferrato e vista in cui lo si è afferrato.
+    @State private var grabbedEdge: CropBoxEdge?
+    @State private var grabbedView: AnatomicalPlane?
+
+    /// Quanto vicino a un lato bisogna premere perché lo si afferri, in **frazione del lato
+    /// maggiore** della vista.
+    ///
+    /// Una frazione e non una misura in punti: gli eventi arrivano in pixel del drawable, i punti
+    /// di schermo sono un'altra unità, e il fattore fra le due dipende dal display **e** dalla
+    /// risoluzione di rendering scelta. Una frazione non ha bisogno di sapere nulla di tutto ciò
+    /// e si comporta uguale a ogni dimensione della finestra.
+    private let grabFraction = 0.025
+
+    /// Decide alla pressione quale lato si è afferrato, prima che il primo movimento lo sposti.
+    ///
+    /// Alla pressione e non al primo spostamento: deciderlo dopo significherebbe che il lato
+    /// scelto dipende da dove il mouse è già arrivato, e un movimento rapido ne afferrerebbe uno
+    /// diverso da quello premuto.
+    private func grabCropBox(
+        at point: CGPoint, anatomical: AnatomicalPlane, geometry: VolumeGeometry
+    ) {
+        grabbedEdge = nil
+        grabbedView = nil
+        guard let plan, let size = pixelSizes[anatomical], size.width > 1, size.height > 1 else {
+            return
+        }
+
+        let frame = CropBoxOverlay.frame(of: previewPlane(anatomical, geometry: geometry), size: size)
+        let rect = CropBoxGeometry.rect(
+            of: plan.regionMM, in: frame,
+            width: Double(size.width), height: Double(size.height))
+
+        let slop = Double(max(size.width, size.height)) * grabFraction
+
+        grabbedEdge = CropBoxGeometry.edge(
+            nearX: Double(point.x), y: Double(point.y), of: rect, slop: slop)
+        grabbedView = grabbedEdge == nil ? nil : anatomical
+    }
+
+    private func dragCropBox(
+        to point: CGPoint, anatomical: AnatomicalPlane, geometry: VolumeGeometry
+    ) {
+        guard let edge = grabbedEdge, grabbedView == anatomical, var current = plan,
+            let size = pixelSizes[anatomical], size.width > 1, size.height > 1
+        else { return }
+
+        let frame = CropBoxOverlay.frame(of: previewPlane(anatomical, geometry: geometry), size: size)
+        let valueMM = CropBoxGeometry.millimetres(
+            atX: Double(point.x), y: Double(point.y), for: edge, in: frame,
+            width: Double(size.width), height: Double(size.height))
+
+        current.moveFace(
+            CropBoxGeometry.face(for: edge, in: frame), toMM: valueMM, within: geometry)
+        plan = current
+    }
+
     /// Le tre viste ortogonali con il riquadro sovrapposto.
     ///
     /// I tre riquadri descrivono **un solo parallelepipedo**: muovendo un lato in una vista, le
@@ -82,15 +140,20 @@ struct ReformatSheet: View {
                         plane: previewPlane(anatomical, geometry: geometry),
                         volumeTexture: model.volumeTexture,
                         renderer: model.mprRenderer,
-                        windowLevel: model.windowLevel)
+                        windowLevel: model.windowLevel,
+                        onDrag: { point, _ in
+                            dragCropBox(to: point, anatomical: anatomical, geometry: geometry)
+                        },
+                        onDragBegan: { point in
+                            grabCropBox(at: point, anatomical: anatomical, geometry: geometry)
+                        },
+                        onDragEnded: { grabbedEdge = nil; grabbedView = nil },
+                        onDrawableSize: { pixelSizes[anatomical] = $0 })
 
                     CropBoxOverlay(
-                        plan: Binding(
-                            get: { self.plan ?? plan },
-                            set: { self.plan = $0 }),
-                        anatomical: anatomical,
-                        geometry: geometry,
-                        viewPlane: previewPlane(anatomical, geometry: geometry))
+                        plan: self.plan ?? plan,
+                        viewPlane: previewPlane(anatomical, geometry: geometry),
+                        grabbedEdge: grabbedView == anatomical ? grabbedEdge : nil)
                 }
                 .frame(minHeight: 220)
                 .clipShape(.rect(cornerRadius: Metrics.cornerRadius))

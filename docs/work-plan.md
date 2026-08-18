@@ -255,10 +255,10 @@ aggiunta dopo.
 
 ---
 
-## 3-ter. I cinque controlli che girano prima di ogni consegna
+## 3-ter. I sei controlli che girano prima di ogni consegna
 
 Su questo progetto la stessa classe di errore si è ripetuta, e ogni volta è costata un giro
-completo — pull, build sul Mac, incolla degli errori, correzione, ripush. Da qui cinque controlli
+completo — pull, build sul Mac, incolla degli errori, correzione, ripush. Da qui sei controlli
 in `Tools/`, ognuno nato da un errore vero e **verificato rimettendo l'errore che lo ha generato**:
 
 | Controllo | Trova | Nato da |
@@ -268,6 +268,7 @@ in `Tools/`, ognuno nato da un errore vero e **verificato rimettendo l'errore ch
 | `check-cross-module-collisions.py` | tipi pubblici omonimi in moduli diversi, o omonimi di SwiftUI | `WindowLevel` (91 errori a cascata) e `VolumeProvenance` |
 | `check-missing-imports.py` | tipi usati senza importare il modulo che li dichiara | `Annotation` e `ToolAnchor` in `PanoramicWorkspace` |
 | `check-main-actor.py` | funzioni non isolate che ne chiamano di `@MainActor` | `AppIcon.install()` che chiamava `image(size:)` |
+| `check-metal-overlay-gestures.py` | gesti SwiftUI in una sovraimpressione su un riquadro Metal | maniglie del mirino, curva d'arcata, linea di taglio, riquadro di ritaglio — **quattro volte** |
 
 Il terzo merita una nota. Due tipi pubblici omonimi non danno errore finché nessuno importa
 entrambi i moduli; poi qualcuno lo fa, e il messaggio del compilatore — «ambiguous for type
@@ -283,7 +284,12 @@ codice sano — e l'unica cosa che l'ha rivelato è stato rimettere l'errore ver
 scattasse. Vale per i test come per i controlli: **una prova che non può fallire è peggio di
 nessuna prova**, perché occupa il posto di quella che servirebbe.
 
-Nessuno dei cinque è un compilatore e nessuno pretende di esserlo. Ognuno prende una classe di
+Il sesto non nasce da un errore di compilazione ma da un difetto d'uso, ed è quello che si è
+ripetuto di più: quattro funzioni scritte, disegnate e mai funzionanti perché il gesto stava in
+una sovraimpressione SwiftUI e sotto c'era una `MTKView`. Quattro occorrenze della stessa causa
+sono la soglia oltre la quale ricordarsela non basta più.
+
+Nessuno dei sei è un compilatore e nessuno pretende di esserlo. Ognuno prende una classe di
 errore che `swiftc -parse` non vede — perché `-parse` guarda la sintassi e questi sono errori di
 tipo — e che qui costerebbe un giro sul Mac.
 

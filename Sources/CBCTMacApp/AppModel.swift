@@ -31,6 +31,11 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
     case ellipseROI
     case sphereROI
     case text
+    /// Profilo di densità lungo un segmento: il risultato è una curva, non un numero, ed è per
+    /// questo che ha un pulsante suo invece di essere una variante del righello.
+    case profile
+    /// Tracciato a mano libera: si disegna trascinando, non facendo clic.
+    case freehand
     case implant
     case nerve
     /// Disegno della curva d'arcata, punto per punto, sulla vista assiale.
@@ -44,6 +49,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .ellipseROI: return "ROI ellittica"
         case .sphereROI: return "ROI sferica"
         case .text: return "Testo"
+        case .profile: return "Profilo di densità"
+        case .freehand: return "Mano libera"
         case .implant: return "Impianto"
         case .nerve: return "Traccia nervo"
         case .archCurve: return "Disegna arcata"
@@ -60,6 +67,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .ellipseROI: return "Trascina dal centro verso il bordo."
         case .sphereROI: return "Fai clic sul centro, poi sul bordo."
         case .text: return "Fai clic dove vuoi la nota."
+        case .profile: return "Fai clic sui due estremi: legge le densità lungo il segmento."
+        case .freehand: return "Trascina per disegnare. Doppio clic per chiudere il contorno."
         case .implant: return "Fai clic sulla cresta: l'impianto scende da lì."
         case .nerve: return "Fai clic lungo il canale, un nodo per volta."
         case .archCurve: return "Fai clic sull'assiale per posare i punti. ⌥ clic per togliere."
@@ -76,6 +85,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .ellipseROI: return "e"
         case .sphereROI: return "s"
         case .text: return "t"
+        case .profile: return "p"
+        case .freehand: return "f"
         case .implant: return "i"
         case .nerve: return "v"
         case .archCurve: return "a"
@@ -90,6 +101,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .ellipseROI: return "oval"
         case .sphereROI: return "circle.circle"
         case .text: return "textformat"
+        case .profile: return "chart.xyaxis.line"
+        case .freehand: return "scribble"
         case .implant: return "screwdriver"
         case .nerve: return "point.topleft.down.curvedto.point.bottomright.up"
         case .archCurve: return "scribble.variable"
@@ -224,8 +237,23 @@ final class AppModel {
         if !mode.isEditable { activeTool = .navigate }
     }
 
-    /// Variante dello strumento attivo, quando ne ha. Vedi `ToolPalette`.
-    var toolVariant: String = "distance"
+    /// Variante scelta, **una per strumento**.
+    ///
+    /// Una variabile sola per tutti gli strumenti se la portava dietro passando dall'uno
+    /// all'altro: scelto «perimetro» sul righello, il goniometro si ritrovava una variante che
+    /// non gli appartiene, e la corrispondenza fra ciò che l'icona mostra e ciò che lo strumento
+    /// fa dipendeva dall'ordine in cui li si era usati. Tenendone una per strumento, ciascuno
+    /// ricorda la propria e nessuno eredita quella di un altro.
+    ///
+    /// L'assenza vale «la variante predefinita», che per ogni strumento è la prima: distanza fra
+    /// due punti, angolo a tre punti, ROI ellittica, nota di testo.
+    private var toolVariants: [Tool: String] = [:]
+
+    /// Variante dello strumento attivo. Vedi `ToolPalette`.
+    var toolVariant: String {
+        get { toolVariants[activeTool] ?? "" }
+        set { toolVariants[activeTool] = newValue }
+    }
 
     var activeTool: Tool = .navigate {
         didSet {
@@ -1721,9 +1749,20 @@ final class AppModel {
                 ? .openPolyline : .twoPoints
         case .angle:
             return toolVariant == "lines" ? .fourPoints : .threePoints
-        case .ellipseROI, .sphereROI:
+        case .ellipseROI:
+            // La ROI poligonale è una variante dell'ellittica e non un pulsante in più: si sceglie
+            // fra «una forma regolare» e «un contorno irregolare», che è la stessa decisione.
+            return toolVariant == "polygon" ? .openPolyline : .twoPoints
+        case .sphereROI:
             return .twoPoints
-        case .text, .implant, .nerve:
+        case .text:
+            // La freccia è testo che **indica**: due punti, coda e punta.
+            return toolVariant == "arrow" ? .twoPoints : .singlePoint
+        case .profile:
+            return .twoPoints
+        case .freehand:
+            return .openPolyline
+        case .implant, .nerve:
             return .singlePoint
         }
     }
@@ -1782,6 +1821,11 @@ final class AppModel {
             }
 
         case .ellipseROI:
+            guard toolVariant != "polygon" else {
+                // Poligonale: si accumula e si chiude col doppio clic, come ogni contorno.
+                toolSession.add(pointMM, anchor: anchor)
+                return
+            }
             guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
             addAnnotation(.ellipseROI(makeEllipse(from: points[0], to: points[1])))
 
@@ -1796,14 +1840,36 @@ final class AppModel {
                         centerMM: points[0], radiusMM: radius)))
 
         case .text:
-            guard toolSession.add(pointMM, anchor: anchor) != nil else { return }
+            guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
+            let noteMetadata = AnnotationMetadata(
+                referencePlane: toolSession.anchor?.planeReference)
+            if toolVariant == "arrow" {
+                // Primo clic la coda, secondo la punta: si parte da dove c'è spazio per il testo e
+                // si finisce su ciò che si vuole indicare, che è l'ordine in cui si pensa.
+                addAnnotation(
+                    .arrow(
+                        ArrowNote(
+                            metadata: noteMetadata,
+                            tipMM: points[1], tailMM: points[0], text: "Nota")))
+            } else {
+                addAnnotation(
+                    .text(TextNote(metadata: noteMetadata, anchorMM: points[0], text: "Nota")))
+            }
+
+        case .profile:
+            guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
             addAnnotation(
-                .text(
-                    TextNote(
+                .profileLine(
+                    ProfileLine(
                         metadata: AnnotationMetadata(
+                            colorHex: "#C77DFF",
                             referencePlane: toolSession.anchor?.planeReference),
-                        anchorMM: pointMM,
-                        text: "Nota")))
+                        startMM: points[0], endMM: points[1])))
+
+        case .freehand:
+            // Facendo clic si posa un vertice per volta; trascinando il tracciato si accumula da
+            // sé. Entrambe le vie finiscono qui, e chiudono col doppio clic.
+            toolSession.add(pointMM, anchor: anchor)
 
         case .implant:
             // L'asse predefinito è verticale verso il basso. Su una cresta inclinata andrà
@@ -1828,14 +1894,60 @@ final class AppModel {
     ///   lo stesso doppio clic anche come ingrandimento del riquadro.
     @discardableResult
     func closeToolSession() -> Bool {
-        guard activeTool == .distance, activeToolShape == .openPolyline else {
+        // Le forme che si chiudono da sé non hanno nulla da chiudere: se qualcosa è rimasto a
+        // metà lo si scarta, perché due punti di un angolo a tre non sono una misura.
+        guard activeToolShape == .openPolyline else {
             let hadPoints = !toolSession.isEmpty
             toolSession.cancel()
             return hadPoints
         }
-        guard let points = toolSession.close() else { return false }
-        addAnnotation(makePolyline(points, closed: toolVariant == "perimeter"))
+
+        // Un poligono ha bisogno di tre vertici; una spezzata di due punti. Chiedere tre punti a
+        // una spezzata impedirebbe di misurare una cresta in due tratti.
+        let minimum = activeTool == .ellipseROI ? 3 : 2
+        guard let points = toolSession.close(minimumPoints: minimum) else { return false }
+
+        let plane = toolSession.anchor?.planeReference
+        switch activeTool {
+        case .ellipseROI:
+            let spacing = volume?.geometry.spacingMM ?? Vec3(1, 1, 1)
+            addAnnotation(
+                .polygonROI(
+                    PolygonROI(
+                        metadata: AnnotationMetadata(colorHex: "#4FCB6B", referencePlane: plane),
+                        verticesMM: points,
+                        thicknessMM: max(spacing.x, max(spacing.y, spacing.z)))))
+        case .freehand:
+            addAnnotation(
+                .freehand(
+                    FreehandPath(
+                        metadata: AnnotationMetadata(colorHex: "#FF9F0A", referencePlane: plane),
+                        pointsMM: points,
+                        isClosed: false)))
+        default:
+            addAnnotation(makePolyline(points, closed: toolVariant == "perimeter"))
+        }
         return true
+    }
+
+    /// Distanza minima fra due punti consecutivi di un tracciato a mano libera, in millimetri.
+    ///
+    /// Senza diradamento un trascinamento di due secondi produce un migliaio di punti, che è un
+    /// documento più pesante e un disegno più lento senza un pixel di differenza visibile. Tre
+    /// decimi di millimetro stanno sotto il voxel di una CBCT dentale, quindi il tracciato non
+    /// perde nulla che il dato contenesse.
+    private static let freehandMinimumStepMM = 0.3
+
+    /// Aggiunge un punto a un tracciato a mano libera in corso, diradando.
+    func appendFreehandPoint(at pointMM: Vec3, anchor: ToolAnchor? = nil) {
+        guard activeTool == .freehand else { return }
+        toolSession.prepare(for: .openPolyline)
+        if let last = toolSession.pointsMM.last,
+            last.distance(to: pointMM) < Self.freehandMinimumStepMM
+        {
+            return
+        }
+        toolSession.add(pointMM, anchor: anchor)
     }
 
     /// Esc: annulla la misura in corso senza toccare quelle già poste.
@@ -1885,6 +1997,7 @@ final class AppModel {
         guard let id = selectedAnnotationID else { return }
         annotations.removeAll { $0.id == id }
         roiStatistics.removeValue(forKey: id)
+        profileSamples.removeValue(forKey: id)
         selectedAnnotationID = nil
         syncRegistry()
         recordUndo("Cancella misura")
@@ -1895,7 +2008,18 @@ final class AppModel {
     /// Il campionamento avviene sugli `Int16` di CPU, come prescrive il Contratto 3: leggere la
     /// texture restituirebbe valori interpolati, con minimi e massimi che nel dato reale non
     /// esistono.
+    /// Densità lungo una linea di profilo, indicizzate per annotazione.
+    ///
+    /// Come le statistiche delle ROI: si calcolano quando l'annotazione cambia, non a ogni
+    /// ridisegno. Centoventotto campionamenti trilineari sono poca cosa, ma moltiplicati per
+    /// sessanta fotogrammi al secondo diventano lavoro sprecato su un dato immobile.
+    private(set) var profileSamples: [UUID: [ProfileSample]] = [:]
+
     func recomputeStatistics(for annotation: Annotation) {
+        if case .profileLine(let line) = annotation, let volume {
+            profileSamples[annotation.id] = ROISampler.profile(for: line, in: volume)
+        }
+
         guard let volume else { return }
         do {
             let stats: ROIStatistics?

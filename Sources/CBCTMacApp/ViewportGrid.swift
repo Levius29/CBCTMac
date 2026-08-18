@@ -265,6 +265,12 @@ struct ViewportContainer: View {
                 },
                 onDragBegan: handleDragBegan,
                 onDragEnded: {
+                    // Un tracciato a mano libera si chiude alzando il dito: è il gesto con cui
+                    // chiunque smette di disegnare, e chiedere in più un doppio clic sarebbe un
+                    // passo che nessuno si aspetta.
+                    if model.activeTool == .freehand {
+                        model.closeToolSession()
+                    }
                     // Le sezioni si ricostruiscono al rilascio e non durante il trascinamento:
                     // ricampionare la spline e rigenerare cento piani a ogni movimento del mouse
                     // renderebbe il gesto viscoso.
@@ -430,6 +436,16 @@ struct ViewportContainer: View {
         archDragIndex = nil
         guard model.workMode.isEditable else { return }
 
+        // La mano libera viene prima di tutto: mentre si disegna un contorno, il trascinamento è
+        // il disegno e non deve significare anche pan o presa del mirino.
+        if model.activeTool == .freehand {
+            model.focusedSlot = slot
+            if let patient = patientPoint(atPixel: pixelPoint) {
+                model.appendFreehandPoint(at: patient, anchor: toolAnchor())
+            }
+            return
+        }
+
         // La curva viene prima del mirino: quando si sta disegnando l'arcata, i suoi punti sono
         // ciò che si vuole afferrare, e il mirino può aspettare.
         if isEditingArch, let plane = adjustedPlane {
@@ -504,6 +520,15 @@ struct ViewportContainer: View {
     }
 
     private func handleDrag(_ point: CGPoint, _ delta: CGSize) {
+        // La mano libera: il trascinamento **è** il disegno, e viene prima di ogni altra
+        // interpretazione del gesto.
+        if model.activeTool == .freehand {
+            if let patient = patientPoint(atPixel: point) {
+                model.appendFreehandPoint(at: patient, anchor: toolAnchor())
+            }
+            return
+        }
+
         // Un punto dell'arcata afferrato ha la precedenza su tutto.
         if let index = archDragIndex, let patient = patientPoint(atPixel: point) {
             model.moveArchPoint(at: index, to: patient)

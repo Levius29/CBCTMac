@@ -373,6 +373,84 @@ struct AnnotationOverlay: View {
             // Fra i due segmenti, non su uno dei due: l'angolo appartiene alla coppia, e
             // appoggiarlo a una delle due rette suggerirebbe che sia una sua proprietà.
 
+        case .polygonROI:
+            guard points.count >= 3 else { return }
+            var path = Path()
+            path.move(to: CGPoint(x: points[0].x, y: points[0].y))
+            for point in points.dropFirst() {
+                path.addLine(to: CGPoint(x: point.x, y: point.y))
+            }
+            // Chiuso sempre: `PolygonROI` è chiuso per definizione — il contorno di una regione,
+            // non una spezzata — e disegnarlo aperto mostrerebbe una figura diversa da quella su
+            // cui le statistiche sono calcolate.
+            path.closeSubpath()
+            context.stroke(path, with: .color(stroke), lineWidth: lineWidth)
+            drawHandles(points, in: &context, color: stroke)
+
+        case .freehand(let freehandPath):
+            guard points.count >= 2 else { return }
+            var path = Path()
+            path.move(to: CGPoint(x: points[0].x, y: points[0].y))
+            for point in points.dropFirst() {
+                path.addLine(to: CGPoint(x: point.x, y: point.y))
+            }
+            if freehandPath.isClosed { path.closeSubpath() }
+            context.stroke(
+                path, with: .color(stroke),
+                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+            // Niente maniglie: un tracciato a mano libera ha centinaia di punti, e disegnarli
+            // tutti coprirebbe il tracciato con i suoi stessi vertici.
+
+        case .arrow(let note):
+            // L'ordine di `handlesMM` è punta, coda: la punta è ciò che si indica, ed è il primo
+            // dato del tipo. Leggerlo al contrario disegnerebbe la freccia rovesciata.
+            guard points.count >= 2 else { return }
+            let tip = CGPoint(x: points[0].x, y: points[0].y)
+            let tail = CGPoint(x: points[1].x, y: points[1].y)
+
+            var shaft = Path()
+            shaft.move(to: tail)
+            shaft.addLine(to: tip)
+            context.stroke(shaft, with: .color(stroke), lineWidth: lineWidth)
+
+            let dx = tip.x - tail.x
+            let dy = tip.y - tail.y
+            let length = (dx * dx + dy * dy).squareRoot()
+            if length > 1 {
+                // Punta lunga dieci punti e larga il quaranta per cento: proporzioni che restano
+                // leggibili sia su una freccia corta sia su una lunga, perché la punta non scala
+                // con l'asta.
+                let head: CGFloat = 10
+                let ux = dx / length
+                let uy = dy / length
+                let base = CGPoint(x: tip.x - ux * head, y: tip.y - uy * head)
+                var arrow = Path()
+                arrow.move(to: tip)
+                arrow.addLine(to: CGPoint(x: base.x - uy * head * 0.4, y: base.y + ux * head * 0.4))
+                arrow.addLine(to: CGPoint(x: base.x + uy * head * 0.4, y: base.y - ux * head * 0.4))
+                arrow.closeSubpath()
+                context.fill(arrow, with: .color(stroke))
+            }
+
+            if !note.text.isEmpty {
+                drawLabel(note.text, at: tail, in: &context, color: color, opacity: opacity)
+            }
+
+        case .profileLine:
+            guard points.count >= 2 else { return }
+            let start = CGPoint(x: points[0].x, y: points[0].y)
+            let end = CGPoint(x: points[1].x, y: points[1].y)
+            var path = Path()
+            path.move(to: start)
+            path.addLine(to: end)
+            // Tratteggiata di proposito: a colpo d'occhio non va confusa con una distanza, perché
+            // non misura una lunghezza — legge le densità lungo il segmento, e il numero che
+            // conta è la curva, non i millimetri.
+            context.stroke(
+                path, with: .color(stroke),
+                style: StrokeStyle(lineWidth: lineWidth, dash: [4, 3]))
+            drawHandles(points, in: &context, color: stroke)
+
         default:
             drawHandles(points, in: &context, color: stroke)
         }
