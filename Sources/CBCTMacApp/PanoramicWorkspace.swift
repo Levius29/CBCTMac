@@ -37,6 +37,8 @@ struct PanoramicViewportView: NSViewRepresentable {
     var onScrollArc: (Double) -> Void = { _ in }
     /// Scorrimento in profondità, vestibolo-linguale, in millimetri.
     var onScrollDepth: (Double) -> Void = { _ in }
+    /// ⌥ rotella: spessore dello slab, in millimetri.
+    var onScrollSlab: (Double) -> Void = { _ in }
     /// Spostamento della quota verticale, in millimetri.
     var onScrollVertical: (Double) -> Void = { _ in }
     /// Inizio del trascinamento, con l'ascissa premuta in **frazione di larghezza**: serve a
@@ -122,10 +124,28 @@ struct PanoramicViewportView: NSViewRepresentable {
         // di una radice — bisogna poter attraversare l'arcata. Percorrerla in lunghezza si fa
         // trascinando, che è il gesto giusto per una striscia più larga della finestra.
         //
-        // Un decimo di millimetro per passo: sotto lo spessore di un voxel il gesto sarebbe
-        // inerte, sopra il mezzo millimetro si salterebbe la corticale.
+        // Quattro decimi di millimetro per passo, e un decimo con ⇧.
+        //
+        // Era un decimo fisso, ed è la ragione per cui il gesto sembrava morto: su un mouse a
+        // rotella un decimo per scatto significa dieci scatti per un millimetro e duecento per
+        // attraversare l'arcata. Sul trackpad non si notava, perché uno strofinamento produce
+        // decine di eventi; con la rotella no. Quattro decimi sono metà di una corticale sottile,
+        // quindi non se ne salta nessuna, e ⇧ resta per quando serve appoggiarsi esattamente.
         view.onScroll = { steps in
+            onScrollDepth(steps * 0.4)
+        }
+        view.onFineScroll = { steps in
             onScrollDepth(steps * 0.1)
+        }
+
+        // ⌥ rotella: **spessore** dello slab.
+        //
+        // Serve perché sfogliare in profondità con uno slab spesso non si vede: venti millimetri
+        // di proiezione a massima intensità restano identici a sé stessi se si sposta il centro
+        // di un millimetro. Poterlo assottigliare sul posto è ciò che rende visibile il gesto
+        // accanto, e stanno sulla stessa rotella perché si usano insieme.
+        view.onAlternateScroll = { steps in
+            onScrollSlab(steps * 1.0)
         }
 
         // Trascinamento: orizzontale scorre lungo l'arcata, verticale sposta la quota. Un solo
@@ -455,6 +475,19 @@ struct PanoramicWorkspace: View {
             .replacingOccurrences(of: ".", with: ",")
     }
 
+    /// Spessore dello slab, con il decimale quando è sottile.
+    ///
+    /// Sotto i sei millimetri si accende, perché lì la profondità comincia a vedersi e chi
+    /// scorre deve sapere di essere entrato nel regime in cui il gesto ha effetto.
+    private var slabLabel: String {
+        let thickness = model.panoramicSlabThicknessMM
+        if thickness < 10 {
+            return String(format: "Spessore %.1f mm", thickness)
+                .replacingOccurrences(of: ".", with: ",")
+        }
+        return String(format: "Spessore %.0f mm", thickness)
+    }
+
     private var panoramicPanel: some View {
         ZStack {
             PanoramicViewportView(
@@ -483,6 +516,7 @@ struct PanoramicWorkspace: View {
                 onDrawableSize: { panoramicPixelSize = $0 },
                 onScrollArc: { model.scrollPanoramic(byArcMM: $0) },
                 onScrollDepth: { model.movePanoramicDepth(byMM: $0) },
+                onScrollSlab: { model.changePanoramicSlab(byMM: $0) },
                 onScrollVertical: { model.movePanoramicVertical(byMM: $0) },
                 onDragBegan: beginCutLineDrag,
                 onDragEnded: { cutLineDrag = nil },
@@ -564,9 +598,9 @@ struct PanoramicWorkspace: View {
                         .foregroundStyle(Palette.accent)
                     }
                     Spacer()
-                    Text(
-                        String(format: "Spessore %.0f mm", model.panoramicSlabThicknessMM)
-                    )
+                    Text(slabLabel)
+                        .foregroundStyle(
+                            model.panoramicSlabThicknessMM < 6 ? Palette.accent : Palette.textSecondary)
                 }
                 .font(Typography.numericSmall)
                 .foregroundStyle(Palette.textSecondary)
@@ -725,15 +759,18 @@ struct PanoramicWorkspace: View {
                                 section.index == model.crossSectionBrowser.selectedIndex)
                     }
                 }
-                // La rotella scorre la striscia, ⌘ rotella la ingrandisce: gli stessi gesti dei
-                // riquadri, così non c'è una convenzione in più da ricordare.
-                .onScrollWheel { steps, zooming in
-                    if zooming {
-                        model.crossSectionBrowser.zoom *= 1 + steps * 0.06
-                    } else {
-                        model.crossSectionBrowser.scrollWindow(by: Int(steps.rounded()))
-                    }
-                }
+                // La rotella e il pinch si ricevono **dentro ogni sezione**, non da una
+                // sovraimpressione stesa sulla striscia.
+                //
+                // Ci stava, con `ScrollWheelCatcher`, e non poteva funzionare: quella vista
+                // restituisce `nil` da `hitTest` per lasciar passare i clic, e AppKit consegna
+                // rotella e pinch alla vista trovata **da hitTest** e poi ai suoi antenati — mai
+                // a un fratello che si è chiamato fuori. Il gesto arrivava alla `MTKView` della
+                // sezione, che non lo ascoltava, e finiva lì.
+                //
+                // È la stessa regola già imparata quattro volte sulle sovraimpressioni con i
+                // gesti: dentro un riquadro c'è un solo percorso di eventi, quello di
+                // `InteractiveMetalView`. Vale anche per la rotella.
             }
         }
         .background(Palette.chrome)
@@ -837,6 +874,22 @@ struct CrossSectionCell: View {
                 volumeTexture: model.volumeTexture,
                 renderer: model.mprRenderer,
                 windowLevel: model.windowLevel,
+                onScroll: { steps in
+                    // La rotella scorre la striscia: si passa da un dente all'altro senza
+                    // staccare la mano dall'immagine.
+                    model.crossSectionBrowser.scrollWindow(by: Int(steps.rounded()))
+                },
+                onZoom: { factor, _ in
+                    // ⌘ rotella **e pinch**: `InteractiveMetalView.magnify` arriva qui, ed è la
+                    // ragione per cui il pinch adesso funziona e prima no.
+                    //
+                    // L'ancoraggio al puntatore si ignora di proposito: l'ingrandimento della
+                    // striscia non è una lente sull'immagine, è **quanto campo mostra ogni
+                    // sezione**. Non c'è un punto da tenere fermo, c'è un'estensione da
+                    // stringere, e stringerla attorno al cursore sposterebbe il centro della
+                    // sezione lontano dalla curva.
+                    model.crossSectionBrowser.zoom *= factor
+                },
                 onDrag: { point, _ in
                     guard let patient = patientPoint(at: point) else { return }
                     if model.annotationDrag != nil || model.nerveDrag != nil {

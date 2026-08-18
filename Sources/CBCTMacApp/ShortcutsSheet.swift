@@ -37,6 +37,7 @@ struct ShortcutsSheet: View {
                         group("Nei riquadri", mouse)
                         group("Mirino", crosshair)
                         group("Correggere", editing)
+                        group("Panorex e sezioni", panoramic)
                     }
                     VStack(alignment: .leading, spacing: Metrics.spacingLarge) {
                         group("Strumenti", tools)
@@ -72,6 +73,18 @@ struct ShortcutsSheet: View {
             ("⇧ Trascina ↔", "Inclina il taglio: ruota gli altri due piani"),
             ("⇧ Trascina ↕", "Raddrizza l'immagine nel suo piano"),
             ("Tasto destro", "Finestra e livello"),
+        ]
+    }
+
+    private var panoramic: [Entry] {
+        [
+            ("Rotella", "Sfoglia l'arcata in profondità, dal linguale al vestibolare"),
+            ("⇧ Rotella", "Come sopra, a passo fine"),
+            ("⌥ Rotella", "Spessore della fetta: assottigliala per vedere la profondità"),
+            ("⌘ Rotella / pinch", "Ingrandisce lungo l'arcata"),
+            ("Trascina", "Percorre l'arcata e sposta la quota"),
+            ("Rotella su una sezione", "Scorre la striscia delle sezioni"),
+            ("Pinch su una sezione", "Allarga il campo mostrato da ogni sezione"),
         ]
     }
 

@@ -255,10 +255,10 @@ aggiunta dopo.
 
 ---
 
-## 3-ter. Gli otto controlli che girano prima di ogni consegna
+## 3-ter. I nove controlli che girano prima di ogni consegna
 
 Su questo progetto la stessa classe di errore si è ripetuta, e ogni volta è costata un giro
-completo — pull, build sul Mac, incolla degli errori, correzione, ripush. Da qui otto controlli
+completo — pull, build sul Mac, incolla degli errori, correzione, ripush. Da qui nove controlli
 in `Tools/`, ognuno nato da un errore vero e **verificato rimettendo l'errore che lo ha generato**:
 
 | Controllo | Trova | Nato da |
@@ -271,6 +271,7 @@ in `Tools/`, ognuno nato da un errore vero e **verificato rimettendo l'errore ch
 | `check-metal-overlay-gestures.py` | gesti SwiftUI in una sovraimpressione su un riquadro Metal | maniglie del mirino, curva d'arcata, linea di taglio, riquadro di ritaglio — **quattro volte** |
 | `check-shortcuts.py` | legenda dei comandi e tasti collegati che divergono, nei due versi | «Esc per annullare» senza Esc collegato; ⇧⌘D, ⇧⌘M e ⇧⌘O collegati e non documentati |
 | `check-memberwise-order.py` | argomenti di un inizializzatore membro a membro fuori dall'ordine di dichiarazione | `onDrag` dopo `onClick` e `onCancel` prima di `onDragEnded`, su viste con venti richiami |
+| `check-dead-handlers.py` | richiami di eventi che non possono scattare | `ScrollWheelCatcher`, che usciva dal hit testing e implementava `scrollWheel` |
 
 Il terzo merita una nota. Due tipi pubblici omonimi non danno errore finché nessuno importa
 entrambi i moduli; poi qualcuno lo fa, e il messaggio del compilatore — «ambiguous for type
@@ -297,7 +298,7 @@ compilazione né una prova che fallisce, è solo un utente che conclude che il p
 Guarda in tutti e due i versi, perché un comando esistente e non documentato fa il danno opposto:
 la funzione c'è e nessuno la trova.
 
-Nessuno degli otto è un compilatore e nessuno pretende di esserlo. Ognuno prende una classe di
+Nessuno dei nove è un compilatore e nessuno pretende di esserlo. Ognuno prende una classe di
 errore che `swiftc -parse` non vede — perché `-parse` guarda la sintassi e questi sono errori di
 tipo — e che qui costerebbe un giro sul Mac.
 

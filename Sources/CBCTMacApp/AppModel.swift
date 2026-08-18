@@ -450,6 +450,15 @@ final class AppModel {
         panoramicNormalOffsetMM = min(max(panoramicNormalOffsetMM + delta, -limit), limit)
     }
 
+    /// Cambia lo spessore dello slab del panorex.
+    ///
+    /// Da mezzo millimetro — una fetta sola, che è ciò che serve per seguire un canale — a trenta,
+    /// oltre i quali tutto si sovrappone e l'immagine diventa una nebbia.
+    func changePanoramicSlab(byMM delta: Double) {
+        guard delta.isFinite else { return }
+        panoramicSlabThicknessMM = min(max(panoramicSlabThicknessMM + delta, 0.5), 30)
+    }
+
     /// Riporta il panorex a inquadrare l'arcata intera, in profondità e in posizione.
     func resetPanoramicView() {
         panoramicZoom = 1

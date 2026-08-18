@@ -44,6 +44,12 @@ final class InteractiveMetalView: MTKView {
 
     /// Rotella. Il valore è in "passi": positivo scorre in avanti lungo la normale.
     var onScroll: ((Double) -> Void)?
+    /// Rotella con ⌥: significato **alternativo**, che decide chi sta sopra.
+    ///
+    /// Nulla per difetto, e allora ⌥ non cambia nulla: chi non lo assegna si comporta come prima.
+    var onAlternateScroll: ((Double) -> Void)?
+    /// Rotella con ⇧: lo stesso significato della rotella nuda, a passo **fine**.
+    var onFineScroll: ((Double) -> Void)?
     /// Zoom: fattore moltiplicativo e **pixel su cui ancorarlo**.
     ///
     /// L'ancora è ciò che rende lo zoom prevedibile: il punto anatomico sotto quel pixel non si
@@ -264,6 +270,15 @@ final class InteractiveMetalView: MTKView {
             let factor = 1.0 + Double(raw) * 0.05
             guard factor > 0.05 else { return }
             onZoom?(factor, pixelLocation(of: event))
+            return
+        }
+
+        if event.modifierFlags.contains(.option), let onAlternateScroll {
+            onAlternateScroll(Double(raw))
+            return
+        }
+        if event.modifierFlags.contains(.shift), let onFineScroll {
+            onFineScroll(Double(raw))
             return
         }
 
