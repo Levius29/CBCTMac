@@ -186,3 +186,114 @@ struct AnnotationMetadataTests {
         }
     }
 }
+
+// MARK: - Trasformazione rigida
+
+@Suite("Trasformazione delle annotazioni")
+struct AnnotationTransformTests {
+
+    /// Rotazione di 90° attorno a z, con perno lontano dall'origine: la traslazione implicita è
+    /// grande, quindi un punto trattato da vettore — o viceversa — sbaglia di molto e si vede.
+    private func makeTransforms() -> (point: (Vec3) -> Vec3, vector: (Vec3) -> Vec3) {
+        let pivot = Vec3(100, 50, 0)
+        let rotation = Transform3D.rotation(axis: Vec3(0, 0, 1), angle: .pi / 2)!
+        let point: (Vec3) -> Vec3 = { pivot + rotation.apply(toVector: $0 - pivot) }
+        let vector: (Vec3) -> Vec3 = { rotation.apply(toVector: $0) }
+        return (point, vector)
+    }
+
+    @Test("Una distanza ruota conservando la propria lunghezza")
+    func distanceKeepsItsLength() {
+        let (point, vector) = makeTransforms()
+        var annotation = Annotation.distance(
+            DistanceMeasurement(startMM: Vec3(0, 0, 0), endMM: Vec3(3, 4, 0)))
+        annotation.transform(point: point, vector: vector)
+
+        guard case .distance(let moved) = annotation else {
+            Issue.record("il caso è cambiato")
+            return
+        }
+        // Una trasformazione rigida non cambia le misure: è la proprietà per cui si può
+        // raddrizzare un volume senza invalidare ciò che ci si è misurato sopra.
+        #expect(abs(moved.lengthMM - 5) < 1e-9)
+        #expect(!moved.startMM.isApproximatelyEqual(to: Vec3(0, 0, 0), tolerance: 1e-6))
+    }
+
+    @Test("I semiassi dell'ellisse sono vettori, non punti")
+    func ellipseSemiAxesAreVectors() throws {
+        let (point, vector) = makeTransforms()
+        var annotation = Annotation.ellipseROI(
+            EllipseROI(
+                centerMM: Vec3(10, 10, 0),
+                semiAxisAMM: Vec3(3, 0, 0),
+                semiAxisBMM: Vec3(0, 2, 0),
+                thicknessMM: 1))
+        annotation.transform(point: point, vector: vector)
+
+        guard case .ellipseROI(let moved) = annotation else {
+            Issue.record("il caso è cambiato")
+            return
+        }
+        // **Il controllo che conta.** Passando i semiassi per la trasformazione dei punti,
+        // ciascuno prenderebbe anche la traslazione implicita del perno: un semiasse di tre
+        // millimetri diventerebbe lungo più di cento, e l'ellisse coprirebbe mezza immagine.
+        #expect(abs(moved.semiAxisAMM.length - 3) < 1e-9, "semiasse lungo \(moved.semiAxisAMM.length)")
+        #expect(abs(moved.semiAxisBMM.length - 2) < 1e-9)
+        // E sono ruotati davvero, non lasciati fermi.
+        #expect(abs(moved.semiAxisAMM.y - 3) < 1e-9)
+    }
+
+    @Test("Il piano di riferimento si muove con l'annotazione")
+    func referencePlaneFollows() throws {
+        let (point, vector) = makeTransforms()
+        var annotation = Annotation.distance(
+            DistanceMeasurement(
+                metadata: AnnotationMetadata(
+                    referencePlane: AnnotationPlaneReference(
+                        originMM: Vec3(0, 0, 5), normalMM: Vec3(0, 0, 1))),
+                startMM: Vec3(0, 0, 5), endMM: Vec3(3, 0, 5)))
+        annotation.transform(point: point, vector: vector)
+
+        let reference = try #require(annotation.metadata.referencePlane)
+        // La normale resta unitaria: se fosse passata per la trasformazione dei punti sarebbe
+        // lunga più di cento, e la misura sparirebbe dalla vista in cui era stata tracciata.
+        #expect(abs(reference.normalMM.length - 1) < 1e-9)
+        #expect(reference.originMM.isApproximatelyEqual(to: point(Vec3(0, 0, 5)), tolerance: 1e-9))
+    }
+
+    @Test("Ogni caso dell'enumerazione si sposta davvero")
+    func everyCaseMoves() {
+        let (point, vector) = makeTransforms()
+        let originals: [Annotation] = [
+            .distance(DistanceMeasurement(startMM: .zero, endMM: Vec3(1, 0, 0))),
+            .angle(
+                AngleMeasurement(
+                    vertexMM: .zero, firstArmMM: Vec3(1, 0, 0), secondArmMM: Vec3(0, 1, 0))),
+            .ellipseROI(
+                EllipseROI(
+                    centerMM: Vec3(1, 1, 0), semiAxisAMM: Vec3(2, 0, 0),
+                    semiAxisBMM: Vec3(0, 2, 0), thicknessMM: 1)),
+            .sphereROI(SphereROI(centerMM: Vec3(2, 2, 2), radiusMM: 3)),
+            .text(TextNote(anchorMM: Vec3(4, 4, 4), text: "x")),
+            .arrow(ArrowNote(tipMM: .zero, tailMM: Vec3(1, 1, 0), text: "x")),
+            .polyline(PolylineMeasurement(pointsMM: [.zero, Vec3(1, 0, 0), Vec3(1, 1, 0)])),
+            .lineAngle(
+                LineAngleMeasurement(
+                    firstStartMM: .zero, firstEndMM: Vec3(1, 0, 0),
+                    secondStartMM: Vec3(0, 1, 0), secondEndMM: Vec3(1, 1, 0))),
+        ]
+
+        // Undici rami scritti a mano: dimenticarne uno lascerebbe un tipo di annotazione fermo
+        // nel vecchio riferimento dopo un raddrizzamento, e nulla lo direbbe.
+        for original in originals {
+            var moved = original
+            moved.transform(point: point, vector: vector)
+            #expect(moved.handlesMM.count == original.handlesMM.count)
+            for (before, after) in zip(original.handlesMM, moved.handlesMM) {
+                #expect(
+                    !before.isApproximatelyEqual(to: after, tolerance: 1e-6),
+                    "\(original.kindName) non si è mosso")
+            }
+        }
+    }
+}

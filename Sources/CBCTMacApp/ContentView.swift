@@ -47,6 +47,7 @@ struct ContentView: View {
         .toolbar { toolbarContent }
         .overlay { loadingOverlay }
         .sheet(isPresented: $model.isShowingShortcuts) { ShortcutsSheet() }
+        .sheet(isPresented: $model.isShowingReorient) { ReorientSheet(model: model) }
         .navigationTitle(windowTitle)
     }
 

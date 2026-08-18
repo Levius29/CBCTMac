@@ -47,6 +47,11 @@ struct ReformatSheet: View {
             HStack {
                 Button("Tutto il volume") { resetPlan() }
                     .disabled(model.volume == nil)
+                // «Ripristina» rimette il riquadro come si è aperta la finestra, senza chiuderla:
+                // dopo aver trascinato quattro lati e essersi accorti di aver sbagliato regione,
+                // l'alternativa è annullare e riaprire, che perde anche il passo scelto.
+                Button("Ripristina") { resetPlan() }
+                    .disabled(plan == nil)
                 Spacer()
                 Button("Annulla") { dismiss() }
                     .keyboardShortcut(.cancelAction)

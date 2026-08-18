@@ -203,6 +203,8 @@ struct AnnotationOverlay: View {
     let pointSize: CGSize
     let pixelSize: CGSize
     let pendingStartMM: Vec3?
+    /// Punti già posati di una misura a più punti, ancora da chiudere.
+    var pendingPointsMM: [Vec3] = []
 
     var body: some View {
         Canvas { context, size in
@@ -222,6 +224,37 @@ struct AnnotationOverlay: View {
                 let dot = Path(
                     ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6))
                 context.fill(dot, with: .color(Palette.accent))
+            }
+
+            // Misura a più punti in corso: la spezzata cresce sotto il puntatore invece di
+            // apparire solo alla fine. Senza, dopo il terzo clic non si sa più quali punti si
+            // siano posati, e si finisce per rifarla da capo.
+            if pendingPointsMM.count >= 1 {
+                let projected = pendingPointsMM.map {
+                    plane.pixelPosition(ofPatient: $0, pixelWidth: width, pixelHeight: height)
+                }
+                var path = Path()
+                path.move(to: CGPoint(x: projected[0].x, y: projected[0].y))
+                for point in projected.dropFirst() {
+                    path.addLine(to: CGPoint(x: point.x, y: point.y))
+                }
+                context.stroke(
+                    path, with: .color(Palette.accent.opacity(0.9)),
+                    style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                for point in projected {
+                    context.fill(
+                        Path(
+                            ellipseIn: CGRect(
+                                x: point.x - 3, y: point.y - 3, width: 6, height: 6)),
+                        with: .color(Palette.accent))
+                }
+                context.draw(
+                    Text("doppio clic per chiudere")
+                        .font(Typography.label)
+                        .foregroundStyle(Palette.textSecondary),
+                    at: CGPoint(x: projected[projected.count - 1].x + 6,
+                        y: projected[projected.count - 1].y - 12),
+                    anchor: .leading)
             }
         }
         .allowsHitTesting(false)
@@ -260,7 +293,9 @@ struct AnnotationOverlay: View {
         let stroke = color.opacity(opacity)
 
         switch annotation {
-        case .distance(let measurement):
+        // I **valori** non si scrivono più qui: li colloca `LabelOverlay`, che li vede tutti
+        // insieme e può quindi evitare che si sovrappongano. Qui restano le sole forme.
+        case .distance:
             guard points.count >= 2 else { return }
             var path = Path()
             path.move(to: CGPoint(x: points[0].x, y: points[0].y))
@@ -268,14 +303,8 @@ struct AnnotationOverlay: View {
             context.stroke(path, with: .color(stroke), lineWidth: lineWidth)
             drawHandles(points, in: &context, color: stroke)
 
-            let midpoint = CGPoint(
-                x: (points[0].x + points[1].x) / 2,
-                y: (points[0].y + points[1].y) / 2)
-            drawLabel(
-                measurement.formattedValue, at: midpoint, in: &context, color: color,
-                opacity: opacity)
 
-        case .angle(let measurement):
+        case .angle:
             guard points.count >= 3 else { return }
             var path = Path()
             path.move(to: CGPoint(x: points[0].x, y: points[0].y))
@@ -283,12 +312,8 @@ struct AnnotationOverlay: View {
             path.addLine(to: CGPoint(x: points[2].x, y: points[2].y))
             context.stroke(path, with: .color(stroke), lineWidth: lineWidth)
             drawHandles(points, in: &context, color: stroke)
-            drawLabel(
-                measurement.formattedValue,
-                at: CGPoint(x: points[1].x, y: points[1].y),
-                in: &context, color: color, opacity: opacity)
 
-        case .ellipseROI(let roi):
+        case .ellipseROI:
             guard points.count >= 3 else { return }
             let centre = CGPoint(x: points[0].x, y: points[0].y)
             let radiusX = abs(points[1].x - points[0].x)
@@ -297,8 +322,6 @@ struct AnnotationOverlay: View {
                 x: centre.x - radiusX, y: centre.y - radiusY,
                 width: radiusX * 2, height: radiusY * 2)
             context.stroke(Path(ellipseIn: rect), with: .color(stroke), lineWidth: lineWidth)
-            let text = model.roiStatistics[roi.id]?.summary ?? roi.formattedValue
-            drawLabel(text, at: centre, in: &context, color: color, opacity: opacity)
 
         case .sphereROI(let roi):
             let centre = CGPoint(x: points[0].x, y: points[0].y)
@@ -312,13 +335,39 @@ struct AnnotationOverlay: View {
             let rect = CGRect(
                 x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2)
             context.stroke(Path(ellipseIn: rect), with: .color(stroke), lineWidth: lineWidth)
-            let text = model.roiStatistics[roi.id]?.summary ?? roi.formattedValue
-            drawLabel(text, at: centre, in: &context, color: color, opacity: opacity)
 
         case .text(let note):
             drawLabel(
                 note.text, at: CGPoint(x: points[0].x, y: points[0].y), in: &context,
                 color: color, opacity: opacity)
+
+        case .polyline(let measurement):
+            guard points.count >= 2 else { return }
+            var path = Path()
+            path.move(to: CGPoint(x: points[0].x, y: points[0].y))
+            for point in points.dropFirst() {
+                path.addLine(to: CGPoint(x: point.x, y: point.y))
+            }
+            if measurement.isClosed { path.closeSubpath() }
+            context.stroke(path, with: .color(stroke), lineWidth: lineWidth)
+            drawHandles(points, in: &context, color: stroke)
+
+            // L'etichetta al baricentro dei vertici e non sull'ultimo: su un perimetro chiuso
+            // l'ultimo lato è dove si è chiuso il giro, e mettere lì il numero lo fa sembrare la
+            // misura di quel lato.
+
+        case .lineAngle:
+            guard points.count >= 4 else { return }
+            var path = Path()
+            path.move(to: CGPoint(x: points[0].x, y: points[0].y))
+            path.addLine(to: CGPoint(x: points[1].x, y: points[1].y))
+            path.move(to: CGPoint(x: points[2].x, y: points[2].y))
+            path.addLine(to: CGPoint(x: points[3].x, y: points[3].y))
+            context.stroke(path, with: .color(stroke), lineWidth: lineWidth)
+            drawHandles(points, in: &context, color: stroke)
+
+            // Fra i due segmenti, non su uno dei due: l'angolo appartiene alla coppia, e
+            // appoggiarlo a una delle due rette suggerirebbe che sia una sua proprietà.
 
         default:
             drawHandles(points, in: &context, color: stroke)

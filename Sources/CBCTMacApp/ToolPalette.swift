@@ -47,6 +47,23 @@ struct ToolPalette: View {
                 }
             }
 
+            // La curva proposta sta accanto allo strumento arcata, non in un menu: è
+            // un'alternativa al disegnarla a mano, e va offerta nel momento in cui si sta per
+            // farlo a mano.
+            if model.activeTool == .archCurve || model.workMode.usesArchCurve {
+                Button {
+                    model.suggestArchCurve()
+                } label: {
+                    Label("Proponi la curva dall'anatomia", systemImage: "wand.and.stars")
+                        .font(Typography.label)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.accent)
+                .disabled(model.volume == nil)
+                .help("Cerca l'arcata alla quota del mirino. Se non la trova, lo dice.")
+            }
+
             if let hint = model.activeTool.hint {
                 Text(hint)
                     .font(Typography.label)

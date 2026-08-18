@@ -5,6 +5,7 @@ import MeasureKit
 import Metal
 import StudyKit
 import Observation
+import SegmentKit
 import SwiftUI
 import UniformTypeIdentifiers
 import VolumeKit
@@ -285,6 +286,9 @@ final class AppModel {
     /// Legenda dei comandi. Vedi `ShortcutsSheet`.
     var isShowingShortcuts = false
 
+    /// Finestra di raddrizzamento. Vedi `ReorientSheet`.
+    var isShowingReorient = false
+
     /// Vero mentre l'utente sta disegnando o correggendo la curva sull'assiale.
     var isEditingArch = false
 
@@ -523,20 +527,39 @@ final class AppModel {
         rebuildCrossSections()
     }
 
-    /// Propone una parabola d'arcata **alla quota che si sta guardando**.
+    /// Propone una curva d'arcata **alla quota che si sta guardando**.
     ///
     /// È un comando, non un comportamento automatico: la curva la decide chi guarda l'anatomia, e
-    /// questo serve solo a non dover posare sette punti da zero quando la forma è quella tipica.
+    /// questo serve a non dover posare nove punti da zero.
+    ///
+    /// Prova due strade in ordine, e **dice quale ha usato**. Prima cerca l'osso alla quota del
+    /// mirino con `ArchDetection`, che segue l'anatomia di questo paziente; se non trova
+    /// un'arcata riconoscibile ripiega sulla parabola tipica, che è una forma media e non ha
+    /// niente a che vedere con questa bocca. La differenza fra le due conta: la prima si corregge
+    /// spostando due punti, la seconda va rifatta quasi da capo, e chi la riceve deve sapere
+    /// quale ha in mano invece di scoprirlo dal risultato del panorex.
     func suggestArchCurve() {
-        guard let geometry = volume?.geometry else { return }
-        archCurve = ArchCurve.suggested(
-            for: geometry,
-            atVerticalMM: crosshairMM.z,
-            arch: activeArch)
+        guard let volume else { return }
+        let geometry = volume.geometry
+
+        if let points = ArchDetection.suggestArchPoints(
+            in: volume, atVerticalMM: crosshairMM.z, pointCount: 9)
+        {
+            archCurves[activeArch] = ArchCurve(controlPointsMM: points)
+            lastActionMessage =
+                "Curva ricavata dall'osso, \(points.count) punti. Correggila trascinandoli."
+        } else {
+            archCurves[activeArch] = ArchCurve.suggested(
+                for: geometry, atVerticalMM: crosshairMM.z, arch: activeArch)
+            lastActionMessage =
+                "Nessuna arcata riconoscibile a questa quota: proposta una forma tipica, da correggere."
+        }
+
         archVerticalCentreMM = crosshairMM.z
         selectedArchPointIndex = nil
         isEditingArch = true
         rebuildCrossSections()
+        recordUndo("Curva proposta")
     }
 
     /// Porta tutti i punti della curva attiva alla loro quota media.
@@ -954,6 +977,17 @@ final class AppModel {
         recordUndo("Aggiungi impianto")
     }
 
+    /// Cambia un impianto per identificatore, e registra un passo annullabile.
+    ///
+    /// Raggruppato: chi preme il passo del diametro sei volte di fila sta facendo **una**
+    /// scelta, e annullarla deve costare una pressione sola.
+    func updateImplant(id: UUID, _ transform: (inout ImplantPlacement) -> Void) {
+        guard let index = implants.firstIndex(where: { $0.id == id }) else { return }
+        transform(&implants[index])
+        recomputeSafety()
+        recordContinuousUndo("Modifica impianto")
+    }
+
     func updateSelectedImplant(_ transform: (inout ImplantPlacement) -> Void) {
         guard let id = selectedImplantID,
             let index = implants.firstIndex(where: { $0.id == id })
@@ -1224,6 +1258,70 @@ final class AppModel {
         if wasSelected, let entry = library.selected {
             adopt(volume: entry.volume, preservingPlan: true)
         }
+    }
+
+    /// Accoglie un volume raddrizzato, **trasformando con esso tutto il piano**.
+    ///
+    /// È la parte che rende il riorientamento utilizzabile invece che distruttivo. Il volume
+    /// nuovo sta in un riferimento nuovo: senza applicare la stessa rotazione a misure, impianti,
+    /// nervi e curve, quelli resterebbero attaccati al vecchio e indicherebbero tessuto sbagliato
+    /// — un impianto pianificato sul 36 finirebbe da qualche parte nell'osso, e nulla lo direbbe.
+    func adoptReoriented(_ reoriented: Volume, plan: ReorientationPlan) {
+        guard plan.rotation() != nil else { return }
+
+        func moved(_ point: Vec3) -> Vec3 { plan.transformed(point) ?? point }
+        /// Le direzioni ruotano senza traslare: un asse è un vettore, non un punto.
+        func movedDirection(_ direction: Vec3) -> Vec3 {
+            let origin = plan.pivotMM
+            return moved(origin + direction) - moved(origin)
+        }
+
+        let movedAnnotations = annotations.map { annotation -> Annotation in
+            var copy = annotation
+            copy.transform(point: moved, vector: movedDirection)
+            return copy
+        }
+        let movedImplants = implants.map { implant -> ImplantPlacement in
+            var copy = implant
+            copy.platformMM = moved(implant.platformMM)
+            copy.axis = movedDirection(implant.axis).normalized ?? implant.axis
+            return copy
+        }
+        let movedNerves = nerveCanals.map { canal -> NerveCanal in
+            var copy = canal
+            copy.nodes = canal.nodes.map { node in
+                var moving = node
+                moving.positionMM = moved(node.positionMM)
+                return moving
+            }
+            return copy
+        }
+        let movedCurves = archCurves.mapValues { curve -> ArchCurve in
+            ArchCurve(controlPointsMM: curve.controlPointsMM.map(moved), upAxis: curve.upAxis)
+        }
+
+        let parent = library.selectedID
+        let name = library.uniqueName("Raddrizzato")
+        if let parent,
+            library.addDerived(reoriented, named: name, from: parent, operation: "Raddrizzamento")
+                != nil
+        {
+            adopt(volume: reoriented, preservingPlan: true)
+        } else {
+            openStudy(volume: reoriented, named: name, provenance: .imported)
+        }
+
+        annotations = movedAnnotations
+        implants = movedImplants
+        nerveCanals = movedNerves
+        archCurves = movedCurves
+        crosshairMM = moved(crosshairMM)
+        clampCrosshairToVolume()
+        recomputeSafety()
+        syncRegistry()
+        if archCurve.isUsable { rebuildCrossSections() }
+        recordUndo("Raddrizza il volume")
+        lastActionMessage = "Volume raddrizzato; misure e impianti sono stati ruotati con esso."
     }
 
     /// Apre uno studio letto da disco o il fantoccio: svuota la raccolta e riparte.

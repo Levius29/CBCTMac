@@ -439,6 +439,12 @@ public enum Annotation: Hashable, Sendable, Codable, Identifiable {
     case text(TextNote)
     case arrow(ArrowNote)
     case freehand(FreehandPath)
+    /// Spezzata, aperta o chiusa: la lunghezza di una cresta non è un segmento. Vedi
+    /// `PolylineMeasurement`.
+    case polyline(PolylineMeasurement)
+    /// Angolo fra due rette senza vertice comune, come fra due impianti. Vedi
+    /// `LineAngleMeasurement`.
+    case lineAngle(LineAngleMeasurement)
 
     /// Attributi comuni: nome, colore, visibilità, nota.
     ///
@@ -459,6 +465,8 @@ public enum Annotation: Hashable, Sendable, Codable, Identifiable {
             case .text(let a): return a.metadata
             case .arrow(let a): return a.metadata
             case .freehand(let a): return a.metadata
+            case .polyline(let a): return a.metadata
+            case .lineAngle(let a): return a.metadata
             }
         }
         set {
@@ -472,6 +480,8 @@ public enum Annotation: Hashable, Sendable, Codable, Identifiable {
             case .text(var a): a.metadata = newValue; self = .text(a)
             case .arrow(var a): a.metadata = newValue; self = .arrow(a)
             case .freehand(var a): a.metadata = newValue; self = .freehand(a)
+            case .polyline(var a): a.metadata = newValue; self = .polyline(a)
+            case .lineAngle(var a): a.metadata = newValue; self = .lineAngle(a)
             }
         }
     }
@@ -489,6 +499,9 @@ public enum Annotation: Hashable, Sendable, Codable, Identifiable {
         case .text(let a): return a.handlesMM
         case .arrow(let a): return a.handlesMM
         case .freehand(let a): return a.handlesMM
+        case .polyline(let a): return a.pointsMM
+        case .lineAngle(let a):
+            return [a.firstStartMM, a.firstEndMM, a.secondStartMM, a.secondEndMM]
         }
     }
 
@@ -503,10 +516,86 @@ public enum Annotation: Hashable, Sendable, Codable, Identifiable {
         case .text(let a): return a.formattedValue
         case .arrow(let a): return a.formattedValue
         case .freehand(let a): return a.formattedValue
+        case .polyline(let a):
+            // Con l'area, quando c'è: su un perimetro chiuso è il numero che si cerca, e
+            // mostrare la sola lunghezza costringerebbe ad aprire un pannello per averla.
+            if let area = a.formattedArea { return "\(a.formattedLength) · \(area)" }
+            return a.formattedLength
+        case .lineAngle(let a): return a.formattedAngle
         }
     }
 
     /// Nome del tipo per la UI.
+    /// Sposta l'annotazione con una trasformazione rigida.
+    ///
+    /// Serve quando il volume viene raddrizzato: le misure devono muoversi con l'anatomia,
+    /// altrimenti restano nel vecchio riferimento e indicano tessuto sbagliato.
+    ///
+    /// - Parameters:
+    ///   - point: dove finisce un punto.
+    ///   - vector: dove finisce una **direzione**. Non è la stessa cosa, e confonderle è
+    ///     l'errore che questa firma esiste per impedire: i semiassi di un'ellisse sono vettori,
+    ///     e passarli per la trasformazione dei punti li allungherebbe della traslazione — con
+    ///     una rotazione attorno a un perno lontano, un'ellisse di tre millimetri diventerebbe
+    ///     lunga quanto la distanza dal perno.
+    public mutating func transform(point: (Vec3) -> Vec3, vector: (Vec3) -> Vec3) {
+        switch self {
+        case .distance(var a):
+            a.startMM = point(a.startMM)
+            a.endMM = point(a.endMM)
+            self = .distance(a)
+        case .angle(var a):
+            a.vertexMM = point(a.vertexMM)
+            a.firstArmMM = point(a.firstArmMM)
+            a.secondArmMM = point(a.secondArmMM)
+            self = .angle(a)
+        case .ellipseROI(var a):
+            a.centerMM = point(a.centerMM)
+            a.semiAxisAMM = vector(a.semiAxisAMM)
+            a.semiAxisBMM = vector(a.semiAxisBMM)
+            self = .ellipseROI(a)
+        case .polygonROI(var a):
+            a.verticesMM = a.verticesMM.map(point)
+            self = .polygonROI(a)
+        case .sphereROI(var a):
+            // Il raggio è uno scalare e una rotazione non lo cambia. Con una scala servirebbe
+            // anche lui, e allora questa firma non basterebbe più: qui si dichiara rigida.
+            a.centerMM = point(a.centerMM)
+            self = .sphereROI(a)
+        case .profileLine(var a):
+            a.startMM = point(a.startMM)
+            a.endMM = point(a.endMM)
+            self = .profileLine(a)
+        case .text(var a):
+            a.anchorMM = point(a.anchorMM)
+            self = .text(a)
+        case .arrow(var a):
+            a.tipMM = point(a.tipMM)
+            a.tailMM = point(a.tailMM)
+            self = .arrow(a)
+        case .freehand(var a):
+            a.pointsMM = a.pointsMM.map(point)
+            self = .freehand(a)
+        case .polyline(var a):
+            a.pointsMM = a.pointsMM.map(point)
+            self = .polyline(a)
+        case .lineAngle(var a):
+            a.firstStartMM = point(a.firstStartMM)
+            a.firstEndMM = point(a.firstEndMM)
+            a.secondStartMM = point(a.secondStartMM)
+            a.secondEndMM = point(a.secondEndMM)
+            self = .lineAngle(a)
+        }
+
+        // Il piano di riferimento si muove con l'annotazione: se restasse fermo, la misura
+        // sparirebbe dalla vista in cui era stata tracciata.
+        if var reference = metadata.referencePlane {
+            reference.originMM = point(reference.originMM)
+            reference.normalMM = vector(reference.normalMM)
+            metadata.referencePlane = reference
+        }
+    }
+
     public var kindName: String {
         switch self {
         case .distance: return "Distanza"
@@ -518,6 +607,8 @@ public enum Annotation: Hashable, Sendable, Codable, Identifiable {
         case .text: return "Testo"
         case .arrow: return "Freccia"
         case .freehand: return "Mano libera"
+        case .polyline: return "Spezzata"
+        case .lineAngle: return "Angolo fra rette"
         }
     }
 
@@ -533,6 +624,8 @@ public enum Annotation: Hashable, Sendable, Codable, Identifiable {
         case .text: return "textformat"
         case .arrow: return "arrow.up.left"
         case .freehand: return "scribble"
+        case .polyline: return "scribble.variable"
+        case .lineAngle: return "line.diagonal.arrow"
         }
     }
 }

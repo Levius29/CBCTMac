@@ -80,6 +80,12 @@ struct ViewportContainer: View {
     /// Primo estremo di una misura in corso.
     @State private var pendingStartMM: Vec3?
 
+    /// Punti già posati di una misura a più punti — spezzata, perimetro, angolo fra rette.
+    ///
+    /// Le misure a due punti si chiudono da sole al secondo clic; queste no, e serve un modo di
+    /// dire «ho finito». Il doppio clic chiude, come in ogni strumento poligonale, ed Esc annulla.
+    @State private var pendingPointsMM: [Vec3] = []
+
     /// Presa sul mirino in corso, decisa alla pressione.
     ///
     /// # Perché l'interazione del mirino sta **qui** e non nella sua sovraimpressione
@@ -139,12 +145,18 @@ struct ViewportContainer: View {
                         slot: slot,
                         pointSize: geometry.size,
                         pixelSize: pixelSize,
-                        pendingStartMM: pendingStartMM)
+                        pendingStartMM: pendingStartMM,
+                        pendingPointsMM: pendingPointsMM)
 
                     ImplantOverlay(
                         model: model,
                         slot: slot,
                         plane: model.planes[slot])
+
+                    // Le etichette per ultime, sopra tutti i disegni: sono ciò che si legge, e
+                    // una linea che ci passa sopra le rende illeggibili. Vedi `LabelOverlay` per
+                    // il motivo per cui stanno tutte in un solo strato.
+                    LabelOverlay(model: model, slot: slot)
                 }
 
                 ViewportChrome(model: model, slot: slot, pointSize: geometry.size)
@@ -205,6 +217,10 @@ struct ViewportContainer: View {
                 onHover: handleHover,
                 onDoubleClick: {
                     model.focusedSlot = slot
+                    // Con una misura a più punti in corso il doppio clic la **chiude**, e non
+                    // ingrandisce il riquadro: sono due significati per lo stesso gesto, e quello
+                    // che conta è quello che l'utente sta facendo adesso.
+                    if closePendingMeasurement() { return }
                     model.layout = model.layout == .single ? .grid2x2 : .single
                 },
                 onDragBegan: handleDragBegan,
@@ -324,22 +340,56 @@ struct ViewportContainer: View {
             model.moveCrosshair(to: patient)
 
         case .distance:
-            if let start = pendingStartMM {
-                let measurement = DistanceMeasurement(
-                    metadata: AnnotationMetadata(
-                        colorHex: "#32B8C6",
-                        referencePlane: referencePlane()),
-                    startMM: start,
-                    endMM: patient)
-                model.addAnnotation(.distance(measurement))
-                pendingStartMM = nil
-            } else {
-                pendingStartMM = patient
+            switch model.toolVariant {
+            case "polyline", "perimeter":
+                // Si accumulano finché non si chiude col doppio clic: la lunghezza di una cresta
+                // non è un segmento, e obbligare a spezzarla in misure separate significa poi
+                // sommarle a mano.
+                pendingPointsMM.append(patient)
+            default:
+                if let start = pendingStartMM {
+                    model.addAnnotation(
+                        .distance(
+                            DistanceMeasurement(
+                                metadata: AnnotationMetadata(
+                                    colorHex: "#32B8C6", referencePlane: referencePlane()),
+                                startMM: start, endMM: patient)))
+                    pendingStartMM = nil
+                } else {
+                    pendingStartMM = patient
+                }
             }
 
         case .angle:
-            // Richiede tre punti: si aggiungerà con la stessa logica a stati di `.distance`.
-            model.moveCrosshair(to: patient)
+            if model.toolVariant == "lines" {
+                pendingPointsMM.append(patient)
+                // Quattro punti: due per retta. Si chiude da sé, perché il numero è noto.
+                if pendingPointsMM.count == 4 {
+                    model.addAnnotation(
+                        .lineAngle(
+                            LineAngleMeasurement(
+                                metadata: AnnotationMetadata(
+                                    colorHex: "#FFD426", referencePlane: referencePlane()),
+                                firstStartMM: pendingPointsMM[0],
+                                firstEndMM: pendingPointsMM[1],
+                                secondStartMM: pendingPointsMM[2],
+                                secondEndMM: pendingPointsMM[3])))
+                    pendingPointsMM = []
+                }
+                return
+            }
+            pendingPointsMM.append(patient)
+            if pendingPointsMM.count == 3 {
+                model.addAnnotation(
+                    .angle(
+                        AngleMeasurement(
+                            metadata: AnnotationMetadata(
+                                colorHex: "#FFD426", referencePlane: referencePlane()),
+                            vertexMM: pendingPointsMM[0],
+                            firstArmMM: pendingPointsMM[1],
+                            secondArmMM: pendingPointsMM[2])))
+                pendingPointsMM = []
+            }
 
         case .ellipseROI:
             if let start = pendingStartMM {
@@ -580,6 +630,26 @@ struct ViewportContainer: View {
         // Campionamento nearest sui dati di CPU: il valore mostrato è un valore realmente
         // presente nel volume, non una media fra vicini.
         model.hoverDensity = model.volume?.densityValue(atPatient: patient)
+    }
+
+    /// Chiude una misura a più punti in corso. Restituisce falso se non ce n'è nessuna.
+    @discardableResult
+    private func closePendingMeasurement() -> Bool {
+        guard model.activeTool == .distance, pendingPointsMM.count >= 2 else {
+            // Meno di due punti non è una misura: si scartano invece di lasciarli in sospeso.
+            if !pendingPointsMM.isEmpty { pendingPointsMM = [] }
+            return false
+        }
+        let isClosed = model.toolVariant == "perimeter"
+        model.addAnnotation(
+            .polyline(
+                PolylineMeasurement(
+                    metadata: AnnotationMetadata(
+                        colorHex: "#4FCB6B", referencePlane: referencePlane()),
+                    pointsMM: pendingPointsMM,
+                    isClosed: isClosed)))
+        pendingPointsMM = []
+        return true
     }
 
     // MARK: Costruzione delle annotazioni

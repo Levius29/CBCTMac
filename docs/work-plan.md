@@ -43,7 +43,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
 | A1 | Nome del paziente al centro della barra del titolo | ✅ | 2 | H |
-| A2 | Versione del programma visibile | 🔶 | 1 | H |
+| A2 | Versione del programma visibile | ✅ | 1 | H |
 | A3 | Cinque **modi di lavoro** a schede, non layout: ortogonale, curvo, personalizzato, obliquo, relazione | ✅ | 3 | K |
 | A4 | Pannelli laterali richiudibili con memoria dello stato | ✅ | 2 | H |
 | A5 | Pannello contestuale che cambia col tipo di oggetto attivo | ✅ | 3 | E, H |
@@ -55,8 +55,8 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
 | B1 | Selezione/freccia | ✅ | 3 | — |
-| B2 | Righello con **varianti** (distanza, spezzata, perimetro) | 🔶 | 3 | L |
-| B3 | Goniometro con varianti (angolo a 3 punti, fra due rette) | 🔶 | 2 | L |
+| B2 | Righello con **varianti** (distanza, spezzata, perimetro) | ✅ | 3 | L |
+| B3 | Goniometro con varianti (angolo a 3 punti, fra due rette) | ✅ | 2 | L |
 | B4 | Strumento arcata | ✅ | 3 | — |
 | B5 | Strumento canale mandibolare | ✅ | 2 | — |
 | B6 | Strumento impianto | ✅ | 3 | — |
@@ -79,7 +79,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | C5 | Nota testuale allegata a un oggetto | ❌ | 1 | E |
 | C6 | «Porta al centro» un oggetto: tutte le viste ci si spostano | ✅ | 3 | E |
 | C7 | Selezione evidenziata, coerente fra elenco e viste | ✅ | 3 | E |
-| C8 | Parametri modificabili in linea con passo (L, Ø) | ❌ | 3 | E |
+| C8 | Parametri modificabili in linea con passo (L, Ø) | ✅ | 3 | E |
 | C9 | Duplica oggetto | ✅ | 2 | E |
 | C10 | Specchia oggetto sul lato opposto | ✅ | 2 | E |
 | C11 | Blocco di un oggetto contro modifiche accidentali | ✅ | 1 | E |
@@ -107,7 +107,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | E3 | Lettere d'orientamento ai quattro bordi | ✅ | 3 | C |
 | E4 | Algoritmo di ricostruzione dichiarato | ✅ | 1 | C |
 | E5 | Maniglie del mirino sui bordi, colorate come i piani 3D | ✅ | 2 | I |
-| E6 | Etichette con **linea di richiamo** che non coprono l'anatomia | 🔶 | 3 | F |
+| E6 | Etichette con **linea di richiamo** che non coprono l'anatomia | ✅ | 3 | F |
 | E7 | Etichette visibili su tutte le viste, 3D compreso | 🔶 | 2 | F |
 | E8 | Barra di scala | ✅ | 2 | — |
 | E9 | Finestra e livello mostrati nel riquadro | ✅ | 2 | — |
@@ -125,7 +125,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | F7 | Scorrimento lungo l'arcata, con ingrandimento | ✅ | 2 | — |
 | F8 | **Frecce sull'assiale** che indicano le sezioni mostrate | ✅ | 3 | G |
 | F9 | Anteprima della curva nell'elenco degli oggetti | ❌ | 1 | E |
-| F10 | Curva proposta automaticamente dall'anatomia | 🔶 | 2 | N |
+| F10 | Curva proposta automaticamente dall'anatomia | ✅ | 2 | N |
 
 ### G — Sezioni trasversali
 
@@ -165,9 +165,9 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | I4 | Riquadri **collegati**: uno solo parallelepipedo | ✅ | 2 | A |
 | I5 | Nome e descrizione del volume prodotto | ✅ | 1 | A |
 | I6 | Più volumi nello studio, selezionabili | ✅ | 2 | K |
-| I7 | Ripristina / Salta nella finestra | ❌ | 1 | H |
+| I7 | Ripristina / Salta nella finestra | ✅ | 1 | H |
 | I8 | Stima di memoria prima di procedere | ✅ | 2 | A |
-| I9 | Riorientamento del volume (piano occlusale orizzontale) | 🔶 | 3 | N |
+| I9 | Riorientamento del volume (piano occlusale orizzontale) | ✅ | 3 | N |
 
 ### J — Esportazione e relazione
 
@@ -206,15 +206,15 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | **C** | Spessore, proiezione e quote per riquadro — D1, D2, D7, E1…E4 | me | — | ✅ **fatto** |
 | **D** | Geometria delle sovraimpressioni 3D — H2…H6, H10 | Codex | VolumeKit | ✅ **fatto** |
 | **E** | Modello degli oggetti — C1…C12, A5, F9, J7 | Codex | tutti | ✅ **nucleo consegnato**, interfaccia nel lotto H |
-| **F** | Collocazione delle etichette — E6, E7 | me (Codex esaurito) | E | ✅ **nucleo fatto**, il disegno nel lotto H |
+| **F** | Collocazione delle etichette — E6, E7 | me | E | ✅ **fatto**, tranne le etichette nel 3D |
 | **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | ✅ **fatto**, tranne H6 (il ritaglio vive solo nella sua finestra) |
 | **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | me | A, B, D, E | ✅ **fatto**, resta K3 |
 | **I** | Maniglie del mirino colorate — E5, H7 | me | — | ✅ **fatto** |
 | **J** | Esportazione e relazione — J1…J5, J8, D4, D5, B11 | Codex | E | da scrivere |
 | **K** | Modi di lavoro e volumi multipli — A3, I6, J9, K4 | me | A | ✅ **fatto** |
-| **L** | Varianti di misura — B2, B3 | me | MeasureKit | ✅ **nucleo fatto** |
+| **L** | Varianti di misura — B2, B3 | me | MeasureKit | ✅ **fatto** |
 | **M** | Oggetti protesici — B7, B8, B9, B10 | me | ImplantKit | ✅ **nucleo fatto** |
-| **N** | Automatismi — F10, I9 | me | SegmentKit | ✅ **nucleo fatto** |
+| **N** | Automatismi — F10, I9 | me | SegmentKit | ✅ **fatto** |
 | **O** | Annulla/ripeti e salvataggio automatico — K1, K5 | me | E | ✅ **nucleo fatto** |
 
 ### Note sui lotti meno ovvi

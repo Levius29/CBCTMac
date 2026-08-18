@@ -36,6 +36,10 @@ struct CBCTMacApp: App {
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)
 
+                Button("Raddrizza sul piano occlusale…") { model.isShowingReorient = true }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+                    .disabled(model.volume == nil)
+
                 Divider()
 
                 Button("Apri piano…") { openPlan() }

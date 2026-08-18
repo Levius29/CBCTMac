@@ -156,6 +156,40 @@ private struct ObjectRow: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            row
+            // I parametri **in linea**, solo sull'oggetto selezionato: sono i due numeri che si
+            // toccano di continuo mentre si pianifica, e mandare l'occhio a cercarli in un
+            // pannello dall'altra parte della finestra a ogni ritocco è il genere di attrito che
+            // non si nota una volta e pesa dopo venti.
+            if isSelected, object.kind == .implant,
+                let implant = model.implants.first(where: { $0.id == object.id })
+            {
+                implantParameters(implant)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func implantParameters(_ implant: ImplantPlacement) -> some View {
+        HStack(spacing: 10) {
+            SteppedValue(
+                label: "Ø", value: implant.model.diameterMM, step: 0.1, format: "%.1f"
+            ) { newValue in
+                model.updateImplant(id: object.id) { $0.model.diameterMM = newValue }
+            }
+            SteppedValue(
+                label: "L", value: implant.model.lengthMM, step: 0.5, format: "%.1f"
+            ) { newValue in
+                model.updateImplant(id: object.id) { $0.model.lengthMM = newValue }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 22)
+        .padding(.bottom, 2)
+    }
+
+    private var row: some View {
         HStack(spacing: 6) {
             // L'occhio per primo, a sinistra: è l'azione più frequente dell'elenco, e sta dove
             // l'occhio arriva per primo scorrendo una colonna.
@@ -207,6 +241,7 @@ private struct ObjectRow: View {
         // separa «voglio vederne i parametri» da «voglio andarci sopra».
         .onTapGesture(count: 2) { model.centreOnObject(id: object.id) }
         .onTapGesture { model.centreOnObject(id: object.id) }
+        .overlay(alignment: .bottom) { Color.clear.frame(height: 0) }
         .contextMenu {
             Button("Porta al centro") { model.centreOnObject(id: object.id) }
             Button("Rinomina…") {
@@ -280,6 +315,42 @@ private struct ColorDot: View {
                 }
             }
             .padding(10)
+        }
+    }
+}
+
+// MARK: - Valore con passo
+
+/// Un numero con due frecce, in linea.
+///
+/// Un campo di testo sarebbe più flessibile e qui sarebbe peggio: i diametri implantari esistono
+/// a passi di un decimo e le lunghezze a mezzo millimetro, e un campo libero invita a scrivere
+/// misure che nessun produttore fabbrica. Le frecce muovono sulla griglia giusta; il valore resta
+/// selezionabile per chi vuole leggerlo, non per chi vuole inventarlo.
+private struct SteppedValue: View {
+
+    let label: String
+    let value: Double
+    let step: Double
+    let format: String
+    let onChange: (Double) -> Void
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(label)
+                .font(Typography.label)
+                .foregroundStyle(Palette.textSecondary)
+            Text(String(format: format, value).replacingOccurrences(of: ".", with: ","))
+                .font(Typography.numericSmall)
+                .foregroundStyle(Palette.textPrimary)
+                .frame(minWidth: 30, alignment: .trailing)
+            Stepper("") { onChange(value + step) } onDecrement: {
+                // Mai sotto zero: un impianto di diametro negativo non è un caso limite da
+                // gestire a valle, è un valore che non deve poter esistere.
+                onChange(max(value - step, step))
+            }
+            .labelsHidden()
+            .controlSize(.mini)
         }
     }
 }

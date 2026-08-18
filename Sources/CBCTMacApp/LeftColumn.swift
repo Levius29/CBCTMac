@@ -61,6 +61,18 @@ struct LeftColumn: View {
                     StudyTree(model: model)
                 }
 
+                // La versione, in fondo e in piccolo. Serve quando si segnala un
+                // comportamento: «non funziona» senza un numero di versione costringe a
+                // indovinare quale build si stia guardando.
+                HStack {
+                    Spacer()
+                    Text("CBCTMac \(AppModel.appVersion)")
+                        .font(Typography.label)
+                        .foregroundStyle(Palette.textSecondary.opacity(0.6))
+                    Spacer()
+                }
+                .padding(.vertical, Metrics.spacing)
+
                 if !model.loadIssues.isEmpty {
                     VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
                         ForEach(model.loadIssues, id: \.self) { issue in
@@ -114,12 +126,32 @@ struct AdjustmentsPanel: View {
                 .fixedSize()
             }
 
-            Button {
-                model.resetAllViews()
-            } label: {
-                Label("Rimetti tutte le viste a posto", systemImage: "arrow.counterclockwise")
-                    .font(Typography.label)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 5) {
+                Button {
+                    model.isShowingReorient = true
+                } label: {
+                    Label("Raddrizza sul piano occlusale…", systemImage: "level")
+                        .font(Typography.label)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(model.volume == nil)
+
+                Button {
+                    model.isShowingReformat = true
+                } label: {
+                    Label("Ritaglia e ricampiona…", systemImage: "crop")
+                        .font(Typography.label)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(model.volume == nil)
+
+                Button {
+                    model.resetAllViews()
+                } label: {
+                    Label("Rimetti tutte le viste a posto", systemImage: "arrow.counterclockwise")
+                        .font(Typography.label)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .buttonStyle(.plain)
             .foregroundStyle(Palette.textSecondary)
