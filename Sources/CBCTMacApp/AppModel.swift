@@ -859,8 +859,18 @@ final class AppModel {
             }
         }
 
-        // Il mirino parte dal centro del volume, che è l'inquadratura naturale all'apertura.
-        crosshairMM = volume.geometry.centerMM
+        // Passando da un volume all'altro dello stesso studio il mirino **resta dov'è**, se il
+        // nuovo volume lo contiene. I millimetri Patient sono gli stessi in un ritaglio e nel
+        // volume da cui viene, quindi riportarlo al centro sarebbe buttare via un'informazione
+        // valida: si sta confrontando *quel* punto, ed è l'unica ragione per cui si passa da un
+        // volume all'altro. Se il punto è fuori — un ritaglio che non lo comprende — il centro è
+        // l'unica scelta sensata che resti.
+        //
+        // Non serve riassegnarlo per riallineare i piani: `resetPlanes()`, poche righe sotto,
+        // chiama già `syncPlanesToCrosshair()`.
+        if !(preservingPlan && volume.geometry.containsPatientPoint(crosshairMM)) {
+            crosshairMM = volume.geometry.centerMM
+        }
         windowLevel = DensityWindow.automatic(from: volume)
         camera = VolumeCamera.fitted(to: volume.geometry)
         histogram = volume.rawHistogram(binCount: 256)

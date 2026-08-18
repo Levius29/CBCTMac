@@ -751,5 +751,13 @@ struct ModuleAPIContractTests {
         // `AppModel.reconstructionStepLabel`
         _ = volume.geometry.isIsotropic()
         _ = volume.geometry.spacingMM
+
+        // `AppModel.adopt(volume:preservingPlan:)`: il mirino resta dov'è se il nuovo volume lo
+        // contiene. Verifico che la domanda si possa porre e che risponda nei due modi, perché
+        // una `containsPatientPoint` sempre vera renderebbe il ramo inutile senza segnalarlo.
+        let centre = volume.geometry.centerMM
+        #expect(volume.geometry.containsPatientPoint(centre))
+        let faraway = centre + volume.geometry.physicalSizeMM
+        #expect(!volume.geometry.containsPatientPoint(faraway))
     }
 }

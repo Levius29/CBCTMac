@@ -202,6 +202,12 @@ struct ReformatSheet: View {
         failure = nil
     }
 
+    /// Passo più fine del volume in uso: sotto di esso si sta ricampionando, non ritagliando.
+    private var smallestSpacing: Double {
+        guard let s = model.volume?.geometry.spacingMM else { return 0 }
+        return min(s.x, min(s.y, s.z))
+    }
+
     private func apply() {
         guard let plan, let volume = model.volume else { return }
         isWorking = true
@@ -210,7 +216,11 @@ struct ReformatSheet: View {
             let resampled = try VolumeResampler.resampled(
                 volume,
                 request: ResampleRequest(spacingMM: plan.spacingMM, regionMM: plan.regionMM))
-            model.adopt(volume: resampled, named: plan.name)
+            // L'operazione dichiarata distingue un ritaglio da un ricampionamento nella catena
+            // di provenienza: sono due cose diverse e la relazione deve poterlo dire.
+            model.adopt(
+                volume: resampled, named: plan.name,
+                operation: plan.spacingMM < smallestSpacing ? "Ricampionamento" : "Ritaglio")
             dismiss()
         } catch {
             // L'errore si mostra qui e non si chiude la finestra: chiudere farebbe perdere il
