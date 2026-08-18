@@ -440,17 +440,39 @@ public enum Annotation: Hashable, Sendable, Codable, Identifiable {
     case arrow(ArrowNote)
     case freehand(FreehandPath)
 
+    /// Attributi comuni: nome, colore, visibilità, nota.
+    ///
+    /// Scrivibile, e non è un dettaglio di comodità. Prima era in sola lettura, e ogni punto che
+    /// doveva nascondere o ricolorare un'annotazione era costretto a smontare il caso, ricostruire
+    /// il valore e rimetterlo nell'array — nove rami ripetuti a ogni chiamante, con il rischio che
+    /// uno di essi dimenticasse un caso e la modifica sparisse in silenzio per un tipo solo. Il
+    /// `set` sta qui una volta e i nove rami sono scritti una volta.
     public var metadata: AnnotationMetadata {
-        switch self {
-        case .distance(let a): return a.metadata
-        case .angle(let a): return a.metadata
-        case .ellipseROI(let a): return a.metadata
-        case .polygonROI(let a): return a.metadata
-        case .sphereROI(let a): return a.metadata
-        case .profileLine(let a): return a.metadata
-        case .text(let a): return a.metadata
-        case .arrow(let a): return a.metadata
-        case .freehand(let a): return a.metadata
+        get {
+            switch self {
+            case .distance(let a): return a.metadata
+            case .angle(let a): return a.metadata
+            case .ellipseROI(let a): return a.metadata
+            case .polygonROI(let a): return a.metadata
+            case .sphereROI(let a): return a.metadata
+            case .profileLine(let a): return a.metadata
+            case .text(let a): return a.metadata
+            case .arrow(let a): return a.metadata
+            case .freehand(let a): return a.metadata
+            }
+        }
+        set {
+            switch self {
+            case .distance(var a): a.metadata = newValue; self = .distance(a)
+            case .angle(var a): a.metadata = newValue; self = .angle(a)
+            case .ellipseROI(var a): a.metadata = newValue; self = .ellipseROI(a)
+            case .polygonROI(var a): a.metadata = newValue; self = .polygonROI(a)
+            case .sphereROI(var a): a.metadata = newValue; self = .sphereROI(a)
+            case .profileLine(var a): a.metadata = newValue; self = .profileLine(a)
+            case .text(var a): a.metadata = newValue; self = .text(a)
+            case .arrow(var a): a.metadata = newValue; self = .arrow(a)
+            case .freehand(var a): a.metadata = newValue; self = .freehand(a)
+            }
         }
     }
 

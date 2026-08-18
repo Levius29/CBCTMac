@@ -144,3 +144,45 @@ struct MeasurementVariantsTests {
         #expect(measurement.minimumDistanceMM.isFinite)
     }
 }
+
+// MARK: - Metadati scrivibili
+
+@Suite("Metadati dell'annotazione")
+struct AnnotationMetadataTests {
+
+    private func every() -> [Annotation] {
+        let m = AnnotationMetadata(label: "prima", colorHex: "#111111")
+        return [
+            .distance(DistanceMeasurement(metadata: m, startMM: .zero, endMM: Vec3(1, 0, 0))),
+            .angle(
+                AngleMeasurement(
+                    metadata: m, vertexMM: .zero, firstArmMM: Vec3(1, 0, 0), secondArmMM: Vec3(0, 1, 0))),
+            .ellipseROI(
+                EllipseROI(
+                    metadata: m, centerMM: .zero, semiAxisAMM: Vec3(2, 0, 0),
+                    semiAxisBMM: Vec3(0, 2, 0), thicknessMM: 1)),
+            .sphereROI(SphereROI(metadata: m, centerMM: .zero, radiusMM: 3)),
+            .text(TextNote(metadata: m, anchorMM: .zero, text: "x")),
+            .arrow(ArrowNote(metadata: m, tipMM: .zero, tailMM: Vec3(1, 0, 0), text: "x")),
+        ]
+    }
+
+    @Test("Scrivere i metadati funziona su ogni caso dell'enumerazione")
+    func metadataIsWritableForEveryCase() {
+        // Il `set` ha nove rami scritti a mano: basta dimenticarne uno perché nascondere una
+        // misura funzioni per otto tipi su nove, e il difetto si vedrebbe solo su quel tipo.
+        for var annotation in every() {
+            let id = annotation.id
+            annotation.metadata.isHidden = true
+            annotation.metadata.colorHex = "#FF0000"
+            annotation.metadata.label = "dopo"
+
+            #expect(annotation.metadata.isHidden)
+            #expect(annotation.metadata.colorHex == "#FF0000")
+            #expect(annotation.metadata.label == "dopo")
+            // E il resto dell'annotazione non è stato toccato.
+            #expect(annotation.id == id)
+            #expect(!annotation.handlesMM.isEmpty)
+        }
+    }
+}
