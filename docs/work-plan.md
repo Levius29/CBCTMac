@@ -255,6 +255,24 @@ aggiunta dopo.
 
 ---
 
+## 3-bis. Il difetto ricorrente: motore senza comando
+
+Tre volte su questo progetto è successa la stessa cosa. Un modulo funzionante, con i suoi test,
+non raggiungibile da nessun punto dell'interfaccia: il ritaglio del volume, il riorientamento,
+e la riduzione delle strie da metallo. Ogni volta l'utente ha riferito la funzione come
+**mancante**, che dal suo punto di vista è esatto.
+
+Da qui la regola: un lotto non è finito quando il nucleo passa i test. È finito quando esiste un
+punto dell'interfaccia da cui si raggiunge, e quel punto è elencato qui.
+
+Una variante più insidiosa è il comando che c'è ma agisce **altrove** da dove ci si aspetta. I
+preset di resa dei tessuti stavano in un pannello chiamato «Regolazioni» e governavano il solo
+riquadro 3D: sceglierli non cambiava le tre viste ortogonali, e la conclusione ragionevole era
+che fossero rotti. Non lo erano. La correzione non è stata spiegarlo, è stata mettere accanto
+anche i preset della finestra di densità, ciascuno sotto il proprio titolo.
+
+---
+
 ## 4. Coda e ordine
 
 Codex, un lotto per volta:

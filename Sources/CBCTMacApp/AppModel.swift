@@ -1,3 +1,4 @@
+import ArtifactKit
 import DICOMCore
 import DentalKit
 import ImplantKit
@@ -167,6 +168,17 @@ final class AppModel {
         didSet { syncPlanesToCrosshair() }
     }
 
+    /// Preset della finestra di densità, quelli che governano le **viste 2D**.
+    ///
+    /// Distinti dai preset di rendering, che governano il solo riquadro 3D: sono due filtri
+    /// diversi e la confusione fra i due è già costata una segnalazione di «non cambia nulla».
+    static let densityWindowPresets: [(name: String, value: DensityWindow)] = [
+        ("Osso", .bone),
+        ("Denti", .teeth),
+        ("Tessuti molli", .softTissue),
+        ("ATM", .tmj),
+    ]
+
     var windowLevel: DensityWindow = .bone
     var slabThicknessMM: Double = 0
     var projection: SlabProjection = .average
@@ -288,6 +300,9 @@ final class AppModel {
 
     /// Finestra di raddrizzamento. Vedi `ReorientSheet`.
     var isShowingReorient = false
+
+    /// Finestra di riduzione delle strie. Vedi `ArtifactSheet`.
+    var isShowingArtifact = false
 
     /// Vero mentre l'utente sta disegnando o correggendo la curva sull'assiale.
     var isEditingArch = false
@@ -525,6 +540,12 @@ final class AppModel {
         archCurve = curve
         selectedArchPointIndex = nil
         rebuildCrossSections()
+    }
+
+    /// Riporta la finestra di densità a quella ricavata dall'istogramma del volume.
+    func resetWindowLevel() {
+        guard let volume else { return }
+        windowLevel = DensityWindow.automatic(from: volume)
     }
 
     /// Propone una curva d'arcata **alla quota che si sta guardando**.

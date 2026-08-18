@@ -40,6 +40,10 @@ struct CBCTMacApp: App {
                     .keyboardShortcut("d", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)
 
+                Button("Riduci le strie da metallo…") { model.isShowingArtifact = true }
+                    .keyboardShortcut("m", modifiers: [.command, .shift])
+                    .disabled(model.volume == nil)
+
                 Divider()
 
                 Button("Apri piano…") { openPlan() }

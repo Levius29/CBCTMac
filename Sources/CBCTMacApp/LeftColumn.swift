@@ -100,6 +100,53 @@ struct AdjustmentsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
+            // # Due filtri diversi, e la ragione per cui adesso sono etichettati
+            //
+            // I preset di rendering agiscono **solo sul riquadro 3D**; le viste 2D sono governate
+            // dalla finestra di densità, che è un'altra cosa. Messi in un pannello chiamato
+            // «Regolazioni» senza dirlo, sembravano un filtro generale: si sceglieva «Denti»,
+            // le tre viste ortogonali non cambiavano, e la conclusione ragionevole era che il
+            // comando fosse rotto. Non lo era — agiva altrove.
+            //
+            // La correzione non è spiegarlo in un aiuto: è mettere qui **entrambi** i filtri,
+            // ciascuno sotto il proprio titolo, così si vede subito quale governa cosa.
+
+            Text("VISTE 2D · FINESTRA DI DENSITÀ")
+                .font(Typography.sectionHeader)
+                .foregroundStyle(Palette.textSecondary)
+
+            LazyVGrid(columns: columns, spacing: 5) {
+                ForEach(AppModel.densityWindowPresets, id: \.name) { preset in
+                    WindowTile(
+                        name: preset.name,
+                        isActive: model.windowLevel == preset.value
+                    ) {
+                        model.windowLevel = preset.value
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Text(
+                    String(
+                        format: "W %.0f · L %.0f", model.windowLevel.width, model.windowLevel.level)
+                )
+                .font(Typography.numericSmall)
+                .foregroundStyle(Palette.textSecondary)
+                Spacer()
+                Button("Automatica") { model.resetWindowLevel() }
+                    .buttonStyle(.plain)
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.accent)
+                    .disabled(model.volume == nil)
+            }
+
+            Divider().overlay(Palette.separator)
+
+            Text("RIQUADRO 3D · RESA DEI TESSUTI")
+                .font(Typography.sectionHeader)
+                .foregroundStyle(Palette.textSecondary)
+
             // I preset come riquadri cliccabili e non come voci di menu: sono scelte visive, e
             // una striscia di colore che mostra come renderà è più informativa del suo nome.
             LazyVGrid(columns: columns, spacing: 5) {
@@ -127,6 +174,15 @@ struct AdjustmentsPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 5) {
+                Button {
+                    model.isShowingArtifact = true
+                } label: {
+                    Label("Riduci le strie da metallo…", systemImage: "sparkles")
+                        .font(Typography.label)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(model.volume == nil)
+
                 Button {
                     model.isShowingReorient = true
                 } label: {
@@ -312,5 +368,37 @@ struct StudyTree: View {
                 .help(model.library.provenanceDescription(of: entry.id))
             }
         }
+    }
+}
+
+/// Riquadro di un preset di finestra di densità.
+///
+/// Senza gradiente, a differenza dei preset di rendering: una finestra non ha colori, ha un
+/// intervallo. Mostrare una striscia grigia suggerirebbe una somiglianza con l'altro pannello che
+/// non c'è, e le due cose vanno tenute distinte proprio perché si erano confuse.
+private struct WindowTile: View {
+
+    let name: String
+    let isActive: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(name)
+                .font(Typography.label)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
+                .background(
+                    isActive ? Palette.accent.opacity(0.22) : Palette.chromeElevated,
+                    in: .rect(cornerRadius: 4))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isActive ? Palette.accent : .clear, lineWidth: 1))
+                .foregroundStyle(isActive ? Palette.accent : Palette.textSecondary)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(name)
     }
 }

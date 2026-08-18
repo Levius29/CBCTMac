@@ -75,7 +75,7 @@ struct LabelOverlay: View {
     /// ogni fotogramma, e la collocazione gira a ogni ridisegno. Sette punti per carattere è la
     /// larghezza media della monospaziata a undici punti, e uno scarto di qualche punto sposta
     /// un'etichetta di qualche punto — non la fa sovrapporre.
-    private func width(of text: String) -> Double {
+    private func estimatedWidth(of text: String) -> Double {
         Double(text.count) * 6.6 + 10
     }
 
@@ -105,7 +105,7 @@ struct LabelOverlay: View {
                 Item(
                     request: LabelRequest(
                         id: implant.id, anchorX: point.x, anchorY: point.y,
-                        width: width(of: text), height: 17,
+                        width: estimatedWidth(of: text), height: 17,
                         // L'oggetto selezionato ha priorità massima: se una sola etichetta deve
                         // trovare posto, è quella su cui si sta lavorando.
                         priority: isSelected ? 100 : 50),
@@ -130,7 +130,7 @@ struct LabelOverlay: View {
                 Item(
                     request: LabelRequest(
                         id: annotation.id, anchorX: point.x, anchorY: point.y,
-                        width: width(of: text), height: 17,
+                        width: estimatedWidth(of: text), height: 17,
                         priority: isSelected ? 100 : 40),
                     text: text,
                     color: Color(hexString: annotation.metadata.colorHex) ?? Palette.accent,

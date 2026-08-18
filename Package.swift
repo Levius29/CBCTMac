@@ -136,7 +136,7 @@ let testTargets: [Target] = [
         name: "AppContractTests",
         dependencies: [
             "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
-            "StudyKit",
+            "StudyKit", "SegmentKit", "ArtifactKit",
         ]
     ),
 ]

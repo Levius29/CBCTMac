@@ -1,3 +1,4 @@
+import ArtifactKit
 import DICOMCore
 import DentalKit
 import Foundation
@@ -931,5 +932,50 @@ struct ModuleAPIContractTests {
 
         // `ProstheticTooth`, che il pannello protesico mostrerà.
         #expect(ProstheticTooth.standard(forToothNumber: 36) != nil)
+    }
+
+    // MARK: ArtifactSheet e i preset di finestra
+
+    @Test("Le API della riduzione delle strie e dei preset di densità")
+    func artifactAndWindowAPI() throws {
+        let volume = try makeVolume()
+
+        // `ArtifactSheet.suggested`
+        let suggested = MetalDetection.suggestedThresholdGV(for: volume)
+        #expect(suggested.isFinite)
+
+        // `ArtifactSheet.apply`
+        var settings = ArtifactReductionSettings()
+        // Soglia alta di proposito. Con quella automatica il fantoccio fallisce, ed è **giusto**
+        // che fallisca: il cubo da 1200 GV viene preso per metallo e supera il cinque per cento
+        // del volume, quindi scatta la guardia che impedisce di «correggere» l'anatomia. È il
+        // messaggio che la finestra mostra su un volume senza metallo, e vale la pena saperlo.
+        settings.thresholdGV = 9000
+        settings.dilationMM = 1
+        settings.minimumMetalVolumeMM3 = 1
+        let processed = try ArtifactReduction.reduceMetalArtifacts(in: volume, settings: settings)
+        _ = processed.volume
+        _ = processed.modifiedMask
+        // Il fantoccio non ha metallo, quindi la provenienza deve essere **vuota**: è il caso su
+        // cui la finestra decide di non creare un volume nuovo, e se qui risultasse modificata
+        // l'albero si riempirebbe di copie identiche.
+        #expect(!processed.provenance.isModified)
+        _ = processed.provenance.steps.map(\.name)
+
+        // `AppModel.densityWindowPresets`: i quattro preset delle viste 2D, che sono altra cosa
+        // dai preset di rendering del 3D. Devono essere distinti fra loro, altrimenti due
+        // caselle della griglia farebbero la stessa cosa.
+        let windows: [DensityWindow] = [.bone, .teeth, .softTissue, .tmj]
+        #expect(Set(windows.map { "\($0.width)/\($0.level)" }).count == 4)
+        #expect(DensityWindow.automatic(from: volume).width > 0)
+
+        // E la guardia del cinque per cento c'è davvero: con la soglia automatica sul fantoccio,
+        // il cubo denso viene preso per metallo e l'operazione viene **rifiutata**. Se non lo
+        // fosse, la correzione arriverebbe a modificare l'osso invece delle strie.
+        var automatic = ArtifactReductionSettings()
+        automatic.thresholdGV = nil
+        #expect(throws: (any Error).self) {
+            try ArtifactReduction.reduceMetalArtifacts(in: volume, settings: automatic)
+        }
     }
 }
