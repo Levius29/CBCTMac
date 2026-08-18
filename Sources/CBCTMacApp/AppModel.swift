@@ -40,6 +40,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
     /// Tracciato a mano libera: si disegna trascinando, non facendo clic.
     case freehand
     case implant
+    /// Sagoma di dente protesico: si posa **prima** dell'impianto, dove la protesi lo vuole.
+    case prostheticTooth
     case nerve
     /// Disegno della curva d'arcata, punto per punto, sulla vista assiale.
     case archCurve
@@ -55,6 +57,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .profile: return "Profilo di densità"
         case .freehand: return "Mano libera"
         case .implant: return "Impianto"
+        case .prostheticTooth: return "Dente protesico"
         case .nerve: return "Traccia nervo"
         case .archCurve: return "Disegna arcata"
         }
@@ -73,6 +76,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .profile: return "Trascina lungo il segmento: legge le densità che attraversa."
         case .freehand: return "Trascina per disegnare: il tracciato si chiude alzando il dito."
         case .implant: return "Fai clic sulla cresta: l'impianto scende da lì."
+        case .prostheticTooth:
+            return "Scegli il numero e fai clic sull'occlusale: la corona si posa lì."
         case .nerve: return "Fai clic lungo il canale, un nodo per volta."
         case .archCurve: return "Fai clic sull'assiale per posare i punti. ⌥ clic per togliere."
         }
@@ -91,6 +96,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .profile: return "p"
         case .freehand: return "f"
         case .implant: return "i"
+        case .prostheticTooth: return "c"
         case .nerve: return "v"
         case .archCurve: return "a"
         }
@@ -107,6 +113,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .profile: return "chart.xyaxis.line"
         case .freehand: return "scribble"
         case .implant: return "screwdriver"
+        case .prostheticTooth: return "mouth"
         case .nerve: return "point.topleft.down.curvedto.point.bottomright.up"
         case .archCurve: return "scribble.variable"
         }
@@ -744,6 +751,17 @@ final class AppModel {
                 updated.register(info)
             }
         }
+        for tooth in teeth {
+            live.insert(tooth.id)
+            if updated[tooth.id] == nil {
+                var info = PlanObjectInfo(
+                    id: tooth.id, kind: .prostheticTooth,
+                    name: "Dente \(tooth.toothNumber)",
+                    order: updated.objects(of: .prostheticTooth).count)
+                info.colorHex = updated.suggestedColorHex(for: .prostheticTooth)
+                updated.register(info)
+            }
+        }
         for nerve in nerveCanals {
             live.insert(nerve.id)
             if updated[nerve.id] == nil {
@@ -788,6 +806,9 @@ final class AppModel {
         if let index = nerveCanals.firstIndex(where: { $0.id == id }) {
             nerveCanals[index].isVisible = visible
         }
+        if let index = teeth.firstIndex(where: { $0.id == id }) {
+            teeth[index].isVisible = visible
+        }
         recordUndo(visible ? "Mostra oggetto" : "Nascondi oggetto")
     }
 
@@ -805,6 +826,9 @@ final class AppModel {
         if let index = nerveCanals.firstIndex(where: { $0.id == id }) {
             nerveCanals[index].colorHex = hex.hasPrefix("#") ? hex : "#" + hex
         }
+        if let index = teeth.firstIndex(where: { $0.id == id }) {
+            teeth[index].colorHex = hex.hasPrefix("#") ? hex : "#" + hex
+        }
         recordUndo("Cambia colore")
     }
 
@@ -812,6 +836,9 @@ final class AppModel {
         registry.rename(name, id: id)
         if let index = implants.firstIndex(where: { $0.id == id }) {
             implants[index].label = name
+        }
+        if let index = teeth.firstIndex(where: { $0.id == id }) {
+            teeth[index].label = name
         }
         recordUndo("Rinomina")
     }
@@ -830,6 +857,11 @@ final class AppModel {
             selectedImplantID = id
             return
         }
+        if let tooth = teeth.first(where: { $0.id == id }) {
+            moveCrosshair(to: tooth.positionMM)
+            selectedToothID = id
+            return
+        }
         if let nerve = nerveCanals.first(where: { $0.id == id }), let first = nerve.nodes.first {
             moveCrosshair(to: first.positionMM)
             return
@@ -844,9 +876,11 @@ final class AppModel {
 
     func deleteObject(id: UUID) {
         implants.removeAll { $0.id == id }
+        teeth.removeAll { $0.id == id }
         nerveCanals.removeAll { $0.id == id }
         annotations.removeAll { $0.id == id }
         if selectedImplantID == id { selectedImplantID = nil }
+        if selectedToothID == id { selectedToothID = nil }
         if selectedAnnotationID == id { selectedAnnotationID = nil }
         registry.remove(id: id)
         recomputeSafety()
@@ -858,8 +892,11 @@ final class AppModel {
         let doomed = Set(registry.objects(of: kind).map(\.id))
         guard !doomed.isEmpty else { return }
         implants.removeAll { doomed.contains($0.id) }
+        teeth.removeAll { doomed.contains($0.id) }
         nerveCanals.removeAll { doomed.contains($0.id) }
         annotations.removeAll { doomed.contains($0.id) }
+        if let id = selectedToothID, doomed.contains(id) { selectedToothID = nil }
+        if let id = selectedImplantID, doomed.contains(id) { selectedImplantID = nil }
         registry.removeAll(of: kind)
         recomputeSafety()
         recordUndo("Cancella tutti")
@@ -902,7 +939,7 @@ final class AppModel {
     }
 
     /// Tangente all'arcata vicino a un punto, per duplicare lungo la curva.
-    private func archTangent(near pointMM: Vec3) -> Vec3 {
+    func archTangent(near pointMM: Vec3) -> Vec3 {
         let samples = archCurve.resampled(count: 80)
         var best = samples.first
         var bestDistance = Double.infinity
@@ -928,12 +965,13 @@ final class AppModel {
     struct PlanSnapshot: Equatable, Sendable {
         var annotations: [Annotation]
         var implants: [ImplantPlacement]
+        var teeth: [ProstheticTooth]
         var nerveCanals: [NerveCanal]
         var archCurves: [DentalArch: ArchCurve]
     }
 
     private var undoHistory = UndoHistory<PlanSnapshot>(initial: PlanSnapshot(
-        annotations: [], implants: [], nerveCanals: [], archCurves: [:]))
+        annotations: [], implants: [], teeth: [], nerveCanals: [], archCurves: [:]))
 
     /// Vero mentre si sta applicando un annulla: le mutazioni che ne derivano non vanno
     /// registrate, altrimenti annullare creerebbe un passo nuovo e «ripeti» non tornerebbe mai.
@@ -946,7 +984,7 @@ final class AppModel {
 
     private var planSnapshot: PlanSnapshot {
         PlanSnapshot(
-            annotations: annotations, implants: implants,
+            annotations: annotations, implants: implants, teeth: teeth,
             nerveCanals: nerveCanals, archCurves: archCurves)
     }
 
@@ -973,6 +1011,7 @@ final class AppModel {
         isRestoring = true
         annotations = snapshot.annotations
         implants = snapshot.implants
+        teeth = snapshot.teeth
         nerveCanals = snapshot.nerveCanals
         archCurves = snapshot.archCurves
         isRestoring = false
@@ -990,6 +1029,24 @@ final class AppModel {
     var nerveCanals: [NerveCanal] = []
     var implants: [ImplantPlacement] = []
     var selectedImplantID: UUID?
+
+    // MARK: Denti protesici
+    //
+    // L'ordine corretto è l'inverso di quello comodo: prima il dente, dove la funzione e
+    // l'estetica lo vogliono, poi l'impianto sotto di esso. `ProstheticPlanning` esisteva da
+    // tempo e non aveva un modo per arrivare allo schermo — un impianto perfetto nell'osso che
+    // emerge fuori dalla corona è inservibile, e finora il programma non sapeva dirlo.
+
+    var teeth: [ProstheticTooth] = []
+    var selectedToothID: UUID?
+    /// Numero FDI del prossimo dente posato. Si sceglie prima del clic, come il modello implantare.
+    var pendingToothNumber: Int = 46
+    var prostheticThresholds: ProstheticThresholds = .standard
+
+    var selectedTooth: ProstheticTooth? {
+        guard let id = selectedToothID else { return nil }
+        return teeth.first { $0.id == id }
+    }
     /// Canale in corso di tracciamento; `nil` quando non si sta tracciando.
     var tracingNerveID: UUID?
 
@@ -1281,6 +1338,131 @@ final class AppModel {
         safetyReports.removeValue(forKey: id)
         selectedImplantID = nil
         recomputeSafety()
+    }
+
+    // MARK: - Denti protesici
+
+    /// Posa un dente col numero corrente, centrando la **corona** sul punto cliccato.
+    ///
+    /// Si clicca guardando dove deve stare la superficie masticante, quindi il punto è
+    /// l'occlusale e il centro della corona sta mezza altezza più in là verso l'apice. Posare il
+    /// centro sul clic affonderebbe il dente di mezza corona dentro l'osso, che è l'errore che
+    /// rende inutile la sagoma.
+    func addProstheticTooth(at pointMM: Vec3) {
+        guard var tooth = ProstheticTooth.standard(forToothNumber: pendingToothNumber) else {
+            return
+        }
+        tooth.positionMM = pointMM + tooth.axisMM * (tooth.heightMM * 0.5)
+        teeth.append(tooth)
+        selectedToothID = tooth.id
+        syncRegistry()
+        recordUndo("Posa dente")
+    }
+
+    func updateTooth(id: UUID, _ transform: (inout ProstheticTooth) -> Void) {
+        guard let index = teeth.firstIndex(where: { $0.id == id }) else { return }
+        transform(&teeth[index])
+        recordContinuousUndo("Modifica dente")
+    }
+
+    func updateSelectedTooth(_ transform: (inout ProstheticTooth) -> Void) {
+        guard let id = selectedToothID else { return }
+        updateTooth(id: id, transform)
+    }
+
+    func removeSelectedTooth() {
+        guard let id = selectedToothID else { return }
+        teeth.removeAll { $0.id == id }
+        selectedToothID = nil
+        syncRegistry()
+        recordUndo("Cancella dente")
+    }
+
+    /// Vincolo protesico di un impianto, se sotto c'è un dente da servire.
+    ///
+    /// L'associazione è per **vicinanza**, non per un legame esplicito: chi pianifica non vuole
+    /// dichiarare che l'impianto 46 sta sotto il dente 46, lo vuole vedere. Si prende il dente il
+    /// cui centro occlusale è più vicino alla piattaforma, e solo se sta abbastanza vicino da
+    /// poter essere quello — oltre una corona di distanza è un altro elemento, e accoppiarli
+    /// produrrebbe un giudizio di divergenza fra oggetti che non hanno niente a che fare.
+    func prostheticConstraint(for implant: ImplantPlacement) -> ProstheticConstraint? {
+        var best: (tooth: ProstheticTooth, distance: Double)?
+        for tooth in teeth {
+            let distance = tooth.occlusalCentreMM.distance(to: implant.platformMM)
+            guard distance.isFinite else { continue }
+            // Una corona intera più mezza larghezza: abbastanza per accettare un impianto
+            // profondo sotto il suo dente, troppo poco per raggiungere quello accanto.
+            let reach = tooth.heightMM + tooth.widthMM * 0.5
+            guard distance <= reach else { continue }
+            if best == nil || distance < best!.distance {
+                best = (tooth, distance)
+            }
+        }
+        guard let found = best else { return nil }
+        return ProstheticConstraint(
+            tooth: found.tooth, implant: implant, thresholds: prostheticThresholds)
+    }
+
+    /// Il vincolo visto **dalla parte del dente**: l'impianto che questo dente riceve.
+    ///
+    /// Non è l'inverso banale di `prostheticConstraint(for:)`. Quella prende il dente più vicino
+    /// a un impianto; questa deve prendere l'impianto più vicino a un dente, e le due scelte
+    /// possono non coincidere quando due impianti stanno sotto la stessa corona. Si tiene
+    /// l'accoppiamento **reciproco**: si guarda l'impianto più vicino e si accetta solo se
+    /// quell'impianto sceglie a sua volta questo dente. Altrimenti la sovraimpressione
+    /// mostrerebbe una linea di scostamento fra oggetti che l'ispettore non considera legati.
+    func constraintForTooth(_ tooth: ProstheticTooth) -> ProstheticConstraint? {
+        var best: (implant: ImplantPlacement, distance: Double)?
+        for implant in implants {
+            let distance = tooth.occlusalCentreMM.distance(to: implant.platformMM)
+            guard distance.isFinite else { continue }
+            if best == nil || distance < best!.distance {
+                best = (implant, distance)
+            }
+        }
+        guard let found = best,
+            let reciprocal = prostheticConstraint(for: found.implant),
+            reciprocal.occlusalCentreMM.distance(to: tooth.occlusalCentreMM) < 1e-9
+        else { return nil }
+        return reciprocal
+    }
+
+    /// Direzione mesio-distale nel punto del dente, cioè la tangente all'arcata.
+    ///
+    /// Si ricalcola invece di conservarla: è una funzione della curva e della posizione, e
+    /// tenerne una copia significherebbe poterla avere in disaccordo con esse — spostando il
+    /// dente lungo l'arcata la corona resterebbe orientata come nel punto di partenza.
+    ///
+    /// - Returns: `nil` senza una curva utilizzabile. La sagoma prende allora un orientamento
+    ///   convenzionale, dichiarato in `ProstheticTooth.frame(mesialDirectionMM:)`.
+    func mesialDirection(for tooth: ProstheticTooth) -> Vec3? {
+        guard archCurve.isUsable else { return nil }
+        return archTangent(near: tooth.positionMM)
+    }
+
+    /// Vincoli di ogni impianto che ne ha uno, per la relazione e per la revisione.
+    var prostheticConstraints: [UUID: ProstheticConstraint] {
+        var result: [UUID: ProstheticConstraint] = [:]
+        for implant in implants {
+            if let constraint = prostheticConstraint(for: implant) {
+                result[implant.id] = constraint
+            }
+        }
+        return result
+    }
+
+    /// Allinea l'asse dell'impianto a quello del dente che serve, tenendo ferma la piattaforma.
+    ///
+    /// È la correzione più richiesta dopo aver visto un'emergenza fuori posto, e farla a mano
+    /// significa inseguire due gradi per volta su due viste.
+    func alignSelectedImplantToTooth() {
+        guard let id = selectedImplantID,
+            let index = implants.firstIndex(where: { $0.id == id }),
+            let constraint = prostheticConstraint(for: implants[index])
+        else { return }
+        implants[index].axis = constraint.toothAxisMM
+        recomputeSafety()
+        recordUndo("Allinea al dente")
     }
 
     func beginTracingNerve(side: MandibularSide) {
@@ -1575,6 +1757,12 @@ final class AppModel {
             }
             return copy
         }
+        let movedTeeth = teeth.map { tooth -> ProstheticTooth in
+            var copy = tooth
+            copy.positionMM = moved(tooth.positionMM)
+            copy.axisMM = movedDirection(tooth.axisMM).normalized ?? tooth.axisMM
+            return copy
+        }
         let movedCurves = archCurves.mapValues { curve -> ArchCurve in
             ArchCurve(controlPointsMM: curve.controlPointsMM.map(moved), upAxis: curve.upAxis)
         }
@@ -1592,6 +1780,7 @@ final class AppModel {
 
         annotations = movedAnnotations
         implants = movedImplants
+        teeth = movedTeeth
         nerveCanals = movedNerves
         archCurves = movedCurves
         crosshairMM = moved(crosshairMM)
@@ -1678,10 +1867,12 @@ final class AppModel {
         resetArchCurves()
         annotations = []
         implants = []
+        teeth = []
         nerveCanals = []
         roiStatistics = [:]
         selectedAnnotationID = nil
         selectedImplantID = nil
+        selectedToothID = nil
         registry = PlanObjectRegistry()
         // La cronologia riparte: annullare fin dentro il caso precedente non ha senso, e su dati
         // clinici sarebbe pericoloso — riporterebbe nell'immagine di questo paziente gli impianti
@@ -2051,7 +2242,7 @@ final class AppModel {
             return .twoPoints
         case .freehand:
             return .openPolyline
-        case .implant, .nerve:
+        case .implant, .nerve, .prostheticTooth:
             return .singlePoint
         }
     }
@@ -2320,6 +2511,8 @@ final class AppModel {
             roiStatistics: roiStatistics,
             implants: implants,
             safetyReports: safetyReports,
+            prostheticConstraints: prostheticConstraints,
+            prostheticToothCount: teeth.count,
             registrationRMSMM: scanRegistration?.surfaceRMSMM,
             registrationQuality: scanRegistration?.quality.localizedName,
             guideVolumeMM3: guideResult?.validation.volumeMM3,
@@ -2513,6 +2706,10 @@ final class AppModel {
             // clic senza movimento lascia un tracciato di due punti coincidenti, cioè un oggetto
             // lungo zero millimetri che compare nell'elenco e non si vede da nessuna parte.
             break
+
+        case .prostheticTooth:
+            toolSession.cancel()
+            addProstheticTooth(at: pointMM)
 
         case .implant:
             // L'asse predefinito è verticale verso il basso. Su una cresta inclinata andrà

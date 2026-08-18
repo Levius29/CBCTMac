@@ -3,6 +3,7 @@ import Foundation
 /// Che cosa è un oggetto del piano. Determina l'icona e il pannello contestuale.
 public enum PlanObjectKind: String, Hashable, Sendable, Codable, CaseIterable {
     case implant
+    case prostheticTooth
     case nerveCanal
     case archCurve
     case annotation
@@ -276,6 +277,7 @@ public struct PlanObjectRegistry: Hashable, Sendable, Codable {
     private func namePrefix(for kind: PlanObjectKind) -> String {
         switch kind {
         case .implant: return "Impianto"
+        case .prostheticTooth: return "Dente"
         case .nerveCanal: return "Canale nervoso"
         case .archCurve: return "Curva d'arcata"
         case .annotation: return "Annotazione"

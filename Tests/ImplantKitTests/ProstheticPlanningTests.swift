@@ -242,4 +242,96 @@ struct ProstheticPlanningTests {
         // soglie sono orientative e chi le usa deve poterle cambiare.
         #expect(constraint.severity == .caution)
     }
+
+    // MARK: Sagoma della corona
+
+    @Test("La terna è ortonormale e la larghezza segue la tangente all'arcata")
+    func frameFollowsArchTangent() throws {
+        let tooth = try #require(ProstheticTooth.standard(forToothNumber: 46, at: Vec3(20, 5, 0)))
+        // Tangente d'arcata quasi mesio-distale, ma con una componente lungo l'asse: deve
+        // essere proiettata via, non usata così com'è.
+        let (mesial, buccal, axis) = tooth.frame(mesialDirectionMM: Vec3(0, 1, 0.3))
+
+        #expect(abs(mesial.length - 1) < 1e-12)
+        #expect(abs(buccal.length - 1) < 1e-12)
+        #expect(abs(axis.length - 1) < 1e-12)
+        #expect(abs(mesial.dot(axis)) < 1e-12)
+        #expect(abs(buccal.dot(axis)) < 1e-12)
+        #expect(abs(mesial.dot(buccal)) < 1e-12)
+
+        // Proiettata, non troncata: la componente y resta dominante e la z sparisce, perché
+        // l'asse di un dente inferiore è (0, 0, −1).
+        #expect(mesial.y > 0.99)
+        #expect(abs(mesial.z) < 1e-12)
+    }
+
+    @Test("Senza tangente la terna resta ortonormale, comunque sia inclinato l'asse")
+    func frameSurvivesWithoutTangent() throws {
+        // Si prova su ogni asse coordinato **e** su una diagonale: la scelta di ripiego prende
+        // l'asse meno allineato, e con l'asse del dente parallelo a uno dei tre la
+        // perpendicolare va comunque costruita senza degenerare.
+        let axes = [
+            Vec3(1, 0, 0), Vec3(0, 1, 0), Vec3(0, 0, 1),
+            Vec3(-1, 0, 0), Vec3(1, 1, 1), Vec3(0.001, 0, 1),
+        ]
+        for candidate in axes {
+            var tooth = try #require(ProstheticTooth.standard(forToothNumber: 11))
+            tooth.axisMM = try #require(candidate.normalized)
+            let (mesial, buccal, axis) = tooth.frame()
+            #expect(abs(mesial.length - 1) < 1e-9, "asse \(candidate)")
+            #expect(abs(buccal.length - 1) < 1e-9, "asse \(candidate)")
+            #expect(abs(mesial.dot(axis)) < 1e-9, "asse \(candidate)")
+            #expect(abs(buccal.dot(axis)) < 1e-9, "asse \(candidate)")
+            #expect(abs(mesial.dot(buccal)) < 1e-9, "asse \(candidate)")
+        }
+    }
+
+    @Test("Una tangente parallela all'asse viene scartata invece di amplificata")
+    func frameRejectsDegenerateTangent() throws {
+        var tooth = try #require(ProstheticTooth.standard(forToothNumber: 36))
+        tooth.axisMM = Vec3(0, 0, -1)
+        // Parallela all'asse: proiettandola resta il vettore nullo. Normalizzarlo darebbe una
+        // direzione qualunque; il ripiego dichiarato dà almeno una terna valida.
+        let (mesial, buccal, axis) = tooth.frame(mesialDirectionMM: Vec3(0, 0, -1))
+        #expect(mesial.isFinite)
+        #expect(abs(mesial.length - 1) < 1e-12)
+        #expect(abs(mesial.dot(axis)) < 1e-12)
+        #expect(abs(buccal.length - 1) < 1e-12)
+    }
+
+    @Test("Gli otto vertici hanno le misure del dente, e gli spigoli li collegano")
+    func cornersMatchTheDeclaredSize() throws {
+        let tooth = try #require(ProstheticTooth.standard(forToothNumber: 46, at: Vec3(20, 5, -3)))
+        let corners = tooth.corners(mesialDirectionMM: Vec3(0, 1, 0))
+        #expect(corners.count == 8)
+
+        // Il centro degli otto vertici è il centro della corona.
+        var sum = Vec3.zero
+        for corner in corners { sum = sum + corner }
+        let centre = sum * (1.0 / 8.0)
+        #expect(centre.distance(to: tooth.positionMM) < 1e-9)
+
+        // Larghezza, spessore e altezza si leggono sugli spigoli giusti.
+        #expect(abs(corners[0].distance(to: corners[1]) - tooth.widthMM) < 1e-9)
+        #expect(abs(corners[1].distance(to: corners[2]) - tooth.depthMM) < 1e-9)
+        #expect(abs(corners[0].distance(to: corners[4]) - tooth.heightMM) < 1e-9)
+
+        // I dodici spigoli sono lunghi quanto uno dei tre lati, e nessuno è una diagonale: una
+        // tabella di indici sbagliata disegnerebbe una gabbia storta senza far fallire nulla.
+        let sides = [tooth.widthMM, tooth.depthMM, tooth.heightMM]
+        #expect(ProstheticTooth.cornerEdges.count == 12)
+        for (a, b) in ProstheticTooth.cornerEdges {
+            let length = corners[a].distance(to: corners[b])
+            #expect(sides.contains { abs($0 - length) < 1e-9 }, "spigolo \(a)–\(b) lungo \(length)")
+        }
+
+        // Ogni vertice tocca esattamente tre spigoli: è ciò che rende la gabbia un cubo e non
+        // un insieme di segmenti che sembrano uno.
+        var touches = [Int](repeating: 0, count: 8)
+        for (a, b) in ProstheticTooth.cornerEdges {
+            touches[a] += 1
+            touches[b] += 1
+        }
+        #expect(touches.allSatisfy { $0 == 3 })
+    }
 }

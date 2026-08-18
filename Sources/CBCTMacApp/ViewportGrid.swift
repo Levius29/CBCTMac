@@ -197,10 +197,12 @@ struct ViewportContainer: View {
                         pixelSize: pixelSize,
                         pendingPointsMM: model.toolSession.pointsMM)
 
-                    ImplantOverlay(
-                        model: model,
-                        slot: slot,
-                        plane: model.planes[slot])
+                    ImplantOverlay(model: model, plane: model.planes[slot])
+
+                    // I denti sopra gli impianti: la sagoma è tratteggiata e leggera, e sotto
+                    // la silhouette piena di un impianto sparirebbe proprio dove serve
+                    // guardarli insieme.
+                    ProstheticToothOverlay(model: model, plane: model.planes[slot])
 
                     // Il contorno della scansione sopra l'anatomia: è così che si giudica una
                     // registrazione, guardando se segue lo smalto.

@@ -953,6 +953,17 @@ struct CrossSectionCell: View {
                     pendingPointsMM: model.toolSession.pointsMM)
                     .allowsHitTesting(false)
 
+                // Impianti e denti sulla sezione trasversale.
+                //
+                // Mancavano, e la mancanza era peggio di un'omissione: il trascinamento
+                // dell'impianto **era già collegato** qui: si poteva afferrare e spostare un
+                // impianto che non si vedeva. La sezione trasversale è per giunta la vista su
+                // cui un impianto si giudica davvero, perché è l'unica che mostra insieme le
+                // due corticali e la distanza da ciascuna.
+                ImplantOverlay(model: model, plane: zoomedPlane)
+
+                ProstheticToothOverlay(model: model, plane: zoomedPlane)
+
                 // Il contorno della scansione sulla sezione selezionata: è dove si vede se
                 // segue lo smalto, e la sezione è il piano su cui si decide un impianto.
                 if isSelected, model.isScanVisible, !model.selectedSectionContour.isEmpty {

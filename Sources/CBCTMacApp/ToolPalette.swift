@@ -142,6 +142,9 @@ struct ToolPalette: View {
         } else {
             result.append(ToolEntry(tool: .archCurve))
         }
+        // Il dente **prima** dell'impianto, e non è un dettaglio d'ordine: la palette
+        // suggerisce la sequenza, e la sequenza corretta è protesi prima, impianto sotto.
+        result.append(ToolEntry(tool: .prostheticTooth))
         result.append(ToolEntry(tool: .implant))
         result.append(ToolEntry(tool: .nerve))
         return result

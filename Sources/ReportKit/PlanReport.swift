@@ -33,6 +33,12 @@ public struct PlanReportInput: Sendable {
     public var roiStatistics: [UUID: ROIStatistics]
     public var implants: [ImplantPlacement]
     public var safetyReports: [UUID: SafetyReport]
+    /// Vincolo protesico per impianto, quando sotto c'è un dente da servire.
+    public var prostheticConstraints: [UUID: ProstheticConstraint]
+    /// Quanti denti protesici sono stati posati. Serve a distinguere «nessun vincolo perché
+    /// l'impianto sta lontano da ogni corona» da «nessun vincolo perché non c'è nessuna
+    /// corona» — che è la differenza fra una verifica superata e una verifica non fatta.
+    public var prostheticToothCount: Int
     /// Scarto della registrazione della scansione, se è stata fatta.
     public var registrationRMSMM: Double?
     public var registrationQuality: String?
@@ -51,6 +57,8 @@ public struct PlanReportInput: Sendable {
         roiStatistics: [UUID: ROIStatistics] = [:],
         implants: [ImplantPlacement] = [],
         safetyReports: [UUID: SafetyReport] = [:],
+        prostheticConstraints: [UUID: ProstheticConstraint] = [:],
+        prostheticToothCount: Int = 0,
         registrationRMSMM: Double? = nil,
         registrationQuality: String? = nil,
         guideVolumeMM3: Double? = nil,
@@ -66,6 +74,8 @@ public struct PlanReportInput: Sendable {
         self.roiStatistics = roiStatistics
         self.implants = implants
         self.safetyReports = safetyReports
+        self.prostheticConstraints = prostheticConstraints
+        self.prostheticToothCount = prostheticToothCount
         self.registrationRMSMM = registrationRMSMM
         self.registrationQuality = registrationQuality
         self.guideVolumeMM3 = guideVolumeMM3
@@ -210,6 +220,14 @@ public enum PlanReport {
             let angulation = implant.angleDegrees(to: Vec3(0, 0, 1))
                 .map { String(format: "%.0f°", $0) } ?? "—"
 
+            let constraint = input.prostheticConstraints[implant.id]
+            // La cella vuota e la cella «non verificato» dicono cose diverse, e un trattino
+            // solo le confonderebbe: la prima è un impianto lontano da ogni corona, la seconda
+            // è un piano in cui la protesi non è stata considerata affatto.
+            let prosthetic = constraint.map { escape($0.summary) }
+                ?? (input.prostheticToothCount == 0
+                    ? "<em>non verificato</em>" : "nessun dente sopra")
+
             rows += """
                 <tr>
                   <td>\(escape(implant.label))</td>
@@ -217,14 +235,32 @@ public enum PlanReport {
                   <td class="num">\(escape(angulation))</td>
                   <td class="\(levelClass(report?.worstLevel))">\(findings)</td>
                   <td class="num">\(escape(density))</td>
+                  <td class="\(constraintClass(constraint?.severity))">\(prosthetic)</td>
                 </tr>
                 """
         }
 
+        let prostheticNote = input.prostheticToothCount == 0
+            ? """
+                <p class="note">
+                  <strong>Nessun dente protesico è stato posato.</strong> La colonna della
+                  verifica protesica è vuota perché il controllo non è stato eseguito, non
+                  perché sia stato superato.
+                </p>
+                """
+            : """
+                <p class="note">
+                  La verifica protesica confronta l'asse dell'impianto con quello del dente che
+                  deve sostenere. Le sagome dei denti hanno misure medie di popolazione, non di
+                  questo paziente: dicono l'ingombro e la direzione, non la forma della corona
+                  che verrà costruita.
+                </p>
+                """
+
         return """
             <h2>Impianti</h2>
             <table>
-              <thead><tr><th>Sito</th><th>Modello</th><th>Inclinazione</th><th>Prossimità</th><th>Densità attorno</th></tr></thead>
+              <thead><tr><th>Sito</th><th>Modello</th><th>Inclinazione</th><th>Prossimità</th><th>Densità attorno</th><th>Verifica protesica</th></tr></thead>
               <tbody>\(rows)</tbody>
             </table>
             <p class="note">
@@ -233,7 +269,16 @@ public enum PlanReport {
               porta l'incertezza di chi l'ha tracciato, che è la voce dominante e non compare in
               questi numeri.
             </p>
+            \(prostheticNote)
             """
+    }
+
+    private static func constraintClass(_ severity: ConstraintSeverity?) -> String {
+        switch severity {
+        case .unacceptable: return "danger"
+        case .caution: return "caution"
+        case .acceptable, nil: return ""
+        }
     }
 
     private static func workflowSection(_ input: PlanReportInput) -> String {

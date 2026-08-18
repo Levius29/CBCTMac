@@ -28,10 +28,14 @@ struct InspectorPanel: View {
                 if model.workMode == .review {
                     // In rilettura l'ispettore non è un pannello di comandi: è il piano.
                     ReviewPanel(model: model)
+                } else if model.activeTool == .prostheticTooth || model.selectedTooth != nil {
+                    prostheticSection
                 } else if model.activeTool == .implant || model.activeTool == .nerve
                     || model.selectedImplant != nil
                 {
                     implantSection
+                    Divider().overlay(Palette.separator)
+                    ProstheticVerdict(model: model)
                     Divider().overlay(Palette.separator)
                     SafetyPanel(
                         report: model.selectedImplantID.flatMap { model.safetyReports[$0] },
@@ -129,6 +133,98 @@ struct InspectorPanel: View {
         thickness <= 0
             ? "Slice singola"
             : String(format: "%.1f mm", thickness).replacingOccurrences(of: ".", with: ",")
+    }
+
+    // MARK: Denti protesici
+
+    private var prostheticSection: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing + 2) {
+            SectionHeader("DENTE PROTESICO")
+
+            Text("Il dente si posa **prima** dell'impianto: la protesi decide dov'è il posto "
+                + "giusto, l'impianto la serve.")
+                .font(Typography.label)
+                .foregroundStyle(Palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            LabeledControl("Numero") {
+                Menu("\(model.pendingToothNumber)") {
+                    ForEach(Self.fdiQuadrants, id: \.name) { quadrant in
+                        Menu(quadrant.name) {
+                            ForEach(quadrant.numbers, id: \.self) { number in
+                                Button("\(number)") { model.pendingToothNumber = number }
+                            }
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+
+            if let tooth = model.selectedTooth {
+                LabeledControl("Larghezza") {
+                    Text(Self.millimetres(tooth.widthMM))
+                        .font(Typography.numeric)
+                        .foregroundStyle(Palette.textSecondary)
+                }
+                LabeledControl("Altezza") {
+                    Text(Self.millimetres(tooth.heightMM))
+                        .font(Typography.numeric)
+                        .foregroundStyle(Palette.textSecondary)
+                }
+                LabeledControl("Spessore") {
+                    Text(Self.millimetres(tooth.depthMM))
+                        .font(Typography.numeric)
+                        .foregroundStyle(Palette.textSecondary)
+                }
+
+                // Le misure sono medie di popolazione, non di questo paziente: dirlo qui, dove
+                // si leggono, invece che soltanto nella documentazione.
+                Text("Misure medie per il dente \(tooth.toothNumber), da correggere quando "
+                    + "l'anatomia lo chiede.")
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if model.archCurve.isUsable {
+                    Label(
+                        "Orientata sulla curva d'arcata.",
+                        systemImage: "checkmark.circle")
+                        .font(Typography.label)
+                        .foregroundStyle(Palette.safe)
+                } else {
+                    Label(
+                        "Senza curva d'arcata la rotazione attorno all'asse è convenzionale: "
+                            + "l'ingombro è giusto, il verso no.",
+                        systemImage: "exclamationmark.triangle")
+                        .font(Typography.label)
+                        .foregroundStyle(Palette.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button(role: .destructive) {
+                    model.removeSelectedTooth()
+                } label: {
+                    Label("Elimina dente", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                Text("Scegli il numero e fai clic dove deve stare la superficie masticante.")
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private static let fdiQuadrants: [(name: String, numbers: [Int])] = [
+        ("Superiore destro (1×)", Array(11...18)),
+        ("Superiore sinistro (2×)", Array(21...28)),
+        ("Inferiore sinistro (3×)", Array(31...38)),
+        ("Inferiore destro (4×)", Array(41...48)),
+    ]
+
+    private static func millimetres(_ value: Double) -> String {
+        String(format: "%.1f mm", value).replacingOccurrences(of: ".", with: ",")
     }
 
     // MARK: Impianti e nervo
@@ -783,5 +879,84 @@ struct MeasurementQualityNote: View {
     private var voxelText: String {
         String(format: "· voxel %.2f mm", context.governingSpacingMM)
             .replacingOccurrences(of: ".", with: ",")
+    }
+}
+
+// MARK: - Verdetto protesico
+
+/// Dice se l'impianto selezionato serve davvero il dente che gli sta sopra.
+///
+/// # Perché sta accanto agli allarmi di sicurezza e non in un pannello a parte
+///
+/// Sono le due domande che si pongono insieme su ogni impianto, e hanno risposte che tirano in
+/// direzioni opposte: allontanarsi dal nervo spesso significa inclinare, e inclinare peggiora
+/// l'emergenza. Vederle una sotto l'altra è ciò che rende visibile il compromesso; su due
+/// pannelli separati si ottimizza l'una rovinando l'altra senza accorgersene.
+struct ProstheticVerdict: View {
+
+    @Bindable var model: AppModel
+
+    private var constraint: ProstheticConstraint? {
+        model.selectedImplant.flatMap { model.prostheticConstraint(for: $0) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing) {
+            SectionHeader("VERIFICA PROTESICA")
+
+            if let constraint {
+                HStack(spacing: Metrics.spacing) {
+                    Circle()
+                        .fill(color(for: constraint.severity))
+                        .frame(width: 8, height: 8)
+                    Text(constraint.severity.localizedName)
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.textPrimary)
+                    Spacer()
+                }
+
+                Text(constraint.summary)
+                    .font(Typography.numericSmall)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !constraint.emergesWithinCrown {
+                    Text("L'asse emerge fuori dal perimetro della corona: nessun moncone "
+                        + "angolato recupera questo, va spostato l'impianto.")
+                        .font(Typography.label)
+                        .foregroundStyle(Palette.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button {
+                    model.alignSelectedImplantToTooth()
+                } label: {
+                    Label("Allinea l'asse al dente", systemImage: "arrow.up.and.down.righttriangle.up.righttriangle.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .help("Ruota l'impianto fino a renderlo parallelo al dente, tenendo ferma la "
+                    + "piattaforma. Ricontrolla la distanza dal nervo dopo averlo fatto.")
+            } else if model.teeth.isEmpty {
+                Text("Nessun dente posato. Senza una sagoma protesica il programma non può "
+                    + "dire se l'impianto emerge dove serve — e quella è la verifica che "
+                    + "decide se il piano è realizzabile.")
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Nessun dente abbastanza vicino a questo impianto.")
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func color(for severity: ConstraintSeverity) -> Color {
+        switch severity {
+        case .acceptable: return Palette.safe
+        case .caution: return Palette.caution
+        case .unacceptable: return Palette.danger
+        }
     }
 }

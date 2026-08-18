@@ -16,7 +16,9 @@ import VolumeKit
 struct ImplantOverlay: View {
 
     let model: AppModel
-    let slot: ViewportSlot
+    /// Il piano su cui proiettare. È l'**unico** ingresso geometrico: la sovraimpressione non
+    /// sa in quale riquadro sta, e per questo funziona anche sulle sezioni trasversali, che un
+    /// riquadro della griglia non sono.
     let plane: MPRPlane?
 
     var body: some View {

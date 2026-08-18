@@ -31,6 +31,14 @@ struct ProjectDocument: Codable, Sendable {
     var implants: [ImplantPlacement]
     var nerveCanals: [NerveCanal]
 
+    /// Denti protesici, la sagoma che dice dove la protesi vuole l'impianto.
+    ///
+    /// Opzionale, e non un array vuoto: i piani salvati prima che i denti esistessero non hanno
+    /// la chiave, e un formato che li rifiutasse per una funzione aggiunta dopo perderebbe il
+    /// lavoro di chi lo usava già. Con un opzionale la chiave assente decodifica a `nil` senza
+    /// che serva alzare `formatVersion`, che resta riservato ai cambiamenti *incompatibili*.
+    var teeth: [ProstheticTooth]?
+
     // Curva dell'arcata e parametri delle viste derivate.
     var archControlPointsMM: [[Double]]
     var archUpAxis: [Double]
@@ -51,6 +59,7 @@ struct ProjectDocument: Codable, Sendable {
         self.plan = model.makePlanDocument()
         self.implants = model.implants
         self.nerveCanals = model.nerveCanals
+        self.teeth = model.teeth
         self.archControlPointsMM = model.archCurve.controlPointsMM.map { [$0.x, $0.y, $0.z] }
         self.archUpAxis = [
             model.archCurve.upAxis.x, model.archCurve.upAxis.y, model.archCurve.upAxis.z,
@@ -118,6 +127,7 @@ struct ProjectDocument: Codable, Sendable {
         model.annotations = plan.annotations
         model.implants = implants
         model.nerveCanals = nerveCanals
+        model.teeth = teeth ?? []
 
         let points = archControlPointsMM.compactMap { values -> Vec3? in
             guard values.count >= 3 else { return nil }

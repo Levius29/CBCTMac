@@ -118,6 +118,84 @@ public struct ProstheticTooth: Hashable, Sendable, Codable, Identifiable {
     /// Sta a mezza altezza **dalla parte opposta all'apice**, cioè dove il dente incontra
     /// l'antagonista: è lì che l'impianto deve emergere, non al centro della corona.
     public var occlusalCentreMM: Vec3 { positionMM - axisMM * (heightMM * 0.5) }
+
+    /// Terna ortonormale della corona: mesio-distale, vestibolo-linguale, asse.
+    ///
+    /// - Parameter mesialDirectionMM: la tangente all'arcata nel punto del dente. Serve
+    ///   davvero: un asse ammette infinite perpendicolari, e sceglierne una qualunque
+    ///   ruoterebbe la corona attorno a sé stessa mettendo la larghezza mesio-distale dove sta
+    ///   lo spessore vestibolo-linguale. Su un molare i due valori differiscono di un
+    ///   millimetro appena, su un incisivo centrale superiore di 8,6 contro 7,1 — e comunque
+    ///   l'orientamento sbagliato si vede subito guardando l'assiale.
+    ///
+    ///   Quando manca — nessuna curva d'arcata tracciata — si prende la perpendicolare più
+    ///   stabile che si possa costruire dall'asse. L'ingombro resta corretto; l'orientamento
+    ///   attorno all'asse è convenzionale, e va corretto tracciando l'arcata.
+    public func frame(mesialDirectionMM: Vec3? = nil)
+        -> (mesial: Vec3, buccal: Vec3, axis: Vec3)
+    {
+        let axis = axisMM.normalized ?? Vec3(0, 0, -1)
+
+        // Si toglie dalla direzione proposta la parte lungo l'asse: quel che resta giace nel
+        // piano occlusale, che è dove la larghezza va misurata.
+        var mesial: Vec3? = nil
+        if let proposed = mesialDirectionMM, proposed.isFinite {
+            let flattened = proposed - axis * axis.dot(proposed)
+            // La soglia scarta una tangente quasi parallela all'asse: normalizzarla
+            // amplificherebbe l'errore numerico in una direzione arbitraria, che è peggio
+            // della convenzione dichiarata sotto.
+            if flattened.length > 1e-6 { mesial = flattened.normalized }
+        }
+
+        if mesial == nil {
+            // Fra i tre assi del riferimento si prende quello **meno** allineato all'asse del
+            // dente: garantisce che la differenza non degeneri, qualunque sia l'inclinazione.
+            let candidates = [Vec3(1, 0, 0), Vec3(0, 1, 0), Vec3(0, 0, 1)]
+            var chosen = candidates[0]
+            var smallest = Double.infinity
+            for candidate in candidates {
+                let alignment = Swift.abs(candidate.dot(axis))
+                if alignment < smallest {
+                    smallest = alignment
+                    chosen = candidate
+                }
+            }
+            mesial = (chosen - axis * axis.dot(chosen)).normalized ?? Vec3(1, 0, 0)
+        }
+
+        let m = mesial ?? Vec3(1, 0, 0)
+        let buccal = axis.cross(m).normalized ?? Vec3(0, 1, 0)
+        return (m, buccal, axis)
+    }
+
+    /// Gli otto vertici della sagoma, in millimetri Patient.
+    ///
+    /// L'ordine è quello di un cubo: prima la faccia occlusale, poi quella apicale, ciascuna
+    /// percorsa in giro. Serve a chi disegna gli spigoli senza dover ricalcolare la terna.
+    public func corners(mesialDirectionMM: Vec3? = nil) -> [Vec3] {
+        let (mesial, buccal, axis) = frame(mesialDirectionMM: mesialDirectionMM)
+        let halfWidth = widthMM * 0.5
+        let halfDepth = depthMM * 0.5
+        let halfHeight = heightMM * 0.5
+
+        var result = [Vec3]()
+        result.reserveCapacity(8)
+        for alongAxis in [-halfHeight, halfHeight] {
+            let centre = positionMM + axis * alongAxis
+            result.append(centre - mesial * halfWidth - buccal * halfDepth)
+            result.append(centre + mesial * halfWidth - buccal * halfDepth)
+            result.append(centre + mesial * halfWidth + buccal * halfDepth)
+            result.append(centre - mesial * halfWidth + buccal * halfDepth)
+        }
+        return result
+    }
+
+    /// Le dodici coppie di indici che formano gli spigoli di `corners(mesialDirectionMM:)`.
+    public static let cornerEdges: [(Int, Int)] = [
+        (0, 1), (1, 2), (2, 3), (3, 0),
+        (4, 5), (5, 6), (6, 7), (7, 4),
+        (0, 4), (1, 5), (2, 6), (3, 7),
+    ]
 }
 
 // MARK: - Gravità del vincolo

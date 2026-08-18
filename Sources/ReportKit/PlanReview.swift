@@ -65,6 +65,7 @@ public enum PlanReview {
         var found: [PlanIssue] = []
         found += nerveCoverageIssues(input)
         found += implantIssues(input)
+        found += prostheticIssues(input)
         found += measurementIssues(input)
         found += workflowIssues(input)
         // Stabile: a parità di gravità resta l'ordine in cui sono stati raccolti, così la lista
@@ -145,6 +146,92 @@ public enum PlanReview {
                         detail:
                             "Oltre i \(Int(angulationWarningDegrees))° serve un moncone angolato, "
                             + "e il carico sull'osso cambia. Verifica che sia voluto."))
+            }
+        }
+
+        return found
+    }
+
+    // MARK: La protesi
+
+    /// Il gemello protesico del controllo sul canale.
+    ///
+    /// Vale la stessa logica, e per la stessa ragione: un piano senza denti posati non è un
+    /// piano protesicamente corretto — è un piano di cui non si è verificata la correttezza
+    /// protesica. La distinzione non è formale. Un impianto messo dove c'era osso comodo, in
+    /// assenza di una sagoma che dica dove la protesi lo vuole, può risultare perfetto in ogni
+    /// altra verifica e restare inutilizzabile: emerge dove non può esserci una corona.
+    private static func prostheticIssues(_ input: PlanReportInput) -> [PlanIssue] {
+        guard !input.implants.isEmpty else { return [] }
+        var found: [PlanIssue] = []
+
+        if input.prostheticToothCount == 0 {
+            found.append(
+                PlanIssue(
+                    id: "prosthetic-none",
+                    severity: .warning,
+                    title:
+                        "\(input.implants.count) impianti pianificati senza alcun riferimento "
+                        + "protesico",
+                    detail:
+                        "Nessun dente è stato posato, quindi non è stato verificato dove gli "
+                        + "impianti emergono. L'assenza di segnalazioni protesiche in questa "
+                        + "relazione non significa che il piano sia protesicamente corretto: "
+                        + "significa che non è stato controllato."))
+            return found
+        }
+
+        for implant in input.implants {
+            guard let constraint = input.prostheticConstraints[implant.id] else {
+                found.append(
+                    PlanIssue(
+                        id: "prosthetic-orphan-\(implant.id)",
+                        severity: .warning,
+                        title: "\(implant.label): nessun dente sopra",
+                        detail:
+                            "Sono stati posati denti protesici, ma nessuno abbastanza vicino a "
+                            + "questo impianto. O manca la corona che deve sostenere, o "
+                            + "l'impianto sta lontano dal punto in cui la protesi la vuole."))
+                continue
+            }
+
+            switch constraint.severity {
+            case .unacceptable:
+                let detail: String
+                if constraint.emergenceMM == nil {
+                    detail =
+                        "L'asse dell'impianto è parallelo al piano occlusale del dente: non "
+                        + "esiste un punto di emergenza. È quasi certamente un errore di posa."
+                } else if !constraint.emergesWithinCrown {
+                    detail =
+                        "L'asse esce fuori dal perimetro della corona. Nessun moncone angolato "
+                        + "recupera questo: va spostato l'impianto, o va rivisto dove sta il "
+                        + "dente."
+                } else {
+                    detail =
+                        "La divergenza fra asse implantare e asse protesico supera la soglia "
+                        + "impostata. Verifica che la connessione scelta ammetta un moncone di "
+                        + "quell'angolo."
+                }
+                found.append(
+                    PlanIssue(
+                        id: "prosthetic-bad-\(implant.id)",
+                        severity: .blocking,
+                        title: "\(implant.label): \(constraint.summary)",
+                        detail: detail))
+
+            case .caution:
+                found.append(
+                    PlanIssue(
+                        id: "prosthetic-caution-\(implant.id)",
+                        severity: .warning,
+                        title: "\(implant.label): \(constraint.summary)",
+                        detail:
+                            "Entro il margine di attenzione. Recuperabile con un moncone "
+                            + "angolato, purché il sistema implantare lo preveda."))
+
+            case .acceptable:
+                break
             }
         }
 
