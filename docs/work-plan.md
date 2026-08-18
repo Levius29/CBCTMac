@@ -255,25 +255,37 @@ aggiunta dopo.
 
 ---
 
-## 3-ter. I tre controlli che girano prima di ogni consegna
+## 3-ter. I cinque controlli che girano prima di ogni consegna
 
 Su questo progetto la stessa classe di errore si è ripetuta, e ogni volta è costata un giro
-completo — pull, build sul Mac, incolla degli errori, correzione, ripush. Da qui tre controlli in
-`Tools/`, ognuno nato da un errore vero e verificato sull'errore che lo ha generato:
+completo — pull, build sul Mac, incolla degli errori, correzione, ripush. Da qui cinque controlli
+in `Tools/`, ognuno nato da un errore vero e **verificato rimettendo l'errore che lo ha generato**:
 
 | Controllo | Trova | Nato da |
 |---|---|---|
 | `check-exhaustive-switches.py` | `switch` a cui manca un caso | un `Tool` aggiunto senza completare `handleClick` |
 | `check-duplicate-declarations.py` | nomi dichiarati due volte nello stesso tipo | `Tool.hint` e `appendSegment` duplicati da due modifiche automatiche |
 | `check-cross-module-collisions.py` | tipi pubblici omonimi in moduli diversi, o omonimi di SwiftUI | `WindowLevel` (91 errori a cascata) e `VolumeProvenance` |
+| `check-missing-imports.py` | tipi usati senza importare il modulo che li dichiara | `Annotation` e `ToolAnchor` in `PanoramicWorkspace` |
+| `check-main-actor.py` | funzioni non isolate che ne chiamano di `@MainActor` | `AppIcon.install()` che chiamava `image(size:)` |
 
 Il terzo merita una nota. Due tipi pubblici omonimi non danno errore finché nessuno importa
 entrambi i moduli; poi qualcuno lo fa, e il messaggio del compilatore — «ambiguous for type
 lookup» — non nomina il colpevole. Il controllo li vede quando la collisione **nasce**, non quando
 esplode.
 
-Nessuno dei tre è un compilatore e nessuno pretende di esserlo. Ognuno prende una classe di errore
-che `swiftc -parse` non vede e che qui costerebbe un giro sul Mac.
+Il quinto merita una nota diversa, ed è una nota su di me. Alla prima stesura non trovava il
+difetto per cui l'avevo scritto, e non perché fosse troppo prudente: `type_stack and
+type_stack[-1][1]` in Python restituisce la **lista** quando è vuota, e appendere quel valore la
+rendeva auto-referenziale e quindi vera. Da lì ogni funzione risultava isolata e il controllo non
+poteva fallire mai. È il difetto peggiore possibile per un controllo — dà lo stesso silenzio del
+codice sano — e l'unica cosa che l'ha rivelato è stato rimettere l'errore vero e pretendere che
+scattasse. Vale per i test come per i controlli: **una prova che non può fallire è peggio di
+nessuna prova**, perché occupa il posto di quella che servirebbe.
+
+Nessuno dei cinque è un compilatore e nessuno pretende di esserlo. Ognuno prende una classe di
+errore che `swiftc -parse` non vede — perché `-parse` guarda la sintassi e questi sono errori di
+tipo — e che qui costerebbe un giro sul Mac.
 
 ---
 

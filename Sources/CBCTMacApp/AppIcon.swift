@@ -26,6 +26,7 @@ enum AppIcon {
     static let displayName = "3DMED"
 
     /// Assegna l'icona al Dock. Da chiamare una volta all'avvio.
+    @MainActor
     static func install() {
         NSApp.applicationIconImage = image(size: 512)
     }

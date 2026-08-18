@@ -1,6 +1,7 @@
 import AppKit
 import DICOMCore
 import DentalKit
+import MeasureKit
 import Metal
 import MetalKit
 import SwiftUI
@@ -797,11 +798,11 @@ struct CrossSectionCell: View {
         guard pixelSize.width > 0, pixelSize.height > 0 else { return }
         let plane = zoomedPlane.matchingAspect(
             pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
-        guard
-            let patient = plane.patientPoint(
-                atPixelX: Double(point.x), y: Double(point.y),
-                pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
-        else { return }
+        // Non opzionale, a differenza dell'omonima della panorex: un piano è infinito, e un
+        // pixel ci cade sempre. È la curva a poter non esistere, non il piano.
+        let patient = plane.patientPoint(
+            atPixelX: Double(point.x), y: Double(point.y),
+            pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
 
         let spacing = model.volume?.geometry.spacingMM ?? Vec3(1, 1, 1)
         model.applyToolClick(
