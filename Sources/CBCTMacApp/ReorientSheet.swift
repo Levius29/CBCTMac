@@ -151,18 +151,33 @@ struct ReorientSheet: View {
         return Foundation.acos(cosine) * 180 / .pi
     }
 
+    /// Fuori dal thread dell'interfaccia, come la riduzione delle strie e per lo stesso motivo:
+    /// ricampionare una CBCT a campo grande sono decine di secondi, e sul main actor sarebbero
+    /// decine di secondi di finestra congelata.
     private func apply() {
         guard let volume = model.volume else { return }
         isWorking = true
         failure = nil
-        do {
-            let reoriented = try VolumeReorientation.reoriented(
-                volume, plan: plan, spacingMM: spacingMM)
-            model.adoptReoriented(reoriented, plan: plan)
-            dismiss()
-        } catch {
-            failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+
+        let requestedPlan = plan
+        let requestedSpacing = spacingMM
+
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                Result {
+                    try VolumeReorientation.reoriented(
+                        volume, plan: requestedPlan, spacingMM: requestedSpacing)
+                }
+            }.value
+
+            isWorking = false
+            switch outcome {
+            case .success(let reoriented):
+                model.adoptReoriented(reoriented, plan: requestedPlan)
+                dismiss()
+            case .failure(let error):
+                failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
         }
-        isWorking = false
     }
 }

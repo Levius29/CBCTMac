@@ -127,15 +127,6 @@ struct ViewportContainer: View {
     /// cui le sovraimpressioni disegnano, così ciò che si vede e ciò che si afferra coincidono.
     @State private var pointSize: CGSize = .zero
 
-    /// Primo estremo di una misura in corso.
-    @State private var pendingStartMM: Vec3?
-
-    /// Punti già posati di una misura a più punti — spezzata, perimetro, angolo fra rette.
-    ///
-    /// Le misure a due punti si chiudono da sole al secondo clic; queste no, e serve un modo di
-    /// dire «ho finito». Il doppio clic chiude, come in ogni strumento poligonale, ed Esc annulla.
-    @State private var pendingPointsMM: [Vec3] = []
-
     /// Presa sul mirino in corso, decisa alla pressione.
     ///
     /// # Perché l'interazione del mirino sta **qui** e non nella sua sovraimpressione
@@ -195,8 +186,7 @@ struct ViewportContainer: View {
                         slot: slot,
                         pointSize: geometry.size,
                         pixelSize: pixelSize,
-                        pendingStartMM: pendingStartMM,
-                        pendingPointsMM: pendingPointsMM)
+                        pendingPointsMM: model.toolSession.pointsMM)
 
                     ImplantOverlay(
                         model: model,
@@ -270,7 +260,7 @@ struct ViewportContainer: View {
                     // Con una misura a più punti in corso il doppio clic la **chiude**, e non
                     // ingrandisce il riquadro: sono due significati per lo stesso gesto, e quello
                     // che conta è quello che l'utente sta facendo adesso.
-                    if closePendingMeasurement() { return }
+                    if model.closeToolSession() { return }
                     model.layout = model.layout == .single ? .grid2x2 : .single
                 },
                 onDragBegan: handleDragBegan,
@@ -379,111 +369,22 @@ struct ViewportContainer: View {
             return
         }
 
-        switch model.activeTool {
-        case .navigate:
-            model.moveCrosshair(to: patient)
+        // Da qui in poi lo strumento è dell'applicazione, non del riquadro: la conversione in
+        // millimetri l'ha fatta questa vista, che è l'unica a conoscere il proprio piano, e il
+        // resto vale identico ovunque. Vedi `AppModel.applyToolClick`.
+        model.applyToolClick(at: patient, anchor: toolAnchor())
+    }
 
-        case .archCurve:
-            // Sugli altri riquadri il clic sposta il mirino, ed è ciò che serve mentre si
-            // disegna: è così che si sceglie la fetta assiale su cui posare i punti, guardando la
-            // cresta di profilo. Sull'assiale invece posa o seleziona, sotto.
-            model.moveCrosshair(to: patient)
-
-        case .distance:
-            switch model.toolVariant {
-            case "polyline", "perimeter":
-                // Si accumulano finché non si chiude col doppio clic: la lunghezza di una cresta
-                // non è un segmento, e obbligare a spezzarla in misure separate significa poi
-                // sommarle a mano.
-                pendingPointsMM.append(patient)
-            default:
-                if let start = pendingStartMM {
-                    model.addAnnotation(
-                        .distance(
-                            DistanceMeasurement(
-                                metadata: AnnotationMetadata(
-                                    colorHex: "#32B8C6", referencePlane: referencePlane()),
-                                startMM: start, endMM: patient)))
-                    pendingStartMM = nil
-                } else {
-                    pendingStartMM = patient
-                }
-            }
-
-        case .angle:
-            if model.toolVariant == "lines" {
-                pendingPointsMM.append(patient)
-                // Quattro punti: due per retta. Si chiude da sé, perché il numero è noto.
-                if pendingPointsMM.count == 4 {
-                    model.addAnnotation(
-                        .lineAngle(
-                            LineAngleMeasurement(
-                                metadata: AnnotationMetadata(
-                                    colorHex: "#FFD426", referencePlane: referencePlane()),
-                                firstStartMM: pendingPointsMM[0],
-                                firstEndMM: pendingPointsMM[1],
-                                secondStartMM: pendingPointsMM[2],
-                                secondEndMM: pendingPointsMM[3])))
-                    pendingPointsMM = []
-                }
-                return
-            }
-            pendingPointsMM.append(patient)
-            if pendingPointsMM.count == 3 {
-                model.addAnnotation(
-                    .angle(
-                        AngleMeasurement(
-                            metadata: AnnotationMetadata(
-                                colorHex: "#FFD426", referencePlane: referencePlane()),
-                            vertexMM: pendingPointsMM[0],
-                            firstArmMM: pendingPointsMM[1],
-                            secondArmMM: pendingPointsMM[2])))
-                pendingPointsMM = []
-            }
-
-        case .ellipseROI:
-            if let start = pendingStartMM {
-                let roi = makeEllipse(from: start, to: patient)
-                model.addAnnotation(.ellipseROI(roi))
-                pendingStartMM = nil
-            } else {
-                pendingStartMM = patient
-            }
-
-        case .sphereROI:
-            if let start = pendingStartMM {
-                let radius = start.distance(to: patient)
-                guard radius > 0 else { return }
-                let roi = SphereROI(
-                    metadata: AnnotationMetadata(colorHex: "#FFD426"),
-                    centerMM: start,
-                    radiusMM: radius)
-                model.addAnnotation(.sphereROI(roi))
-                pendingStartMM = nil
-            } else {
-                pendingStartMM = patient
-            }
-
-        case .text:
-            let note = TextNote(
-                metadata: AnnotationMetadata(referencePlane: referencePlane()),
-                anchorMM: patient,
-                text: "Nota")
-            model.addAnnotation(.text(note))
-
-        case .implant:
-            // L'asse predefinito è verticale verso il basso. Su una cresta inclinata andrà
-            // corretto, ma partire dalla verticale è più prevedibile che indovinare
-            // un'inclinazione dalla vista corrente.
-            model.addImplant(at: patient)
-
-        case .nerve:
-            if model.tracingNerveID == nil {
-                // Il lato si deduce dal segno di L: destra del paziente è x negativo in LPS.
-                model.beginTracingNerve(side: patient.x < 0 ? .right : .left)
-            }
-            model.addNerveNode(at: patient)
-        }
+    /// Il piano di questo riquadro, per ancorarci la misura che comincia qui.
+    private func toolAnchor() -> ToolAnchor? {
+        guard let plane = adjustedPlane, let geometry = model.volume?.geometry else { return nil }
+        let spacing = geometry.spacingMM
+        return ToolAnchor(
+            originMM: plane.centerMM,
+            normalMM: plane.normalMM,
+            rightMM: plane.rightMM,
+            downMM: plane.downMM,
+            visibilityToleranceMM: max(spacing.x, max(spacing.y, spacing.z)) * 2)
     }
 
     // MARK: Mirino
@@ -681,53 +582,4 @@ struct ViewportContainer: View {
         // presente nel volume, non una media fra vicini.
         model.hoverDensity = model.volume?.densityValue(atPatient: patient)
     }
-
-    /// Chiude una misura a più punti in corso. Restituisce falso se non ce n'è nessuna.
-    @discardableResult
-    private func closePendingMeasurement() -> Bool {
-        guard model.activeTool == .distance, pendingPointsMM.count >= 2 else {
-            // Meno di due punti non è una misura: si scartano invece di lasciarli in sospeso.
-            if !pendingPointsMM.isEmpty { pendingPointsMM = [] }
-            return false
-        }
-        let isClosed = model.toolVariant == "perimeter"
-        model.addAnnotation(
-            .polyline(
-                PolylineMeasurement(
-                    metadata: AnnotationMetadata(
-                        colorHex: "#4FCB6B", referencePlane: referencePlane()),
-                    pointsMM: pendingPointsMM,
-                    isClosed: isClosed)))
-        pendingPointsMM = []
-        return true
-    }
-
-    // MARK: Costruzione delle annotazioni
-
-    private func referencePlane() -> AnnotationPlaneReference? {
-        guard let plane = adjustedPlane, let geometry = model.volume?.geometry else { return nil }
-        let spacing = geometry.spacingMM
-        return AnnotationPlaneReference(
-            originMM: plane.centerMM,
-            normalMM: plane.normalMM,
-            visibilityToleranceMM: max(spacing.x, max(spacing.y, spacing.z)) * 2)
-    }
-
-    /// Ellisse inscritta nel rettangolo definito dai due punti, sul piano corrente.
-    private func makeEllipse(from start: Vec3, to end: Vec3) -> EllipseROI {
-        let plane = adjustedPlane
-        let right = plane?.rightMM ?? Vec3(1, 0, 0)
-        let down = plane?.downMM ?? Vec3(0, 1, 0)
-        let diagonal = end - start
-        let center = start.lerp(to: end, t: 0.5)
-        let spacing = model.volume?.geometry.spacingMM ?? Vec3(1, 1, 1)
-
-        return EllipseROI(
-            metadata: AnnotationMetadata(colorHex: "#4FCB6B", referencePlane: referencePlane()),
-            centerMM: center,
-            semiAxisAMM: right * (diagonal.dot(right) * 0.5),
-            semiAxisBMM: down * (diagonal.dot(down) * 0.5),
-            thicknessMM: max(spacing.x, max(spacing.y, spacing.z)))
-    }
 }
-

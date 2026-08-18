@@ -23,7 +23,13 @@ struct PanoramicViewportView: NSViewRepresentable {
     let windowLevel: DensityWindow
 
     var onHoverArcLength: (Double?) -> Void = { _ in }
-    var onClickArcLength: (Double) -> Void = { _ in }
+    /// Clic sul panorex: lunghezza d'arco **e** punto Patient sotto il pixel.
+    ///
+    /// Il punto serve agli strumenti, che qui prima non funzionavano per la ragione più
+    /// semplice possibile: nessuno aveva mai scritto la conversione da pixel a millimetri per
+    /// questa immagine. Vedi `PanoramicLayout.patientPoint(atPixelX:y:...)`.
+    var onClickArcLength: (Double, Vec3?) -> Void = { _, _ in }
+    var onDoubleClick: () -> Void = {}
     var onDrawableSize: (CGSize) -> Void = { _ in }
 
     /// Scorrimento lungo l'arcata, in millimetri di lunghezza d'arco.
@@ -95,10 +101,15 @@ struct PanoramicViewportView: NSViewRepresentable {
         }
         view.onClick = { [weak view] point in
             guard let view, view.drawableSize.width > 0 else { return }
+            let width = Int(view.drawableSize.width)
+            let height = Int(view.drawableSize.height)
             onClickArcLength(
-                layout.arcLengthMM(
-                    atPixelX: Double(point.x), pixelWidth: Int(view.drawableSize.width)))
+                layout.arcLengthMM(atPixelX: Double(point.x), pixelWidth: width),
+                layout.patientPoint(
+                    atPixelX: Double(point.x), y: Double(point.y),
+                    pixelWidth: width, pixelHeight: height))
         }
+        view.onDoubleClick = { onDoubleClick() }
 
         // La rotella **sfoglia l'arcata in profondità**, vestibolo-linguale.
         //
@@ -448,14 +459,23 @@ struct PanoramicWorkspace: View {
                 renderer: model.panoramicRenderer,
                 windowLevel: model.windowLevel,
                 onHoverArcLength: { hoverArcLengthMM = $0 },
-                onClickArcLength: { arcLength in
-                    // Un clic sul panorex porta la griglia alla sezione corrispondente: è il
-                    // modo naturale di passare dalla panoramica al punto che interessa.
+                onClickArcLength: { arcLength, patient in
                     // Un clic sul panorex seleziona la sezione corrispondente, e con essa porta
                     // le altre viste sul punto: è il modo naturale di passare dalla panoramica al
                     // dente che interessa.
                     model.selectCrossSection(nearestToArcLengthMM: arcLength)
+
+                    // E con uno strumento in mano misura, come in ogni altro riquadro.
+                    //
+                    // Senza ancoraggio, di proposito: il panorex è una superficie **curva**, e
+                    // dichiarare un piano di riferimento che non esiste farebbe sparire la misura
+                    // dalle viste dove invece dovrebbe comparire. Vedi il commento in
+                    // `PanoramicLayout.patientPoint` su che cosa significa un punto preso qui.
+                    if model.activeTool != .navigate, let patient {
+                        model.applyToolClick(at: patient, anchor: nil)
+                    }
                 },
+                onDoubleClick: { model.closeToolSession() },
                 onDrawableSize: { panoramicPixelSize = $0 },
                 onScrollArc: { model.scrollPanoramic(byArcMM: $0) },
                 onScrollDepth: { model.movePanoramicDepth(byMM: $0) },
@@ -467,6 +487,14 @@ struct PanoramicWorkspace: View {
                     model.zoomPanoramic(by: factor, atPixelX: x, pixelWidth: width)
                 }
             )
+
+            // Misure sulla panorex: quelle già poste e quella in corso.
+            //
+            // Solo quelle che stanno **dentro lo spessore campionato**. Proiettare tutto
+            // riempirebbe la striscia di misure prese dall'altro lato della mandibola, che qui
+            // non si vedono e non c'entrano nulla: la panorex è una superficie, non una
+            // proiezione dell'intero volume.
+            PanoramicMeasureOverlay(model: model)
 
             // Linea di taglio: si trascina lungo l'arcata per scegliere dove tagliare, e si ruota
             // dalla maniglia in cima per scegliere con che angolo.
@@ -748,6 +776,44 @@ struct CrossSectionCell: View {
         return plane
     }
 
+    /// Dimensione del drawable in pixel, che è lo spazio in cui arrivano i clic.
+    @State private var pixelSize: CGSize = .zero
+
+    /// Un clic su una sezione: con la navigazione la sceglie, con uno strumento misura.
+    ///
+    /// Questa vista è arrivata tardi rispetto ai riquadri ortogonali, e per un po' l'unica cosa
+    /// che sapeva fare era selezionarsi. Non era una scelta: era il gestore del clic che nessuno
+    /// aveva ancora scritto, e all'uso si presentava come «le misure qui non funzionano».
+    private func handleClick(_ point: CGPoint) {
+        model.crossSectionBrowser.select(index: section.index)
+
+        guard model.activeTool != .navigate else {
+            // Con la navigazione in mano il clic porta le altre viste qui: è il gesto con cui si
+            // passa dalla striscia al punto da guardare.
+            model.focusSelectedCrossSection()
+            return
+        }
+
+        guard pixelSize.width > 0, pixelSize.height > 0 else { return }
+        let plane = zoomedPlane.matchingAspect(
+            pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
+        guard
+            let patient = plane.patientPoint(
+                atPixelX: Double(point.x), y: Double(point.y),
+                pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
+        else { return }
+
+        let spacing = model.volume?.geometry.spacingMM ?? Vec3(1, 1, 1)
+        model.applyToolClick(
+            at: patient,
+            anchor: ToolAnchor(
+                originMM: plane.centerMM,
+                normalMM: plane.normalMM,
+                rightMM: plane.rightMM,
+                downMM: plane.downMM,
+                visibilityToleranceMM: max(spacing.x, max(spacing.y, spacing.z)) * 2))
+    }
+
     var body: some View {
         VStack(spacing: 2) {
             MPRViewportView(
@@ -755,14 +821,21 @@ struct CrossSectionCell: View {
                 volumeTexture: model.volumeTexture,
                 renderer: model.mprRenderer,
                 windowLevel: model.windowLevel,
-                onClick: { _ in
-                    // Un clic su una sezione la seleziona e porta le altre viste lì: è il gesto
-                    // con cui si passa dalla striscia al punto da misurare.
-                    model.crossSectionBrowser.select(index: section.index)
-                    model.focusSelectedCrossSection()
-                }
+                onClick: handleClick,
+                onDoubleClick: { model.closeToolSession() },
+                onDrawableSize: { pixelSize = $0 }
             )
             .clipShape(.rect(cornerRadius: 3))
+            .overlay {
+                // Le misure si vedono anche qui. Poterle **fare** e non poterle **vedere** è
+                // un mezzo strumento: la sezione ha il suo piano, e le annotazioni che gli
+                // stanno vicine si proiettano su questo come su ogni altro riquadro.
+                AnnotationOverlay(
+                    model: model,
+                    explicitPlane: zoomedPlane,
+                    pendingPointsMM: model.toolSession.pointsMM)
+                    .allowsHitTesting(false)
+            }
             .overlay {
                 // La sezione selezionata è quella che le altre viste stanno mostrando: senza un
                 // segno, la striscia e il resto dell'interfaccia sembrano scollegati.
@@ -983,5 +1056,111 @@ struct ArchCurveOverlay: View {
             }
         }
         return bestDistance <= AppModel.archPointGrabRadiusPixels ? best : nil
+    }
+}
+
+
+// MARK: - Misure sulla panorex
+
+/// Punti e segmenti delle misure, proiettati sulla ricostruzione curva.
+///
+/// Disegna solo ciò che sta entro mezzo spessore di slab dalla superficie campionata. È la stessa
+/// regola con cui il riquadro decide che cosa mostrare, e applicarla anche qui evita l'effetto
+/// peggiore: una misura che compare sulla panorex mentre la struttura che collega non si vede.
+struct PanoramicMeasureOverlay: View {
+
+    let model: AppModel
+
+    var body: some View {
+        Canvas { context, size in
+            let width = Int(size.width)
+            let height = Int(size.height)
+            guard width > 1, height > 1, model.archCurve.isUsable else { return }
+            let layout = model.panoramicLayout
+            let tolerance = max(layout.slabThicknessMM * 0.5, 1.0)
+
+            /// Proietta una serie di punti, o `nil` se anche uno solo sta fuori dallo spessore.
+            /// Tutto o niente: mezza misura disegnata è peggio di nessuna, perché sembra una
+            /// misura intera più corta.
+            func project(_ pointsMM: [Vec3]) -> [CGPoint]? {
+                var result: [CGPoint] = []
+                result.reserveCapacity(pointsMM.count)
+                for pointMM in pointsMM {
+                    guard
+                        let p = layout.projection(
+                            ofPatient: pointMM, pixelWidth: width, pixelHeight: height),
+                        abs(p.depthMM) <= tolerance
+                    else { return nil }
+                    result.append(CGPoint(x: p.x, y: p.y))
+                }
+                return result
+            }
+
+            func stroke(_ points: [CGPoint], color: Color, dashed: Bool) {
+                guard let first = points.first else { return }
+                var path = Path()
+                path.move(to: first)
+                for point in points.dropFirst() { path.addLine(to: point) }
+                context.stroke(
+                    path, with: .color(color),
+                    style: StrokeStyle(lineWidth: 1.5, dash: dashed ? [5, 3] : []))
+                for point in points {
+                    context.fill(
+                        Path(
+                            ellipseIn: CGRect(
+                                x: point.x - 2.5, y: point.y - 2.5, width: 5, height: 5)),
+                        with: .color(color))
+                }
+            }
+
+            for annotation in model.annotations where !annotation.metadata.isHidden {
+                let colour = Color(hexString: annotation.metadata.colorHex) ?? Palette.accent
+                guard let points = project(vertices(of: annotation)), points.count >= 1 else {
+                    continue
+                }
+                stroke(points, color: colour, dashed: false)
+            }
+
+            if let points = project(model.toolSession.pointsMM) {
+                stroke(points, color: Palette.accent, dashed: true)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// I vertici che vale la pena disegnare su una superficie curva.
+    ///
+    /// Le ROI restano fuori: un'ellisse è definita su un piano, e stirarla su una ricostruzione
+    /// curva la disegnerebbe dove non è. Il suo centro invece è un punto, e mostrarlo dice dove
+    /// sta senza affermare una forma che qui non ha.
+    private func vertices(of annotation: Annotation) -> [Vec3] {
+        switch annotation {
+        case .distance(let measurement):
+            return [measurement.startMM, measurement.endMM]
+        case .polyline(let measurement):
+            return measurement.isClosed && measurement.pointsMM.count > 2
+                ? measurement.pointsMM + [measurement.pointsMM[0]]
+                : measurement.pointsMM
+        case .angle(let measurement):
+            return [measurement.firstArmMM, measurement.vertexMM, measurement.secondArmMM]
+        case .lineAngle(let measurement):
+            return [measurement.firstStartMM, measurement.firstEndMM]
+        case .freehand(let path):
+            return path.isClosed && path.pointsMM.count > 2
+                ? path.pointsMM + [path.pointsMM[0]] : path.pointsMM
+        case .polygonROI(let roi):
+            return roi.verticesMM.count > 2
+                ? roi.verticesMM + [roi.verticesMM[0]] : roi.verticesMM
+        case .ellipseROI(let roi):
+            return [roi.centerMM]
+        case .sphereROI(let roi):
+            return [roi.centerMM]
+        case .text(let note):
+            return [note.anchorMM]
+        case .arrow(let arrow):
+            return [arrow.startMM, arrow.endMM]
+        case .profileLine(let line):
+            return [line.startMM, line.endMM]
+        }
     }
 }

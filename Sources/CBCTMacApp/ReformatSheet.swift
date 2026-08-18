@@ -213,25 +213,35 @@ struct ReformatSheet: View {
         return min(s.x, min(s.y, s.z))
     }
 
+    /// Fuori dal thread dell'interfaccia: vedi `ArtifactSheet.apply`.
     private func apply() {
         guard let plan, let volume = model.volume else { return }
         isWorking = true
         failure = nil
-        do {
-            let resampled = try VolumeResampler.resampled(
-                volume,
-                request: ResampleRequest(spacingMM: plan.spacingMM, regionMM: plan.regionMM))
-            // L'operazione dichiarata distingue un ritaglio da un ricampionamento nella catena
-            // di provenienza: sono due cose diverse e la relazione deve poterlo dire.
-            model.adopt(
-                volume: resampled, named: plan.name,
-                operation: plan.spacingMM < smallestSpacing ? "Ricampionamento" : "Ritaglio")
-            dismiss()
-        } catch {
-            // L'errore si mostra qui e non si chiude la finestra: chiudere farebbe perdere il
-            // riquadro appena regolato, e con esso il lavoro di regolarlo.
-            failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+
+        let request = ResampleRequest(spacingMM: plan.spacingMM, regionMM: plan.regionMM)
+        let isResample = plan.spacingMM < smallestSpacing
+        let name = plan.name
+
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                Result { try VolumeResampler.resampled(volume, request: request) }
+            }.value
+
+            isWorking = false
+            switch outcome {
+            case .success(let resampled):
+                // L'operazione dichiarata distingue un ritaglio da un ricampionamento nella
+                // catena di provenienza: sono due cose diverse e la relazione deve poterlo dire.
+                model.adopt(
+                    volume: resampled, named: name,
+                    operation: isResample ? "Ricampionamento" : "Ritaglio")
+                dismiss()
+            case .failure(let error):
+                // L'errore si mostra qui e non si chiude la finestra: chiudere farebbe perdere il
+                // riquadro appena regolato, e con esso il lavoro di regolarlo.
+                failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
         }
-        isWorking = false
     }
 }

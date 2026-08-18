@@ -154,6 +154,14 @@ struct ArtifactSheet: View {
         model.volume.map { MetalDetection.suggestedThresholdGV(for: $0) }
     }
 
+    /// Avvia la riduzione **fuori dal thread dell'interfaccia**.
+    ///
+    /// Ci girava sopra, e su un fantoccio non si notava. Su una CBCT vera sì: quattrocento
+    /// milioni di voxel da sogliare, dilatare, etichettare per componenti e riscrivere sono
+    /// decine di secondi durante i quali l'applicazione non ridisegna nemmeno la rotella
+    /// d'attesa che dice di aspettare. Un lavoro lungo su un dato immobile non ha alcun motivo
+    /// di stare sul main actor: `Task.detached` lo sposta, e il risultato torna qui per essere
+    /// adottato.
     private func apply() {
         guard let volume = model.volume else { return }
         isWorking = true
@@ -162,26 +170,36 @@ struct ArtifactSheet: View {
 
         var used = settings
         used.thresholdGV = useAutomaticThreshold ? nil : manualThresholdGV
+        let requested = used
 
-        do {
-            let processed = try ArtifactReduction.reduceMetalArtifacts(in: volume, settings: used)
-            guard processed.provenance.isModified else {
-                // Nessun metallo trovato è un esito ordinario, e va detto invece di produrre una
-                // copia identica con un nome nuovo: l'albero si riempirebbe di volumi uguali.
-                failure =
-                    "Nessuna zona metallica trovata con questi parametri. Abbassa la soglia o il "
-                    + "volume minimo, oppure il volume non ne contiene."
-                isWorking = false
-                return
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                Result {
+                    try ArtifactReduction.reduceMetalArtifacts(in: volume, settings: requested)
+                }
+            }.value
+
+            isWorking = false
+
+            switch outcome {
+            case .success(let processed):
+                guard processed.provenance.isModified else {
+                    // Nessun metallo trovato è un esito ordinario, e va detto invece di produrre
+                    // una copia identica con un nome nuovo: l'albero si riempirebbe di volumi
+                    // uguali.
+                    failure =
+                        "Nessuna zona metallica trovata con questi parametri. Abbassa la soglia o "
+                        + "il volume minimo, oppure il volume non ne contiene."
+                    return
+                }
+                model.adopt(
+                    volume: processed.volume, named: "Strie ridotte", operation: "Riduzione strie")
+                report = summary(of: processed)
+                dismiss()
+
+            case .failure(let error):
+                failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             }
-            model.adopt(
-                volume: processed.volume, named: "Strie ridotte", operation: "Riduzione strie")
-            report = summary(of: processed)
-            isWorking = false
-            dismiss()
-        } catch {
-            failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-            isWorking = false
         }
     }
 

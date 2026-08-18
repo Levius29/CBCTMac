@@ -199,11 +199,18 @@ struct ScaleBar: View {
 struct AnnotationOverlay: View {
 
     let model: AppModel
-    let slot: ViewportSlot
-    let pointSize: CGSize
-    let pixelSize: CGSize
-    let pendingStartMM: Vec3?
-    /// Punti già posati di una misura a più punti, ancora da chiudere.
+    /// Riquadro ortogonale di provenienza, quando il piano viene da lì.
+    var slot: ViewportSlot?
+    /// Piano esplicito, per i riquadri che non sono uno dei tre ortogonali — una sezione
+    /// trasversale ha il proprio piano e non compare in `model.planes`.
+    var explicitPlane: MPRPlane?
+    var pointSize: CGSize = .zero
+    var pixelSize: CGSize = .zero
+    /// Punti già posati dalla misura in corso, di qualunque forma sia.
+    ///
+    /// Uno solo: è il primo estremo di una distanza, e va mostrato perché un clic senza riscontro
+    /// sembra un clic perso. Due o più: è una spezzata che cresce, e mostrarla evita di doverla
+    /// rifare da capo quando al quarto punto non si ricorda più dove stavano gli altri.
     var pendingPointsMM: [Vec3] = []
 
     var body: some View {
@@ -218,18 +225,8 @@ struct AnnotationOverlay: View {
                     isSelected: annotation.id == model.selectedAnnotationID)
             }
 
-            // Estremo in attesa: dà un riscontro immediato che il primo clic è stato registrato.
-            if let start = pendingStartMM {
-                let p = plane.pixelPosition(ofPatient: start, pixelWidth: width, pixelHeight: height)
-                let dot = Path(
-                    ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6))
-                context.fill(dot, with: .color(Palette.accent))
-            }
-
-            // Misura a più punti in corso: la spezzata cresce sotto il puntatore invece di
-            // apparire solo alla fine. Senza, dopo il terzo clic non si sa più quali punti si
-            // siano posati, e si finisce per rifarla da capo.
-            if pendingPointsMM.count >= 1 {
+            // Misura in corso: i punti già posati, e la spezzata che li unisce se sono più d'uno.
+            if !pendingPointsMM.isEmpty {
                 let projected = pendingPointsMM.map {
                     plane.pixelPosition(ofPatient: $0, pixelWidth: width, pixelHeight: height)
                 }
@@ -248,20 +245,27 @@ struct AnnotationOverlay: View {
                                 x: point.x - 3, y: point.y - 3, width: 6, height: 6)),
                         with: .color(Palette.accent))
                 }
-                context.draw(
-                    Text("doppio clic per chiudere")
-                        .font(Typography.label)
-                        .foregroundStyle(Palette.textSecondary),
-                    at: CGPoint(x: projected[projected.count - 1].x + 6,
-                        y: projected[projected.count - 1].y - 12),
-                    anchor: .leading)
+                // Che cosa manca, accanto all'ultimo punto posato. Il testo lo decide la
+                // sessione, che sa quale forma è in mano: una spezzata si chiude a comando e va
+                // detto, una distanza a due punti no e dirlo sarebbe una bugia.
+                if let hint = model.toolSession.progressHint {
+                    context.draw(
+                        Text(hint)
+                            .font(Typography.label)
+                            .foregroundStyle(Palette.textSecondary),
+                        at: CGPoint(
+                            x: projected[projected.count - 1].x + 6,
+                            y: projected[projected.count - 1].y - 12),
+                        anchor: .leading)
+                }
             }
         }
         .allowsHitTesting(false)
     }
 
     private func resolvedPlane(size: CGSize) -> MPRPlane? {
-        guard let plane = model.planes[slot], size.width > 0, size.height > 0 else { return nil }
+        let source = explicitPlane ?? slot.flatMap { model.planes[$0] }
+        guard let plane = source, size.width > 0, size.height > 0 else { return nil }
         return plane.matchingAspect(
             pixelWidth: Int(size.width), pixelHeight: Int(size.height))
     }

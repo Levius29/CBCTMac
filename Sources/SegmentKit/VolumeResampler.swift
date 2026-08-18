@@ -8,13 +8,17 @@ public struct ResampleRequest: Hashable, Sendable {
     /// Regione da ricampionare; `nil` indica l'intero volume.
     public var regionMM: BoxMM?
     /// Limite oltre il quale la richiesta viene rifiutata prima dell'allocazione.
+    ///
+    /// Predefinito uguale a quello delle maschere, e per la stessa ragione: era un numero fisso
+    /// che ignorava la macchina, e su una CBCT a campo grande rifiutava un lavoro che la memoria
+    /// disponibile avrebbe retto senza sforzo. Vedi `VolumeMask.maximumVoxelCount`.
     public var maximumVoxelCount: Int
 
     /// Costruisce una richiesta; la validazione avviene prima di calcolare o allocare l'uscita.
     public init(
         spacingMM: Double,
         regionMM: BoxMM? = nil,
-        maximumVoxelCount: Int = 400_000_000
+        maximumVoxelCount: Int = VolumeMask.maximumVoxelCount
     ) {
         self.spacingMM = spacingMM
         self.regionMM = regionMM

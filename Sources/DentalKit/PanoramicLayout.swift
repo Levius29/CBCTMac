@@ -73,20 +73,95 @@ public struct PanoramicLayout: Hashable, Sendable {
     /// Un campione per colonna esatto, così lo shader indicizza direttamente il buffer senza
     /// interpolare: tutta la matematica della spline resta sulla CPU e in Double.
     public func columnSamples(pixelWidth: Int) -> [ArchSample] {
-        let count = max(pixelWidth, 2)
+        curve.samples(atArcLengthsMM: columnArcLengthsMM(pixelWidth: pixelWidth))
+    }
 
-        // A ingrandimento 1 la finestra è l'intera curva: si usa il ricampionamento uniforme, che
-        // fa cadere il primo campione esattamente su 0 e l'ultimo su `lengthMM`. Passando dalle
-        // lunghezze d'arco si perderebbero mezzo pixel per lato senza alcun vantaggio.
-        guard effectiveZoom > 1 else {
-            return curve.resampled(count: count)
-        }
+    /// Lunghezze d'arco delle colonne di pixel.
+    ///
+    /// Una sola convenzione, il centro pixel, a ogni ingrandimento: la colonna `x` campiona il
+    /// punto d'arco a metà della fetta che rappresenta. Passa da `arcLengthMM(atPixelX:)` proprio
+    /// perché le due non possano divergere — quella dice **dove si è** sull'arcata e ancora lo
+    /// zoom, questa decide **che cosa si disegna**, e se si discostano il cursore indica un dente
+    /// e l'immagine ne mostra un altro.
+    ///
+    /// # Perché a ingrandimento 1 non c'è più un caso a parte
+    ///
+    /// C'era: le colonne coprivano l'arcata da capo a capo, la prima esattamente su 0 e l'ultima
+    /// su `lengthMM`, cioè `count − 1` intervalli. Ma `millimetresPerPixel` divide la stessa
+    /// lunghezza per `count`, e due conti che dividono per numeri diversi danno **scale diverse**:
+    /// l'immagine risultava dilatata in orizzontale di `count / (count − 1)`. Su seicento colonne
+    /// è lo 0,17 %: invisibile a occhio, sufficiente a far mentire la barra di scala, e presente
+    /// solo a ingrandimento 1 perché ingranditi il caso a parte non si applicava. Un errore di
+    /// scala che compare e sparisce col livello di zoom è il peggiore da riconoscere.
+    ///
+    /// Il prezzo è mezza colonna d'arcata per lato — un decimo di millimetro oltre l'ultimo
+    /// molare — e in cambio l'immagine è isotropa a ogni ingrandimento.
+    public func columnArcLengthsMM(pixelWidth: Int) -> [Double] {
+        let count = max(pixelWidth, 2)
+        return (0..<count).map { arcLengthMM(atPixelX: Double($0), pixelWidth: count) }
+    }
+
+    /// Punto Patient sotto un pixel della panorex.
+    ///
+    /// L'inversa di ciò che il renderer disegna: la colonna sceglie il campione della curva, la
+    /// riga scende dal bordo alto della colonna col passo verticale. Serve perché misurare su una
+    /// panorex significa convertire un clic in millimetri, e finora quella conversione non
+    /// esisteva: gli strumenti funzionavano nei riquadri ortogonali e qui no.
+    ///
+    /// # Che cosa significa davvero un punto preso qui
+    ///
+    /// La panorex è una **ricostruzione curva**, non una proiezione di raggi. Il punto restituito
+    /// sta sulla superficie campionata — la curva più lo scostamento vestibolo-linguale — mentre
+    /// il tessuto che si vede può trovarsi in un punto qualsiasi dello spessore dello slab, perché
+    /// è la proiezione ad averlo portato lì. Una distanza fra due punti presi sulla panorex è
+    /// quindi una distanza fra due punti **della superficie ricostruita**, ed è esatta in quanto
+    /// tale: per la distanza fra due strutture anatomiche vale la sezione trasversale, dove il
+    /// piano è piatto e il punto è dove sembra.
+    public func patientPoint(
+        atPixelX x: Double, y: Double, pixelWidth: Int, pixelHeight: Int
+    ) -> Vec3? {
+        guard pixelWidth > 0, pixelHeight > 0, curve.isUsable else { return nil }
+        let arcMM = arcLengthMM(atPixelX: x, pixelWidth: max(pixelWidth, 2))
+        guard let sample = curve.samples(atArcLengthsMM: [arcMM]).first else { return nil }
+        let top = topOfColumn(sample, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+        return top + downStepMM(pixelWidth: pixelWidth) * y
+    }
+
+    /// Dove cade un punto Patient sull'immagine, in pixel.
+    ///
+    /// L'inversa di `patientPoint(atPixelX:y:...)`, e serve a **vedere** ciò che si è misurato:
+    /// una misura che si può fare e non si può rivedere è mezzo strumento.
+    ///
+    /// - Returns: la posizione in pixel e la **distanza dalla superficie campionata**, che è
+    ///   l'informazione che dice se il punto sta davvero in questa ricostruzione o se ci finisce
+    ///   solo perché proiettato. Chi disegna la usa per non riempire la striscia di misure prese
+    ///   dall'altra parte della mandibola.
+    public func projection(
+        ofPatient pointMM: Vec3, pixelWidth: Int, pixelHeight: Int
+    ) -> (x: Double, y: Double, depthMM: Double)? {
+        guard pixelWidth > 0, pixelHeight > 0, curve.isUsable else { return nil }
+        guard let arcMM = curve.arcLength(nearestTo: pointMM) else { return nil }
+        guard let sample = curve.samples(atArcLengthsMM: [arcMM]).first else { return nil }
 
         let range = visibleArcRangeMM
-        let step = (range.upperBound - range.lowerBound) / Double(count)
-        // Centro del pixel, come altrove: il campione sta a metà della colonna che rappresenta.
-        let lengths = (0..<count).map { range.lowerBound + (Double($0) + 0.5) * step }
-        return curve.samples(atArcLengthsMM: lengths)
+        let span = range.upperBound - range.lowerBound
+        guard span > 1e-9 else { return nil }
+        let x = (arcMM - range.lowerBound) / span * Double(max(pixelWidth, 2)) - 0.5
+
+        let scale = millimetresPerPixel(pixelWidth: pixelWidth)
+        guard scale > 0 else { return nil }
+        let top = topOfColumn(sample, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+        let offset = pointMM - top
+        // Il passo verticale è `−upAxis · scala`: la riga è la componente lungo quel verso.
+        let y = offset.dot(curve.upAxis * -1.0) / scale
+
+        // Ciò che resta dopo aver tolto la colonna e la riga è lo scostamento lungo la normale
+        // vestibolo-linguale, cioè quanto il punto è fuori dalla superficie ricostruita.
+        //
+        // Si conta da `top`, che lo scostamento vestibolo-linguale lo contiene già: sottrarlo di
+        // nuovo qui darebbe profondità pari allo scostamento a chi sta esattamente sulla
+        // superficie che sta guardando, cioè il contrario di quel che serve.
+        return (x, y, offset.dot(sample.normal))
     }
 
     /// Lunghezza d'arco corrispondente a una colonna di pixel.

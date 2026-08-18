@@ -147,7 +147,7 @@ struct PanoramicGeometryTests {
 
     // MARK: Copertura orizzontale
 
-    @Test("Le colonne coprono tutta la curva, dal primo all'ultimo millimetro d'arco")
+    @Test("Le colonne coprono la curva a passo costante, col passo che la scala dichiara")
     func columnsSpanTheWholeCurve() {
         let layout = makeLayout()
         let width = 500
@@ -158,14 +158,27 @@ struct PanoramicGeometryTests {
             Issue.record("campioni mancanti")
             return
         }
-        #expect(abs(first.arcLengthMM) < 1e-9)
-        #expect(abs(last.arcLengthMM - layout.curve.lengthMM) < 1e-6)
+
+        // Ogni colonna campiona il **centro** della fetta d'arcata che rappresenta, quindi la
+        // prima e l'ultima stanno mezzo passo dentro i capi della curva.
+        //
+        // Prima questa prova pretendeva `0` e `lengthMM` esatti, cioè `width − 1` intervalli su
+        // `width` colonne. Sembra più preciso e non lo è: `millimetresPerPixel` divide la stessa
+        // lunghezza per `width`, e la differenza fra i due denominatori è una dilatazione
+        // orizzontale dello 0,2 % che si presentava solo a ingrandimento 1. Una prova che fissa
+        // un difetto lo protegge, e questa lo proteggeva.
+        let expectedStep = layout.curve.lengthMM / Double(width)
+        #expect(abs(first.arcLengthMM - expectedStep * 0.5) < 1e-9)
+        #expect(abs(last.arcLengthMM - (layout.curve.lengthMM - expectedStep * 0.5)) < 1e-6)
 
         // Passo costante in lunghezza d'arco: è ciò che rende leggibile una misura orizzontale.
-        let expectedStep = layout.curve.lengthMM / Double(width - 1)
         for index in 1..<samples.count {
             let step = samples[index].arcLengthMM - samples[index - 1].arcLengthMM
             #expect(abs(step - expectedStep) < 1e-6, "colonna \(index): passo \(step)")
         }
+
+        // E il passo è **quello che la barra di scala dichiara**: è l'uguaglianza che rende
+        // isotropa l'immagine, e quella che prima non valeva.
+        #expect(abs(expectedStep - layout.millimetresPerPixel(pixelWidth: width)) < 1e-12)
     }
 }

@@ -300,16 +300,34 @@ public struct ArchCurve: Hashable, Sendable, Codable {
     public func arcLength(nearestTo point: Vec3) -> Double? {
         guard isUsable else { return nil }
         let (polyline, cumulative) = densePolyline()
-        var bestIndex = 0
+        guard polyline.count >= 2 else { return cumulative.first }
+
+        // La proiezione cade **dentro il segmento**, non sul vertice più vicino.
+        //
+        // Agganciarsi al vertice quantizza il risultato al passo della poligonale, e il passo
+        // della poligonale non ha alcun rapporto con la risoluzione dell'immagine: su un panorex
+        // fitto significava che un punto preso da un pixel non tornava su quel pixel, ma su uno
+        // fino a un quarto di colonna più in là. Una misura che si posa dove non si è cliccato
+        // sembra sbagliata anche quando il numero è giusto.
+        var bestLength = cumulative[0]
         var bestDistance = Double.infinity
-        for (index, candidate) in polyline.enumerated() {
-            let distance = candidate.distance(to: point)
+
+        for index in 0..<(polyline.count - 1) {
+            let start = polyline[index]
+            let segment = polyline[index + 1] - start
+            let squared = segment.dot(segment)
+            // Un segmento di lunghezza nulla non definisce una direzione: vale il suo estremo.
+            let t = squared > 1e-18 ? min(max((point - start).dot(segment) / squared, 0), 1) : 0
+            let projected = start + segment * t
+            let distance = projected.distance(to: point)
             if distance < bestDistance {
                 bestDistance = distance
-                bestIndex = index
+                bestLength =
+                    cumulative[index] + (cumulative[index + 1] - cumulative[index]) * t
             }
         }
-        return cumulative[bestIndex]
+
+        return bestLength
     }
 
     // MARK: Curva predefinita

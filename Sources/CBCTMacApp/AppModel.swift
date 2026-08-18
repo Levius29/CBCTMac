@@ -1694,6 +1694,185 @@ final class AppModel {
 
     // MARK: Annotazioni
 
+    // MARK: - Strumenti, in ogni riquadro
+
+    // # Il difetto che questa sezione chiude
+    //
+    // I punti a metà di una misura stavano nella vista, come stato locale del riquadro. Ne
+    // seguiva che il righello funzionasse dove quello stato era stato scritto — assiale,
+    // coronale, sagittale — e non altrove: sulla panorex e sulle sezioni trasversali nessuno
+    // l'aveva messo, e all'uso si presentava come «gli strumenti funzionano solo in alcuni
+    // riquadri». Non era una scelta di progetto, era un'assenza.
+    //
+    // Adesso i punti stanno qui, in millimetri Patient. Qualunque vista sappia convertire un
+    // clic in millimetri può guidare lo stesso strumento, e una vista nuova ne eredita il
+    // comportamento senza riscriverlo.
+
+    /// Punti già posati dallo strumento attivo.
+    var toolSession = ToolSession()
+
+    /// Forma che lo strumento attivo chiede, con la variante corrente.
+    var activeToolShape: ToolShape {
+        switch activeTool {
+        case .navigate, .archCurve:
+            return .singlePoint
+        case .distance:
+            return toolVariant == "polyline" || toolVariant == "perimeter"
+                ? .openPolyline : .twoPoints
+        case .angle:
+            return toolVariant == "lines" ? .fourPoints : .threePoints
+        case .ellipseROI, .sphereROI:
+            return .twoPoints
+        case .text, .implant, .nerve:
+            return .singlePoint
+        }
+    }
+
+    /// Un clic su un riquadro qualsiasi, già convertito in millimetri Patient.
+    ///
+    /// - Parameters:
+    ///   - pointMM: il punto cliccato, in millimetri Patient.
+    ///   - anchor: il piano del riquadro, quando ne ha uno. Serve a orientare le ellissi e a
+    ///     decidere su quali fette la misura resterà visibile. Un riquadro che non ha un piano
+    ///     piatto — la panorex, che è una superficie curva — passa `nil`, e la misura vale
+    ///     ovunque invece di legarsi a un piano che non esiste.
+    func applyToolClick(at pointMM: Vec3, anchor: ToolAnchor? = nil) {
+        toolSession.prepare(for: activeToolShape)
+
+        switch activeTool {
+        case .navigate, .archCurve:
+            // Anche con lo strumento arcata in mano, un clic fuori dall'assiale sposta il mirino:
+            // è così che si sceglie la fetta su cui posare i punti, guardando la cresta di
+            // profilo. La posa dei punti la gestisce il riquadro assiale, prima di arrivare qui.
+            moveCrosshair(to: pointMM)
+
+        case .distance:
+            guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
+            switch toolVariant {
+            case "polyline", "perimeter":
+                addAnnotation(makePolyline(points, closed: toolVariant == "perimeter"))
+            default:
+                addAnnotation(
+                    .distance(
+                        DistanceMeasurement(
+                            metadata: AnnotationMetadata(
+                                colorHex: "#32B8C6",
+                                referencePlane: toolSession.anchor?.planeReference),
+                            startMM: points[0], endMM: points[1])))
+            }
+
+        case .angle:
+            guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
+            let metadata = AnnotationMetadata(
+                colorHex: "#FFD426", referencePlane: toolSession.anchor?.planeReference)
+            if points.count == 4 {
+                addAnnotation(
+                    .lineAngle(
+                        LineAngleMeasurement(
+                            metadata: metadata,
+                            firstStartMM: points[0], firstEndMM: points[1],
+                            secondStartMM: points[2], secondEndMM: points[3])))
+            } else {
+                addAnnotation(
+                    .angle(
+                        AngleMeasurement(
+                            metadata: metadata,
+                            vertexMM: points[0],
+                            firstArmMM: points[1], secondArmMM: points[2])))
+            }
+
+        case .ellipseROI:
+            guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
+            addAnnotation(.ellipseROI(makeEllipse(from: points[0], to: points[1])))
+
+        case .sphereROI:
+            guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
+            let radius = points[0].distance(to: points[1])
+            guard radius > 0 else { return }
+            addAnnotation(
+                .sphereROI(
+                    SphereROI(
+                        metadata: AnnotationMetadata(colorHex: "#FFD426"),
+                        centerMM: points[0], radiusMM: radius)))
+
+        case .text:
+            guard toolSession.add(pointMM, anchor: anchor) != nil else { return }
+            addAnnotation(
+                .text(
+                    TextNote(
+                        metadata: AnnotationMetadata(
+                            referencePlane: toolSession.anchor?.planeReference),
+                        anchorMM: pointMM,
+                        text: "Nota")))
+
+        case .implant:
+            // L'asse predefinito è verticale verso il basso. Su una cresta inclinata andrà
+            // corretto, ma partire dalla verticale è più prevedibile che indovinare
+            // un'inclinazione dalla vista corrente.
+            toolSession.cancel()
+            addImplant(at: pointMM)
+
+        case .nerve:
+            toolSession.cancel()
+            if tracingNerveID == nil {
+                // Il lato si deduce dal segno di L: destra del paziente è x negativo in LPS.
+                beginTracingNerve(side: pointMM.x < 0 ? .right : .left)
+            }
+            addNerveNode(at: pointMM)
+        }
+    }
+
+    /// Doppio clic: chiude ciò che non si chiude da sé.
+    ///
+    /// - Returns: `true` se c'era qualcosa da chiudere. Chi chiama lo usa per **non** interpretare
+    ///   lo stesso doppio clic anche come ingrandimento del riquadro.
+    @discardableResult
+    func closeToolSession() -> Bool {
+        guard activeTool == .distance, activeToolShape == .openPolyline else {
+            let hadPoints = !toolSession.isEmpty
+            toolSession.cancel()
+            return hadPoints
+        }
+        guard let points = toolSession.close() else { return false }
+        addAnnotation(makePolyline(points, closed: toolVariant == "perimeter"))
+        return true
+    }
+
+    /// Esc: annulla la misura in corso senza toccare quelle già poste.
+    func cancelToolSession() {
+        guard !toolSession.isEmpty else { return }
+        toolSession.cancel()
+        lastActionMessage = "Misura annullata"
+    }
+
+    private func makePolyline(_ pointsMM: [Vec3], closed: Bool) -> Annotation {
+        .polyline(
+            PolylineMeasurement(
+                metadata: AnnotationMetadata(
+                    colorHex: "#32B8C6", referencePlane: toolSession.anchor?.planeReference),
+                pointsMM: pointsMM,
+                isClosed: closed))
+    }
+
+    /// Ellisse inscritta nel rettangolo definito dai due punti, sul piano dove è cominciata.
+    ///
+    /// Gli assi vengono dall'ancoraggio del **primo** punto: un'ellisse posata a cavallo di due
+    /// riquadri prende l'orientamento da dove è cominciata, non da dove si chiude.
+    private func makeEllipse(from start: Vec3, to end: Vec3) -> EllipseROI {
+        let right = toolSession.anchor?.rightMM ?? Vec3(1, 0, 0)
+        let down = toolSession.anchor?.downMM ?? Vec3(0, 1, 0)
+        let diagonal = end - start
+        let spacing = volume?.geometry.spacingMM ?? Vec3(1, 1, 1)
+
+        return EllipseROI(
+            metadata: AnnotationMetadata(
+                colorHex: "#4FCB6B", referencePlane: toolSession.anchor?.planeReference),
+            centerMM: start.lerp(to: end, t: 0.5),
+            semiAxisAMM: right * (diagonal.dot(right) * 0.5),
+            semiAxisBMM: down * (diagonal.dot(down) * 0.5),
+            thicknessMM: max(spacing.x, max(spacing.y, spacing.z)))
+    }
+
     func addAnnotation(_ annotation: Annotation) {
         annotations.append(annotation)
         selectedAnnotationID = annotation.id

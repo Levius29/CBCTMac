@@ -110,7 +110,29 @@ public struct VolumeMask: Sendable {
     /// Etichetta riservata ai voxel non selezionati.
     public static let background: SegmentLabel = 0
     /// Limite oltre il quale la costruzione rifiuta invece di allocare.
-    public static let maximumVoxelCount = 400_000_000
+    ///
+    /// # Perché non è più un numero scritto a mano
+    ///
+    /// Era 400 milioni, cioè 400 MB di maschera. Una CBCT dentale a campo grande — 748 × 748 ×
+    /// 733, quindici centimetri a 0,2 mm, un esame del tutto ordinario — ne conta 410, e la
+    /// riduzione delle strie si rifiutava di partire proprio sul genere di esame per cui esiste.
+    /// Un numero deciso a tavolino non sa quanta memoria ha la macchina su cui gira, e sbaglia
+    /// in tutt'e due i versi: troppo basso su un Mac da 64 GB, troppo alto su uno da 8.
+    ///
+    /// La regola adesso è: la maschera può occupare al più **un sedicesimo** della memoria
+    /// fisica. Un sedicesimo e non un ottavo perché la maschera non viaggia mai da sola — la
+    /// catena della riduzione tiene insieme il volume originale in `Int16`, la maschera, la sua
+    /// copia per la morfologia e il volume corretto, e a un byte per voxel la maschera è la più
+    /// leggera delle quattro.
+    ///
+    /// Restano un pavimento e un soffitto. Il pavimento è il vecchio limite, perché nessuna
+    /// macchina deve poter fare **meno** di prima; il soffitto tiene lontano il punto in cui
+    /// un'aritmetica a 32 bit altrove diventerebbe un rischio.
+    public static let maximumVoxelCount: Int = {
+        let physical = ProcessInfo.processInfo.physicalMemory
+        let share = Int(min(physical / 16, UInt64(Int.max)))
+        return min(max(share, 400_000_000), 4_000_000_000)
+    }()
 
     /// Geometria condivisa con il volume cui la maschera si applica.
     public let geometry: VolumeGeometry
