@@ -141,9 +141,28 @@ struct ReformatSheet: View {
                         volumeTexture: model.volumeTexture,
                         renderer: model.mprRenderer,
                         windowLevel: model.windowLevel,
+                        onScroll: { steps in
+                            // Scorrere le fette **mentre** si sceglie il riquadro: senza, si
+                            // decideva il ritaglio guardando una fetta di mezzo fissa, cioè
+                            // controllando su un piano solo se il riquadro comprende ciò che
+                            // deve comprendere.
+                            scrollPreview(anatomical, by: steps, geometry: geometry)
+                        },
+                        // Queste anteprime scelgono un riquadro, non esplorano il volume: sono
+                        // inquadrate sull'intero volume di proposito, perché il riquadro va visto
+                        // rispetto a tutto ciò che c'è. Da qui le omissioni, che sono scelte.
+                        //
+                        // gesto-non-richiesto: onZoom — l'inquadratura completa è il punto
+                        // gesto-non-richiesto: onPan — idem
+                        // gesto-non-richiesto: onRotate — il ritaglio è allineato agli assi
+                        // gesto-non-richiesto: onClick — nulla da selezionare
+                        // gesto-non-richiesto: onDoubleClick — nessun riquadro da ingrandire
+                        // gesto-non-richiesto: onHover — la lettura di densità sta nel visore
+                        // gesto-non-richiesto: onCancel — non c'è misura in corso da annullare
                         onDrag: { point, _ in
                             dragCropBox(to: point, anatomical: anatomical, geometry: geometry)
                         },
+                        onWindowLevelDrag: { model.adjustWindowLevel(byDelta: $0) },
                         onDragBegan: { point in
                             grabCropBox(at: point, anatomical: anatomical, geometry: geometry)
                         },
@@ -172,8 +191,31 @@ struct ReformatSheet: View {
     /// Deliberatamente non segue il mirino né lo zoom dei riquadri principali. Qui si sceglie una
     /// regione **rispetto al volume intero**, e mostrarne una porzione già ingrandita renderebbe
     /// impossibile capire quanto si sta tagliando.
+    /// Quanto la fetta di anteprima è scostata dal centro, per ciascuna vista.
+    @State private var previewOffsetMM: [AnatomicalPlane: Double] = [:]
+
     private func previewPlane(_ anatomical: AnatomicalPlane, geometry: VolumeGeometry) -> MPRPlane {
-        MPRPlane.fitted(plane: anatomical, geometry: geometry)
+        var plane = MPRPlane.fitted(plane: anatomical, geometry: geometry)
+        if let offset = previewOffsetMM[anatomical], offset != 0 {
+            plane.centerMM = plane.centerMM + plane.normalMM * offset
+        }
+        return plane
+    }
+
+    /// Sposta la fetta di anteprima lungo la propria normale, restando dentro il volume.
+    ///
+    /// Il limite non è prudenza: uscendo dal volume il riquadro mostrerebbe nero, e chi sta
+    /// scegliendo un ritaglio penserebbe di aver sbagliato il riquadro invece della fetta.
+    private func scrollPreview(
+        _ anatomical: AnatomicalPlane, by steps: Double, geometry: VolumeGeometry
+    ) {
+        let spacing = geometry.spacingMM
+        let step = max(min(spacing.x, min(spacing.y, spacing.z)), 0.05)
+        let size = geometry.physicalSizeMM
+        let halfExtent = max(size.x, max(size.y, size.z)) / 2
+
+        let current = previewOffsetMM[anatomical] ?? 0
+        previewOffsetMM[anatomical] = min(max(current + steps * step, -halfExtent), halfExtent)
     }
 
     // MARK: Comandi

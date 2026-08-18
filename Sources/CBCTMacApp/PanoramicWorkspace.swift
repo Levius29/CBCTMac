@@ -51,6 +51,12 @@ struct PanoramicViewportView: NSViewRepresentable {
     var onDragMoved: (Double, Double) -> Void = { _, _ in }
     /// Ingrandimento: fattore e pixel orizzontale su cui ancorarlo.
     var onZoom: (Double, Double, Int) -> Void = { _, _, _ in }
+    /// Trascinamento col tasto destro: finestra e livello.
+    ///
+    /// Mancava, e il tasto destro sulla panorex non faceva nulla mentre nei riquadri ortogonali
+    /// regolava il contrasto. Lo stesso gesto deve fare la stessa cosa ovunque, altrimenti chi lo
+    /// prova conclude che il programma è incoerente — e ha ragione.
+    var onWindowLevelDrag: (CGSize) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -115,6 +121,7 @@ struct PanoramicViewportView: NSViewRepresentable {
                     pixelWidth: width, pixelHeight: height))
         }
         view.onDoubleClick = { onDoubleClick() }
+        view.onWindowLevelDrag = { onWindowLevelDrag($0) }
 
         // La rotella **sfoglia l'arcata in profondità**, vestibolo-linguale.
         //
@@ -524,7 +531,8 @@ struct PanoramicWorkspace: View {
                 onDragMoved: moveCutLine,
                 onZoom: { factor, x, width in
                     model.zoomPanoramic(by: factor, atPixelX: x, pixelWidth: width)
-                }
+                },
+                onWindowLevelDrag: { model.adjustWindowLevel(byDelta: $0) }
             )
 
             // Misure sulla panorex: quelle già poste e quella in corso.
@@ -898,7 +906,22 @@ struct CrossSectionCell: View {
                         model.dragImplant(toMM: patient)
                     }
                 },
+                // gesto-non-richiesto: onPan — una sezione è centrata sulla curva per
+                // costruzione, e spostarla lateralmente la porterebbe via dal dente che si sta
+                // guardando. Per vedere più campo si allarga l'ingrandimento della striscia.
+                onRotate: { delta in
+                    // ⇧ trascinamento orizzontale inclina il taglio, come sulla linea del
+                    // panorex. È lo stesso parametro, e si regola **guardando la sezione**, cioè
+                    // nel momento in cui ci si accorge che il taglio è di sbieco rispetto al
+                    // dente. Prima si poteva solo dal panorex, dove quell'inclinazione non si
+                    // vede.
+                    model.crossSectionAngleOffset += Double(delta.width) * 0.004
+                },
+                onWindowLevelDrag: { model.adjustWindowLevel(byDelta: $0) },
                 onClick: handleClick,
+                onHover: { point in
+                    model.updateHover(atPatient: point.flatMap { patientPoint(at: $0) })
+                },
                 onDoubleClick: { model.closeToolSession() },
                 onDragBegan: { point in
                     guard let grabbed = patientPoint(at: point) else { return }

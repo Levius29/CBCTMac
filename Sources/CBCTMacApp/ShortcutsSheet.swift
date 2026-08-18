@@ -85,6 +85,8 @@ struct ShortcutsSheet: View {
             ("Trascina", "Percorre l'arcata e sposta la quota"),
             ("Rotella su una sezione", "Scorre la striscia delle sezioni"),
             ("Pinch su una sezione", "Allarga il campo mostrato da ogni sezione"),
+            ("⇧ Trascina su una sezione", "Inclina il taglio, guardandone l'effetto"),
+            ("Tasto destro", "Finestra e livello, qui come in ogni riquadro"),
         ]
     }
 

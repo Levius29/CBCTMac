@@ -2010,6 +2010,35 @@ final class AppModel {
         }
     }
 
+    /// Regola finestra e livello da un trascinamento col tasto destro.
+    ///
+    /// Convenzione radiologica diffusa: orizzontale regola l'ampiezza, verticale il livello.
+    ///
+    /// Sta nel modello e non in una vista perché **ogni** riquadro deve regolarla allo stesso
+    /// modo. Stava in `ViewportGrid`, quindi esisteva solo lì: sulle sezioni trasversali e sulla
+    /// panorex il tasto destro non faceva nulla, ed è proprio guardando una sezione che si
+    /// aggiusta il contrasto per giudicare una corticale.
+    func adjustWindowLevel(byDelta delta: CGSize) {
+        var adjusted = windowLevel
+        adjusted.width = max(1, adjusted.width + Double(delta.width) * 4)
+        adjusted.level += Double(-delta.height) * 4
+        windowLevel = adjusted
+    }
+
+    /// Aggiorna la lettura sotto il puntatore.
+    ///
+    /// Campionamento **nearest** sui dati di CPU, come prescrive il Contratto 3: il valore
+    /// mostrato è un valore realmente presente nel volume, non una media fra vicini.
+    func updateHover(atPatient pointMM: Vec3?) {
+        guard let pointMM else {
+            hoverPositionMM = nil
+            hoverDensity = nil
+            return
+        }
+        hoverPositionMM = pointMM
+        hoverDensity = volume?.densityValue(atPatient: pointMM)
+    }
+
     /// Se il volume aperto è il fantoccio sintetico di riferimento.
     ///
     /// Serve alla verifica di accuratezza, che confronta con grandezze note: su una CBCT di un

@@ -490,10 +490,26 @@ struct ViewportContainer: View {
     private func handleDragBegan(_ pixelPoint: CGPoint) {
         crosshairDrag = nil
         archDragIndex = nil
-        guard model.workMode.isEditable else { return }
-
         twoPointDrag = nil
 
+        // # Che cosa vale in sola lettura
+        //
+        // Il guard sul modo modificabile stava **qui in cima** e comprendeva tutto, mirino
+        // incluso: in «Rivedi» non si poteva nemmeno cambiare fetta trascinando una linea.
+        // Navigare non è modificare. Da qui in giù stanno le prese che toccano il piano, e
+        // quelle sì valgono solo dove si può modificarlo; il mirino sta in fondo e vale sempre.
+        if model.workMode.isEditable {
+            if beginPlanDrag(at: pixelPoint) { return }
+        }
+
+        // Mirino, in qualunque modo di lavoro.
+        guard model.activeTool == .navigate, let point = overlayPoint(fromPixel: pixelPoint)
+        else { return }
+        beginCrosshairDrag(at: point)
+    }
+
+    /// Prova ad afferrare qualcosa che appartiene al piano. Restituisce vero se ci riesce.
+    private func beginPlanDrag(at pixelPoint: CGPoint) -> Bool {
         // Le maniglie delle misure e i nodi dei nervi vengono per primi: sono più piccoli di un
         // impianto e stanno spesso sopra di esso, quindi dando la precedenza all'impianto
         // resterebbero irraggiungibili. Valgono con qualunque strumento in mano, perché
@@ -502,7 +518,7 @@ struct ViewportContainer: View {
             model.beginHandleDrag(at: patient, toleranceMM: grabToleranceMM)
         {
             model.focusedSlot = slot
-            return
+            return true
         }
 
         // Un impianto afferrato viene prima di tutto il resto: chi preme sul corpo di un impianto
@@ -514,7 +530,27 @@ struct ViewportContainer: View {
             model.beginImplantDrag(at: patient, toleranceMM: grabToleranceMM)
         {
             model.focusedSlot = slot
-            return
+            return true
+        }
+
+        // La mano libera: mentre si disegna un contorno il trascinamento **è** il disegno, e non
+        // deve significare anche pan o presa del mirino.
+        if model.activeTool == .freehand {
+            model.focusedSlot = slot
+            if let patient = patientPoint(atPixel: pixelPoint) {
+                model.appendFreehandPoint(at: patient, anchor: toolAnchor())
+            }
+            return true
+        }
+
+        // La curva prima della misura: un punto d'arcata afferrato è ciò che si vuole spostare,
+        // e con un righello in mano il trascinamento a due punti gli passava davanti — si posava
+        // una misura invece di muovere il punto.
+        if isEditingArch, let plane = adjustedPlane {
+            archDragIndex = ArchCurveOverlay.nearestControl(
+                in: model.archCurve, to: pixelPoint, plane: plane,
+                width: Int(pixelSize.width), height: Int(pixelSize.height))
+            if archDragIndex != nil { return true }
         }
 
         // Uno strumento a due punti con la sessione vuota: si annota la pressione e **non** si
@@ -523,29 +559,14 @@ struct ViewportContainer: View {
         // `onClick`, che è la via giusta per chi mira invece di trascinare.
         if model.activeToolShape == .twoPoints, model.toolSession.isEmpty {
             twoPointDrag = (pixelPoint, pixelPoint)
+            return true
         }
 
-        // La mano libera viene prima di tutto: mentre si disegna un contorno, il trascinamento è
-        // il disegno e non deve significare anche pan o presa del mirino.
-        if model.activeTool == .freehand {
-            model.focusedSlot = slot
-            if let patient = patientPoint(atPixel: pixelPoint) {
-                model.appendFreehandPoint(at: patient, anchor: toolAnchor())
-            }
-            return
-        }
+        return false
+    }
 
-        // La curva viene prima del mirino: quando si sta disegnando l'arcata, i suoi punti sono
-        // ciò che si vuole afferrare, e il mirino può aspettare.
-        if isEditingArch, let plane = adjustedPlane {
-            archDragIndex = ArchCurveOverlay.nearestControl(
-                in: model.archCurve, to: pixelPoint, plane: plane,
-                width: Int(pixelSize.width), height: Int(pixelSize.height))
-            if archDragIndex != nil { return }
-        }
-
-        guard model.activeTool == .navigate, let point = overlayPoint(fromPixel: pixelPoint)
-        else { return }
+    /// Decide quale linea del mirino si è afferrata, e come.
+    private func beginCrosshairDrag(at point: PixelPoint) {
 
         // La più vicina fra tutte, non la prima che risponde: vicino all'incrocio le due linee
         // sono entrambe a portata, e prendere la prima dell'elenco significherebbe afferrare
@@ -693,22 +714,10 @@ struct ViewportContainer: View {
     }
 
     private func handleWindowLevelDrag(_ delta: CGSize) {
-        // Convenzione radiologica diffusa: orizzontale regola l'ampiezza, verticale il livello.
-        var wl = model.windowLevel
-        wl.width = max(1, wl.width + Double(delta.width) * 4)
-        wl.level += Double(-delta.height) * 4
-        model.windowLevel = wl
+        model.adjustWindowLevel(byDelta: delta)
     }
 
     private func handleHover(_ point: CGPoint?) {
-        guard let point, let patient = patientPoint(atPixel: point) else {
-            model.hoverPositionMM = nil
-            model.hoverDensity = nil
-            return
-        }
-        model.hoverPositionMM = patient
-        // Campionamento nearest sui dati di CPU: il valore mostrato è un valore realmente
-        // presente nel volume, non una media fra vicini.
-        model.hoverDensity = model.volume?.densityValue(atPatient: patient)
+        model.updateHover(atPatient: point.flatMap { patientPoint(atPixel: $0) })
     }
 }
