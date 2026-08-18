@@ -129,6 +129,7 @@ struct ShortcutsSheet: View {
             ("⇧⌘D", "Raddrizza sul piano occlusale"),
             ("⇧⌘M", "Riduci le strie da metallo"),
             ("⇧⌘V", "Verifica di accuratezza sul fantoccio"),
+            ("⇧⌘I", "Importa una scansione intraorale"),
             ("⇧⌘O", "Apri un piano salvato"),
             ("⌫", "Cancella la misura selezionata"),
             ("Esc", "Annulla la misura che stai posando"),

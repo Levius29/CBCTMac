@@ -1,4 +1,5 @@
 import AppKit
+import MeshKit
 import StudyKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -84,6 +85,15 @@ struct CBCTMacApp: App {
                 Button("Verifica di accuratezza…") { model.isShowingVerification = true }
                     .keyboardShortcut("v", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)
+
+                Divider()
+
+                Button("Importa scansione intraorale…") { importScan() }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+                    .disabled(model.volume == nil)
+
+                Button("Registra la scansione…") { model.isShowingScanRegistration = true }
+                    .disabled(model.scan == nil)
 
                 Divider()
 
@@ -182,6 +192,33 @@ struct CBCTMacApp: App {
     }
 
     @MainActor
+    /// Importa una superficie da file. STL, PLY e OBJ, riconosciuti dal contenuto.
+    ///
+    /// La lettura sta fuori dal thread dell'interfaccia: un STL di uno scanner intraorale ha
+    /// centinaia di migliaia di triangoli, e leggerlo sul main actor congelerebbe la finestra
+    /// per il tempo che ci vuole.
+    private func importScan() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = "Scegli la scansione intraorale (STL, PLY o OBJ)."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                Result { try MeshIO.load(url: url) }
+            }.value
+
+            switch outcome {
+            case .success(let mesh):
+                model.adoptScan(mesh)
+            case .failure(let error):
+                model.lastActionMessage =
+                    (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
+        }
+    }
+
     private func openPlan() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]

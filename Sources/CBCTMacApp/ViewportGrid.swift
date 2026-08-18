@@ -202,6 +202,12 @@ struct ViewportContainer: View {
                         slot: slot,
                         plane: model.planes[slot])
 
+                    // Il contorno della scansione sopra l'anatomia: è così che si giudica una
+                    // registrazione, guardando se segue lo smalto.
+                    if model.isScanVisible, model.scan != nil {
+                        ScanContourOverlay(model: model, slot: slot)
+                    }
+
                     // Le etichette per ultime, sopra tutti i disegni: sono ciò che si legge, e
                     // una linea che ci passa sopra le rende illeggibili. Vedi `LabelOverlay` per
                     // il motivo per cui stanno tutte in un solo strato.

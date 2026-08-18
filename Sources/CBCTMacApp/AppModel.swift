@@ -3,6 +3,7 @@ import DICOMCore
 import DentalKit
 import ImplantKit
 import MeasureKit
+import MeshKit
 import Metal
 import StudyKit
 import Observation
@@ -1668,6 +1669,7 @@ final class AppModel {
     /// sarebbe più semplice e sbagliato: annullerebbe la panoramica dell'utente ogni volta che
     /// sposta il mirino in un'altra vista, e l'immagine salterebbe.
     private func syncPlanesToCrosshair() {
+        defer { rebuildScanContours() }
         for (slot, plane) in planes {
             let n = plane.normalMM
             let delta = (crosshairMM - plane.centerMM).dot(n)
@@ -2039,6 +2041,107 @@ final class AppModel {
         hoverDensity = volume?.densityValue(atPatient: pointMM)
     }
 
+    // MARK: - Scansione intraorale
+
+    /// La superficie importata, nel proprio sistema di riferimento.
+    private(set) var scan: Mesh?
+    /// Trasformazione che la porta nello spazio Patient. Identità finché non si registra.
+    private(set) var scanTransform: Transform3D = .identity
+    /// Esito dell'ultima registrazione, con lo scarto.
+    private(set) var scanRegistration: ScanRegistrationOutcome?
+    /// Coppie di punti corrispondenti indicate a mano.
+    var scanLandmarks: [LandmarkPair] = []
+    var isScanVisible = true
+
+    /// Contorno della scansione su ciascun riquadro, in millimetri Patient.
+    ///
+    /// Si ricalcola quando i piani cambiano, **non** a ogni ridisegno: intersecare centomila
+    /// triangoli è lavoro da qualche millisecondo, trascurabile una volta per movimento del
+    /// mirino e insostenibile sessanta volte al secondo.
+    private(set) var scanContours: [ViewportSlot: [[Vec3]]] = [:]
+
+    /// Importa una superficie e la mostra dov'è, senza registrarla.
+    ///
+    /// Senza registrazione la scansione sta dove la mette il suo file, che non ha nulla a che
+    /// vedere con lo spazio del paziente: comparirà lontana dall'anatomia, ed è giusto che sia
+    /// evidente. Fingere un allineamento plausibile sarebbe peggio — chi lo vede quasi giusto
+    /// smette di registrare.
+    func adoptScan(_ mesh: Mesh) {
+        scan = mesh
+        scanTransform = .identity
+        scanRegistration = nil
+        scanLandmarks = []
+        rebuildScanContours()
+        lastActionMessage =
+            "Scansione «\(mesh.name)» importata: \(mesh.triangles.count) triangoli. "
+            + "Va registrata prima di poterla usare."
+    }
+
+    func removeScan() {
+        scan = nil
+        scanTransform = .identity
+        scanRegistration = nil
+        scanLandmarks = []
+        scanContours = [:]
+    }
+
+    /// Registra la scansione sul volume, usando le coppie di punti indicate.
+    ///
+    /// - Parameter regionMM: la zona in cui estrarre la superficie ossea di riferimento. Va
+    ///   scelta sui denti **sani e senza metallo**: attorno a una corona la superficie estratta
+    ///   non è quella del dente, è quella di un artefatto, e la registrazione risulterebbe
+    ///   precisa rispetto a qualcosa che non esiste.
+    func registerScan(inRegionMM regionMM: (min: Vec3, max: Vec3), thresholdGV: Double) {
+        guard let scan, let volume else { return }
+        guard scanLandmarks.count >= 3 else {
+            lastActionMessage = "Servono almeno tre coppie di punti corrispondenti."
+            return
+        }
+
+        let targets = VolumeSurface.points(
+            in: volume,
+            extraction: SurfaceExtraction(
+                minMM: regionMM.min, maxMM: regionMM.max, thresholdGV: thresholdGV))
+        guard !targets.isEmpty else {
+            lastActionMessage =
+                "Nessuna superficie trovata in quella zona con questa soglia. Abbassala, oppure "
+                + "scegli una zona che contenga dello smalto."
+            return
+        }
+
+        do {
+            let outcome = try ScanRegistration.register(
+                scan: scan, landmarks: scanLandmarks, targetPoints: targets)
+            scanTransform = outcome.transform
+            scanRegistration = outcome
+            rebuildScanContours()
+            lastActionMessage = String(
+                format: "Registrata: scarto %.2f mm su %d punti — %@",
+                outcome.surfaceRMSMM, outcome.surfacePointCount,
+                outcome.quality.localizedName)
+        } catch {
+            lastActionMessage =
+                (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    /// Ricalcola il contorno della scansione su ogni riquadro ortogonale.
+    func rebuildScanContours() {
+        guard let scan, isScanVisible else {
+            scanContours = [:]
+            return
+        }
+        let placed = scan.transformed(by: scanTransform)
+        var contours: [ViewportSlot: [[Vec3]]] = [:]
+        for (slot, plane) in planes where slot.anatomicalPlane != nil {
+            let contour = MeshSlicer.contour(
+                of: placed, planeOriginMM: plane.centerMM, planeNormalMM: plane.normalMM,
+                toleranceMM: 1e-4)
+            if !contour.loops.isEmpty { contours[slot] = contour.loops }
+        }
+        scanContours = contours
+    }
+
     /// Se il volume aperto è il fantoccio sintetico di riferimento.
     ///
     /// Serve alla verifica di accuratezza, che confronta con grandezze note: su una CBCT di un
@@ -2051,6 +2154,8 @@ final class AppModel {
 
     /// Finestra della verifica di accuratezza. Vedi `VerificationSheet`.
     var isShowingVerification = false
+    /// Finestra della registrazione della scansione. Vedi `ScanRegistrationSheet`.
+    var isShowingScanRegistration = false
 
     /// Come si sta misurando adesso: voxel, spessore attraversato, natura della vista.
     ///

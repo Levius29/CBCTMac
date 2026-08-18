@@ -367,7 +367,12 @@ private struct ColorDot: View {
 /// a passi di un decimo e le lunghezze a mezzo millimetro, e un campo libero invita a scrivere
 /// misure che nessun produttore fabbrica. Le frecce muovono sulla griglia giusta; il valore resta
 /// selezionabile per chi vuole leggerlo, non per chi vuole inventarlo.
-private struct SteppedValue: View {
+/// Un valore con due frecce per cambiarlo a passi esatti.
+///
+/// Non più privato di questo file: la finestra di registrazione ha lo stesso bisogno — un raggio
+/// e una soglia da regolare con precisione — e riscriverlo lì sarebbe la stessa cosa con un nome
+/// diverso, cioè due comportamenti destinati a divergere.
+struct SteppedValue: View {
 
     let label: String
     let value: Double
