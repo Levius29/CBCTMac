@@ -1131,37 +1131,42 @@ struct PanoramicMeasureOverlay: View {
 
     /// I vertici che vale la pena disegnare su una superficie curva.
     ///
-    /// Le ROI restano fuori: un'ellisse è definita su un piano, e stirarla su una ricostruzione
-    /// curva la disegnerebbe dove non è. Il suo centro invece è un punto, e mostrarlo dice dove
-    /// sta senza affermare una forma che qui non ha.
+    /// La base è `Annotation.handlesMM`, che ogni annotazione dichiara già. Qui c'era invece uno
+    /// `switch` a undici rami che rifaceva lo stesso lavoro a mano, e che infatti sbagliava:
+    /// chiedeva a una freccia `startMM` ed `endMM` quando i suoi punti si chiamano `tipMM` e
+    /// `tailMM`. Riderivare un'informazione che il tipo già espone non è solo lavoro in più — è
+    /// lavoro che diverge, e a ogni annotazione nuova diverge di un ramo.
+    ///
+    /// Restano tre eccezioni, e sono decisioni di **disegno**, non ripetizioni:
+    ///
+    /// - Le ROI danno solo il centro. Un'ellisse è definita su un piano, e le sue maniglie sono
+    ///   gli estremi dei semiassi: stirarle su una ricostruzione curva disegnerebbe una forma
+    ///   che lì non esiste. Il centro invece è un punto, e dice dove sta senza affermare altro.
+    /// - Le forme chiuse ripetono il primo punto in coda, perché `handlesMM` elenca i vertici e
+    ///   non il percorso: senza, un perimetro comparirebbe aperto proprio dove è chiuso.
+    /// - L'angolo fra rette dà la sola prima retta. Le due rette non si toccano, e unirne i
+    ///   quattro punti in un tratto solo disegnerebbe un segmento fra due rette che non c'è.
     private func vertices(of annotation: Annotation) -> [Vec3] {
+        func closingLoop(_ points: [Vec3]) -> [Vec3] {
+            guard points.count > 2, let first = points.first else { return points }
+            return points + [first]
+        }
+
         switch annotation {
-        case .distance(let measurement):
-            return [measurement.startMM, measurement.endMM]
-        case .polyline(let measurement):
-            return measurement.isClosed && measurement.pointsMM.count > 2
-                ? measurement.pointsMM + [measurement.pointsMM[0]]
-                : measurement.pointsMM
-        case .angle(let measurement):
-            return [measurement.firstArmMM, measurement.vertexMM, measurement.secondArmMM]
-        case .lineAngle(let measurement):
-            return [measurement.firstStartMM, measurement.firstEndMM]
-        case .freehand(let path):
-            return path.isClosed && path.pointsMM.count > 2
-                ? path.pointsMM + [path.pointsMM[0]] : path.pointsMM
-        case .polygonROI(let roi):
-            return roi.verticesMM.count > 2
-                ? roi.verticesMM + [roi.verticesMM[0]] : roi.verticesMM
         case .ellipseROI(let roi):
             return [roi.centerMM]
         case .sphereROI(let roi):
             return [roi.centerMM]
-        case .text(let note):
-            return [note.anchorMM]
-        case .arrow(let arrow):
-            return [arrow.startMM, arrow.endMM]
-        case .profileLine(let line):
-            return [line.startMM, line.endMM]
+        case .polygonROI(let roi):
+            return closingLoop(roi.verticesMM)
+        case .polyline(let measurement) where measurement.isClosed:
+            return closingLoop(measurement.pointsMM)
+        case .freehand(let path) where path.isClosed:
+            return closingLoop(path.pointsMM)
+        case .lineAngle(let measurement):
+            return [measurement.firstStartMM, measurement.firstEndMM]
+        default:
+            return annotation.handlesMM
         }
     }
 }
