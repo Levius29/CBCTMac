@@ -62,6 +62,22 @@ struct ToolPalette: View {
                 .foregroundStyle(Palette.accent)
                 .disabled(model.volume == nil)
                 .help("Cerca l'arcata alla quota del mirino. Se non la trova, lo dice.")
+
+                // ⌥ clic cancella un punto, e nessuno lo scopre da solo. Il pulsante fa la stessa
+                // cosa sul punto scelto, e sta acceso solo quando c'è un punto scelto — così dice
+                // anche *che* un punto si può scegliere.
+                Button {
+                    model.removeSelectedArchPoint()
+                } label: {
+                    Label("Togli il punto scelto", systemImage: "minus.circle")
+                        .font(Typography.label)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(
+                    model.selectedArchPointIndex == nil ? Palette.textSecondary : Palette.danger)
+                .disabled(model.selectedArchPointIndex == nil)
+                .help("Fai prima clic sul punto da togliere. Equivale a ⌥ clic sul punto.")
             }
 
             if let hint = model.activeTool.hint {

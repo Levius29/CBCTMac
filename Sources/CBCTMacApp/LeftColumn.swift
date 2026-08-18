@@ -163,6 +163,10 @@ struct AdjustmentsPanel: View {
 
             Divider().overlay(Palette.separator)
 
+            TiltControls(model: model)
+
+            Divider().overlay(Palette.separator)
+
             LabeledControl("Risoluzione") {
                 Picker("", selection: $model.mprResolution) {
                     ForEach(MPRResolution.allCases) { resolution in
@@ -400,5 +404,98 @@ private struct WindowTile: View {
         }
         .buttonStyle(.plain)
         .help(name)
+    }
+}
+
+// MARK: - Inclinazione del taglio
+
+/// Inclinare il taglio senza trascinare.
+///
+/// # Perché un pulsante accanto a un gesto che già c'è
+///
+/// L'inclinazione si fa afferrando una maniglia del mirino, ed è il modo giusto quando si cerca
+/// un angolo guardando l'anatomia. Non è il modo giusto in altri due casi, ed entrambi capitano:
+///
+/// - quando serve un angolo **preciso e ripetibile** — cinque gradi, poi altri cinque — che
+///   trascinando non si ottiene se non per tentativi;
+/// - quando la maniglia **non c'è**, perché ingranditi su un molare il mirino è spesso fuori dal
+///   riquadro e non c'è niente da afferrare.
+///
+/// # Perché serve anche il ritorno a zero
+///
+/// Perché l'obliquità si accumula senza che nulla la dichiari. Dopo dieci ritocchi da tre gradi
+/// non si sa più di quanto si è storti rispetto agli assi della macchina, e l'unico modo di
+/// tornare indietro era rifare l'inquadratura da capo — che perde anche zoom e panoramica.
+struct TiltControls: View {
+
+    @Bindable var model: AppModel
+
+    /// Cinque gradi per pressione: abbastanza da vedere il cambiamento, abbastanza poco da
+    /// arrivare al punto giusto in due o tre colpi.
+    private let stepDegrees = 5.0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("INCLINAZIONE DEL TAGLIO")
+                .font(Typography.sectionHeader)
+                .foregroundStyle(Palette.textSecondary)
+
+            Text("Agisce sul riquadro attivo: \(model.focusedSlot.localizedName.lowercased()).")
+                .font(Typography.label)
+                .foregroundStyle(Palette.textSecondary)
+
+            HStack(spacing: 5) {
+                stepButton("rotate.left", degrees: -stepDegrees, help: "Inclina di 5° a sinistra")
+                stepButton("rotate.right", degrees: stepDegrees, help: "Inclina di 5° a destra")
+
+                Divider().frame(height: 18).overlay(Palette.separator)
+
+                spinButton("arrow.counterclockwise", degrees: -stepDegrees, help: "Ruota l'immagine di 5°")
+                spinButton("arrow.clockwise", degrees: stepDegrees, help: "Ruota l'immagine di 5°")
+
+                Spacer(minLength: 0)
+
+                Button {
+                    model.resetAllViews()
+                } label: {
+                    Text("Azzera")
+                        .font(Typography.label)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.accent)
+                .help("Riporta i piani agli assi della macchina")
+            }
+            .disabled(model.volume == nil || model.focusedSlot.anatomicalPlane == nil)
+        }
+    }
+
+    /// Inclina il **taglio**: ruota i due piani perpendicolari a quello mostrato.
+    private func stepButton(_ icon: String, degrees: Double, help: String) -> some View {
+        iconButton(icon, help: help) {
+            model.tiltPlanes(perpendicularTo: model.focusedSlot, byRadians: degrees * .pi / 180)
+        }
+    }
+
+    /// Gira l'**immagine** nel suo piano, senza cambiare fetta. È l'altra rotazione, e tenerle
+    /// separate conta: la prima cambia *cosa* si taglia, la seconda *come lo si guarda*.
+    private func spinButton(_ icon: String, degrees: Double, help: String) -> some View {
+        iconButton(icon, help: help) {
+            model.rotate(slot: model.focusedSlot, byRadians: degrees * .pi / 180)
+        }
+    }
+
+    private func iconButton(
+        _ icon: String, help: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .frame(width: 28, height: 24)
+                .background(Palette.chromeElevated, in: .rect(cornerRadius: 4))
+                .foregroundStyle(Palette.textPrimary)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }

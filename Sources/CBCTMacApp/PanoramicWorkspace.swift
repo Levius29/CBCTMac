@@ -215,20 +215,45 @@ struct PanoramicWorkspace: View {
 
     /// Sezioni mostrate contemporaneamente nella griglia.
 
-    var body: some View {
-        VStack(spacing: Metrics.viewportGap) {
-            HStack(spacing: Metrics.viewportGap) {
-                axialWithArch
-                    .frame(width: 300)
-                panoramicPanel
-            }
-            .frame(maxHeight: .infinity)
+    /// Larghezza dell'assiale e altezza della striscia, ricordate fra una sessione e l'altra.
+    ///
+    /// Erano 300 e 240 punti fissi. Vanno bene per il caso medio e per nessun caso particolare:
+    /// su una cresta atrofica servono sezioni alte il doppio, su una CBCT parziale ne avanzano.
+    @AppStorage("panoramic.axialWidth") private var axialWidth = 300.0
+    @AppStorage("panoramic.stripHeight") private var stripHeight = 240.0
 
-            crossSectionStrip
-                .frame(height: 240)
+    var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    axialWithArch
+                        .frame(width: CGFloat(axialWidth))
+
+                    DraggableDivider(
+                        axis: .vertical,
+                        value: $axialWidth,
+                        // Sotto i 180 punti l'assiale non basta a disegnarci sopra la curva;
+                        // sopra metà finestra la panorex diventa una striscia inutile.
+                        range: 180...max(Double(geometry.size.width) * 0.5, 200),
+                        isInverted: true)
+
+                    panoramicPanel
+                }
+                .frame(maxHeight: .infinity)
+
+                DraggableDivider(
+                    axis: .horizontal,
+                    value: $stripHeight,
+                    // Fino a tre quarti della finestra: chi guarda le trasversali vuole quelle,
+                    // e lasciare al panorex solo una fascia di riferimento è una scelta legittima.
+                    range: 120...max(Double(geometry.size.height) * 0.75, 200))
+
+                crossSectionStrip
+                    .frame(height: CGFloat(min(stripHeight, max(Double(geometry.size.height) - 160, 120))))
+            }
+            .padding(Metrics.viewportGap)
+            .background(Palette.viewportBackground)
         }
-        .padding(Metrics.viewportGap)
-        .background(Palette.viewportBackground)
     }
 
     // MARK: Assiale con la curva

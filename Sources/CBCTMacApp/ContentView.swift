@@ -17,6 +17,11 @@ struct ContentView: View {
     @State private var showSidebar = true
     @State private var showInspector = true
 
+    /// Larghezze delle due colonne, ricordate fra le sessioni: chi allarga l'ispettore per vedere
+    /// i parametri implantari lo vuole largo anche domani.
+    @AppStorage("layout.sidebarWidth") private var sidebarWidth = Double(Metrics.sidebarWidth)
+    @AppStorage("layout.inspectorWidth") private var inspectorWidth = Double(Metrics.inspectorWidth)
+
     var body: some View {
         VStack(spacing: 0) {
             DisclaimerBanner()
@@ -26,17 +31,22 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 if showSidebar {
                     LeftColumn(model: model)
-                        .frame(width: Metrics.sidebarWidth)
-                    Divider().overlay(Palette.separator)
+                        .frame(width: CGFloat(sidebarWidth))
+                    DraggableDivider(
+                        axis: .vertical, value: $sidebarWidth,
+                        // Sotto i 210 punti la palette degli strumenti va a capo male; sopra i
+                        // 420 si ruba ai riquadri più di quanto la colonna sappia riempire.
+                        range: 210...420, isInverted: true)
                 }
 
                 ViewportGrid(model: model)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if showInspector {
-                    Divider().overlay(Palette.separator)
+                    DraggableDivider(
+                        axis: .vertical, value: $inspectorWidth, range: 240...460)
                     InspectorPanel(model: model)
-                        .frame(width: Metrics.inspectorWidth)
+                        .frame(width: CGFloat(inspectorWidth))
                 }
             }
 

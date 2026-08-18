@@ -15,6 +15,13 @@ struct ViewportGrid: View {
 
     @Bindable var model: AppModel
 
+    /// Dove cadono i divisori della griglia, in frazione della finestra, ricordati fra le
+    /// sessioni. Frazioni e non punti: ridimensionando la finestra le proporzioni si conservano,
+    /// mentre misure fisse lascerebbero un riquadro schiacciato e uno enorme.
+    @AppStorage("grid.splitX") private var gridSplitX = 0.5
+    @AppStorage("grid.splitY") private var gridSplitY = 0.5
+    @AppStorage("grid.sideWidth") private var sideWidth = 260.0
+
     var body: some View {
         Group {
             switch model.layout {
@@ -22,27 +29,46 @@ struct ViewportGrid: View {
                 viewport(model.focusedSlot)
 
             case .grid2x2:
-                VStack(spacing: Metrics.viewportGap) {
-                    HStack(spacing: Metrics.viewportGap) {
-                        viewport(.axial)
-                        viewport(.coronal)
-                    }
-                    HStack(spacing: Metrics.viewportGap) {
-                        viewport(.sagittal)
-                        viewport(.volume3D)
+                GeometryReader { geometry in
+                    let width = Double(geometry.size.width)
+                    let height = Double(geometry.size.height)
+                    let left = max(width * gridSplitX, 120)
+                    let top = max(height * gridSplitY, 120)
+
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            viewport(.axial).frame(width: CGFloat(left))
+                            columnDivider(width: width)
+                            viewport(.coronal)
+                        }
+                        .frame(height: CGFloat(top))
+
+                        rowDivider(height: height)
+
+                        HStack(spacing: 0) {
+                            viewport(.sagittal).frame(width: CGFloat(left))
+                            columnDivider(width: width)
+                            viewport(.volume3D)
+                        }
                     }
                 }
 
             case .onePlusThree:
-                HStack(spacing: Metrics.viewportGap) {
-                    viewport(model.focusedSlot)
-                        .frame(maxWidth: .infinity)
-                    VStack(spacing: Metrics.viewportGap) {
-                        ForEach(ViewportSlot.allCases.filter { $0 != model.focusedSlot }) { slot in
-                            viewport(slot)
+                GeometryReader { geometry in
+                    HStack(spacing: 0) {
+                        viewport(model.focusedSlot)
+                            .frame(maxWidth: .infinity)
+                        DraggableDivider(
+                            axis: .vertical, value: $sideWidth,
+                            range: 160...max(Double(geometry.size.width) * 0.6, 200))
+                        VStack(spacing: Metrics.viewportGap) {
+                            ForEach(ViewportSlot.allCases.filter { $0 != model.focusedSlot }) {
+                                slot in
+                                viewport(slot)
+                            }
                         }
+                        .frame(width: CGFloat(sideWidth))
                     }
-                    .frame(width: 260)
                 }
 
             case .panoramic:
@@ -56,6 +82,30 @@ struct ViewportGrid: View {
 
     private func viewport(_ slot: ViewportSlot) -> some View {
         ViewportContainer(model: model, slot: slot)
+    }
+
+    /// Divisore verticale della griglia. Ne compaiono due, uno per riga, e muovono **la stessa**
+    /// frazione: due colonne non allineate fra la riga di sopra e quella di sotto renderebbero
+    /// impossibile confrontare due viste incolonnate, che è metà del motivo per cui si guarda una
+    /// griglia invece di quattro finestre.
+    private func columnDivider(width: Double) -> some View {
+        DraggableDivider(
+            axis: .vertical,
+            value: Binding(
+                get: { gridSplitX * width },
+                set: { gridSplitX = min(max($0 / max(width, 1), 0.15), 0.85) }),
+            range: 0...max(width, 1),
+            isInverted: true)
+    }
+
+    private func rowDivider(height: Double) -> some View {
+        DraggableDivider(
+            axis: .horizontal,
+            value: Binding(
+                get: { gridSplitY * height },
+                set: { gridSplitY = min(max($0 / max(height, 1), 0.15), 0.85) }),
+            range: 0...max(height, 1),
+            isInverted: true)
     }
 }
 
