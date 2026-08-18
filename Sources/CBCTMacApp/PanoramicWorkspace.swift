@@ -351,19 +351,68 @@ struct PanoramicWorkspace: View {
     /// Quanto in alto arriva la maniglia di rotazione, in frazione dell'altezza.
     private let cutHandleFraction = 0.24
 
-    private func beginCutLineDrag(atFractionX x: Double, y: Double) {
+    private func beginPanoramicDrag(atFractionX x: Double, y: Double) {
         cutLineDrag = nil
-        guard let section = model.crossSectionBrowser.selectedSection else { return }
 
-        let range = model.panoramicLayout.visibleArcRangeMM
-        let span = max(range.upperBound - range.lowerBound, 1e-6)
-        let lineX = (section.arcLengthMM - range.lowerBound) / span
-        guard abs(x - lineX) < cutLineGrabFraction else { return }
+        // La linea di taglio ha la precedenza: è l'oggetto più usato della panorex, e afferrare
+        // un impianto che le sta accanto invece della linea romperebbe un gesto che funziona.
+        if let section = model.crossSectionBrowser.selectedSection {
+            let range = model.panoramicLayout.visibleArcRangeMM
+            let span = max(range.upperBound - range.lowerBound, 1e-6)
+            let lineX = (section.arcLengthMM - range.lowerBound) / span
+            if abs(x - lineX) < cutLineGrabFraction {
+                // In cima è la maniglia dell'angolo, sotto è il corpo della linea. Due
+                // significati sullo stesso oggetto, distinti da dove lo si afferra: sono le due
+                // libertà di una sezione trasversale, e tenerle insieme rende il gesto immediato.
+                cutLineDrag = y < cutHandleFraction ? .angle : .position
+                return
+            }
+        }
 
-        // In cima è la maniglia dell'angolo, sotto è il corpo della linea. Due significati sullo
-        // stesso oggetto, distinti da dove lo si afferra: sono le due libertà di una sezione
-        // trasversale, e tenerle insieme è ciò che rende il gesto immediato.
-        cutLineDrag = y < cutHandleFraction ? .angle : .position
+        // Fuori dalla linea il trascinamento non faceva nulla. Adesso che il piano si **vede**
+        // sulla panorex, deve anche potersi prendere: un oggetto disegnato e non afferrabile è
+        // la stessa mezza funzione dell'oggetto afferrabile e non disegnato, letta dall'altro
+        // verso.
+        guard let patient = panoramicPatientPoint(atFractionX: x, y: y) else { return }
+        if model.beginHandleDrag(at: patient, toleranceMM: panoramicGrabToleranceMM) { return }
+        guard model.activeTool == .navigate || model.activeTool == .implant else { return }
+        model.beginImplantDrag(at: patient, toleranceMM: panoramicGrabToleranceMM)
+    }
+
+    /// Il punto Patient sotto una frazione del riquadro panoramico.
+    ///
+    /// I richiami danno frazioni e non pixel, perché la linea di taglio ragiona in frazioni: la
+    /// conversione a pixel passa da `panoramicPixelSize`, che è la dimensione del drawable —
+    /// la stessa che il renderer ha usato per disegnare. Vedi `InteractiveMetalView`.
+    private func panoramicPatientPoint(atFractionX x: Double, y: Double) -> Vec3? {
+        let width = Int(panoramicPixelSize.width)
+        let height = Int(panoramicPixelSize.height)
+        guard width > 1, height > 1 else { return nil }
+        return model.panoramicLayout.patientPoint(
+            atPixelX: x * Double(width), y: y * Double(height),
+            pixelWidth: width, pixelHeight: height)
+    }
+
+    /// Sei pixel convertiti in millimetri alla scala della panorex.
+    private var panoramicGrabToleranceMM: Double {
+        let width = Int(panoramicPixelSize.width)
+        guard width > 1 else { return 2 }
+        return model.panoramicLayout.millimetresPerPixel(pixelWidth: width) * 6
+    }
+
+    private func movePanoramicDrag(toFractionX x: Double, y: Double) {
+        // Un trascinamento in corso su un oggetto del piano vince sulla linea: `cutLineDrag` è
+        // nil in quel caso, e le due strade non si incrociano mai.
+        if cutLineDrag == nil {
+            guard let patient = panoramicPatientPoint(atFractionX: x, y: y) else { return }
+            if model.annotationDrag != nil || model.nerveDrag != nil {
+                model.dragHandle(toMM: patient)
+            } else if model.implantDrag != nil {
+                model.dragImplant(toMM: patient)
+            }
+            return
+        }
+        moveCutLine(toFractionX: x, y: y)
     }
 
     private func moveCutLine(toFractionX x: Double, y: Double) {
@@ -525,10 +574,14 @@ struct PanoramicWorkspace: View {
                 onScrollDepth: { model.movePanoramicDepth(byMM: $0) },
                 onScrollSlab: { model.changePanoramicSlab(byMM: $0) },
                 onScrollVertical: { model.movePanoramicVertical(byMM: $0) },
-                onDragBegan: beginCutLineDrag,
-                onDragEnded: { cutLineDrag = nil },
+                onDragBegan: beginPanoramicDrag,
+                onDragEnded: {
+                    cutLineDrag = nil
+                    model.endHandleDrag()
+                    model.endImplantDrag()
+                },
                 onCancel: { model.cancelToolSession() },
-                onDragMoved: moveCutLine,
+                onDragMoved: movePanoramicDrag,
                 onZoom: { factor, x, width in
                     model.zoomPanoramic(by: factor, atPixelX: x, pixelWidth: width)
                 },
@@ -542,6 +595,13 @@ struct PanoramicWorkspace: View {
             // non si vedono e non c'entrano nulla: la panorex è una superficie, non una
             // proiezione dell'intero volume.
             PanoramicMeasureOverlay(model: model)
+
+            // Il piano sopra la panorex: impianti, canale e denti.
+            //
+            // È la vista d'insieme della pianificazione — è qui che si vede se gli impianti
+            // sono paralleli fra loro e alla stessa altezza, e dove passa il canale rispetto
+            // agli apici — e finora mostrava le misure e nient'altro.
+            PanoramicPlanOverlay(model: model)
 
             // Linea di taglio: si trascina lungo l'arcata per scegliere dove tagliare, e si ruota
             // dalla maniglia in cima per scegliere con che angolo.
