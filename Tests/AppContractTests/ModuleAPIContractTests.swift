@@ -760,4 +760,82 @@ struct ModuleAPIContractTests {
         let faraway = centre + volume.geometry.physicalSizeMM
         #expect(!volume.geometry.containsPatientPoint(faraway))
     }
+
+    // MARK: Volume3DOverlay: le cornici disegnate nel 3D
+
+    @Test("Le API che la sovraimpressione 3D usa per disegnare le cornici")
+    func volume3DOverlayAPI() throws {
+        let volume = try makeVolume()
+        let geometry = volume.geometry
+        let camera = VolumeCamera.fitted(to: geometry)
+        let projector = ScreenProjector(camera: camera, pixelWidth: 600, pixelHeight: 460)
+
+        // `drawBoundingBox`
+        let box = PlaneFrameGeometry.boundingBoxEdges(of: geometry, projector: projector)
+        #expect(box.count == 12)
+        for edge in box {
+            _ = edge.isHidden
+            _ = edge.from.x
+            _ = edge.to.y
+        }
+
+        // `drawPlanes`
+        for anatomical in AnatomicalPlane.allCases {
+            let plane = MPRPlane.fitted(plane: anatomical, geometry: geometry)
+            let outline = PlaneFrameGeometry.outline(
+                of: plane, clippedTo: geometry, projector: projector)
+            // Un piano centrato dentro il volume deve produrre un contorno: se restituisse
+            // vuoto la sovraimpressione non disegnerebbe nulla e sembrerebbe non collegata.
+            #expect(!outline.isEmpty)
+
+            // Le due facce dello slab, disegnate quando lo spessore non è nullo. Devono cadere
+            // **altrove** rispetto al piano centrale: se `advanced` non spostasse nulla le tre
+            // cornici si sovrapporrebbero e lo spessore resterebbe invisibile.
+            var thick = plane
+            thick.slabThicknessMM = 10
+            let front = PlaneFrameGeometry.outline(
+                of: thick.advanced(byMM: 5), clippedTo: geometry, projector: projector)
+            #expect(!front.isEmpty)
+            #expect(front[0].from.depthMM != outline[0].from.depthMM
+                || front[0].from.x != outline[0].from.x
+                || front[0].from.y != outline[0].from.y)
+        }
+
+        // `drawArchBand`
+        let curve = ArchCurve(
+            controlPointsMM: stride(from: -20.0, through: 20.0, by: 10.0).map {
+                Vec3($0, $0 * $0 / 60 - 15, 0)
+            })
+        let samples = curve.resampled(count: 60).map(\.positionMM)
+        let ribbon = PlaneFrameGeometry.ribbon(
+            alongMM: samples, upAxis: Vec3(0, 0, 1), halfHeightMM: 35, projector: projector)
+        #expect(!ribbon.isEmpty)
+
+        // `drawImplants`: la sagoma è un rettangolo, tranne quando l'impianto è visto di punta.
+        let implant = ImplantPlacement(platformMM: geometry.centerMM, label: "36")
+        let axis = try #require(implant.axis.normalized)
+        _ = axis.cross(camera.forward).normalized
+        _ = implant.model.diameterMM * 0.5
+        _ = implant.platformMM + axis * implant.model.lengthMM
+        _ = implant.isVisible
+
+        // Vista di punta: il prodotto vettoriale **deve** degenerare, altrimenti il ramo che
+        // disegna il cerchio non verrebbe mai raggiunto e non lo saprei.
+        #expect(axis.cross(axis).normalized == nil)
+
+        // `screenScale`
+        let origin = projector.project(geometry.centerMM)
+        let shifted = projector.project(geometry.centerMM + camera.right)
+        #expect(abs(shifted.x - origin.x) > 0)
+
+        // `drawCurrentSection`
+        let layout = CrossSectionLayout(
+            curve: curve, intervalMM: 2, widthMM: 30, heightMM: 40,
+            verticalCentreMM: 0, thicknessMM: 0, angleOffsetRadians: 0)
+        let browser = CrossSectionBrowser(sections: layout.sections(), visibleCount: 5)
+        if let section = browser.selectedSection {
+            _ = PlaneFrameGeometry.outline(
+                of: section.plane, clippedTo: geometry, projector: projector)
+        }
+    }
 }

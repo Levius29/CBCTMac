@@ -72,7 +72,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| C1 | Elenco degli oggetti per tipo | ❌ | 3 | E |
+| C1 | Elenco degli oggetti per tipo | 🔶 | 3 | E |
 | C2 | Visibilità per oggetto (occhio) | ❌ | 3 | E |
 | C3 | Colore per oggetto, scelto o assegnato | 🔶 | 2 | E |
 | C4 | Cancellazione per oggetto, e di tutto il tipo | 🔶 | 2 | E |
@@ -145,15 +145,15 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
 | H1 | Rendering a preset di tessuto | ✅ | 3 | — |
-| H2 | **Piano assiale disegnato** come cornice | ❌ | 3 | D, G |
-| H3 | **Piani coronale e sagittale** disegnati, colorati | ❌ | 3 | D, G |
-| H4 | **Banda dell'arcata** disegnata come superficie estrusa | ❌ | 2 | D, G |
-| H5 | **Sezione corrente** disegnata come rettangolo | ❌ | 3 | D, G |
+| H2 | **Piano assiale disegnato** come cornice | ✅ | 3 | D, G |
+| H3 | **Piani coronale e sagittale** disegnati, colorati | ✅ | 3 | D, G |
+| H4 | **Banda dell'arcata** disegnata come superficie estrusa | ✅ | 2 | D, G |
+| H5 | **Sezione corrente** disegnata come rettangolo | ✅ | 3 | D, G |
 | H6 | **Riquadro di ritaglio** disegnato | ❌ | 2 | D, G |
 | H7 | Colori dei piani coerenti con le maniglie del mirino | ✅ | 2 | I |
 | H8 | Cubo di orientamento | ✅ | 2 | — |
-| H9 | Impianti resi in 3D dentro il volume | 🔶 | 2 | G |
-| H10 | Spigoli nascosti resi diversamente da quelli in vista | ❌ | 1 | D |
+| H9 | Impianti resi in 3D dentro il volume | ✅ | 2 | G |
+| H10 | Spigoli nascosti resi diversamente da quelli in vista | ✅ | 1 | D |
 
 ### I — Riformattazione e volumi multipli
 
@@ -204,10 +204,10 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | **A** | Ricampionamento e piano di riformattazione — I2, I3, I4, I5, I8 | Codex | SegmentKit | ✅ **fatto**, interfaccia compresa |
 | **B** | Navigazione delle sezioni — G1…G8, D6, D8 | Codex + me | DentalKit | ✅ **fatto** |
 | **C** | Spessore, proiezione e quote per riquadro — D1, D2, D7, E1…E4 | me | — | ✅ **fatto** |
-| **D** | Geometria delle sovraimpressioni 3D — H2…H6, H10 | Codex | VolumeKit | da scrivere |
-| **E** | Modello degli oggetti — C1…C12, A5, F9, J7 | Codex | tutti | da scrivere |
+| **D** | Geometria delle sovraimpressioni 3D — H2…H6, H10 | Codex | VolumeKit | ✅ **fatto** |
+| **E** | Modello degli oggetti — C1…C12, A5, F9, J7 | Codex | tutti | ✅ **nucleo consegnato**, interfaccia nel lotto H |
 | **F** | Collocazione delle etichette — E6, E7 | Codex | E | da scrivere |
-| **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | — |
+| **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | 🔶 **3D fatto**, restano F3/F4/F8 sul 2D e H6 |
 | **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | Codex | A, B, D, E | da scrivere |
 | **I** | Maniglie del mirino colorate — E5, H7 | me | — | ✅ **fatto** |
 | **J** | Esportazione e relazione — J1…J5, J8, D4, D5, B11 | Codex | E | da scrivere |

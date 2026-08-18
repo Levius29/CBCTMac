@@ -185,6 +185,11 @@ struct ViewportContainer: View {
             VStack(spacing: 0) {
                 ZStack(alignment: .topTrailing) {
                     volume3D
+
+                    // Le cornici dei piani disegnate dentro il volume: è ciò che lega il 3D
+                    // alle altre tre viste. Vedi `Volume3DOverlay`.
+                    Volume3DOverlay(model: model)
+
                     OrientationCube(camera: model.camera)
                         .padding(Metrics.spacing)
                         .padding(.top, Metrics.viewportBorderWidth)
