@@ -54,7 +54,7 @@ import PackageDescription
             name: "CBCTMacApp",
             dependencies: [
                 "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
-                "GuideKit", "SegmentKit", "ArtifactKit", "StudyKit",
+                "GuideKit", "SegmentKit", "ArtifactKit", "StudyKit", "ReportKit",
             ]
         )
     ]
@@ -80,6 +80,7 @@ let libraryProducts: [Product] = [
     .library(name: "SegmentKit", targets: ["SegmentKit"]),
     .library(name: "ArtifactKit", targets: ["ArtifactKit"]),
     .library(name: "StudyKit", targets: ["StudyKit"]),
+    .library(name: "ReportKit", targets: ["ReportKit"]),
 ]
 
 let moduleTargets: [Target] = [
@@ -103,6 +104,12 @@ let moduleTargets: [Target] = [
     .target(name: "ImplantKit", dependencies: ["DICOMCore"]),
     .target(name: "GuideKit", dependencies: ["DICOMCore", "MeshKit", "ImplantKit"]),
     .target(name: "SegmentKit", dependencies: ["DICOMCore"]),
+    // La relazione: il pezzo con cui il piano esce dal programma. Genera testo, quindi si
+    // verifica con `swift test` come tutto il resto invece che guardando un PDF.
+    .target(
+        name: "ReportKit",
+        dependencies: ["DICOMCore", "MeasureKit", "ImplantKit", "DentalKit"]
+    ),
     .target(name: "ArtifactKit", dependencies: ["DICOMCore", "SegmentKit"]),
     // Modi di lavoro, riquadri e raccolta dei volumi. Nessuna interfaccia: sono le decisioni che
     // l'interfaccia esegue, e stando qui si verificano con `swift test` invece che sul Mac.
@@ -122,6 +129,10 @@ let testTargets: [Target] = [
     ),
     .testTarget(name: "SegmentKitTests", dependencies: ["SegmentKit", "DICOMCore"]),
     .testTarget(name: "StudyKitTests", dependencies: ["StudyKit", "DICOMCore"]),
+    .testTarget(
+        name: "ReportKitTests",
+        dependencies: ["ReportKit", "DICOMCore", "MeasureKit", "ImplantKit"]
+    ),
     .testTarget(
         name: "ArtifactKitTests",
         dependencies: ["ArtifactKit", "DICOMCore", "SegmentKit"]

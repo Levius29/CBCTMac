@@ -131,6 +131,7 @@ struct ShortcutsSheet: View {
             ("⇧⌘V", "Verifica di accuratezza sul fantoccio"),
             ("⇧⌘I", "Importa una scansione intraorale"),
             ("⇧⌘G", "Costruisci la dima chirurgica"),
+            ("⇧⌘P", "Esporta la relazione del piano"),
             ("⇧⌘O", "Apri un piano salvato"),
             ("⌫", "Cancella la misura selezionata"),
             ("Esc", "Annulla la misura che stai posando"),

@@ -145,6 +145,25 @@ public struct SafetyReport: Hashable, Sendable {
     /// Inclinazione rispetto alla verticale del paziente, in gradi.
     public let angulationDegrees: Double?
 
+    /// Costruttore pubblico.
+    ///
+    /// Serve a chi il rapporto lo **consuma** e non lo produce — la relazione, per esempio, che
+    /// deve poterne comporre uno nelle proprie prove. Un tipo pubblico i cui valori solo il
+    /// modulo sa creare è un tipo che non si può provare da fuori.
+    public init(
+        implantID: UUID,
+        findings: [ProximityFinding],
+        density: BoneDensityProfile?,
+        maxParallelismDeviationDegrees: Double?,
+        angulationDegrees: Double?
+    ) {
+        self.implantID = implantID
+        self.findings = findings
+        self.density = density
+        self.maxParallelismDeviationDegrees = maxParallelismDeviationDegrees
+        self.angulationDegrees = angulationDegrees
+    }
+
     /// Livello complessivo: il peggiore fra tutti i riscontri.
     public var worstLevel: SafetyLevel {
         findings.map(\.level).max() ?? .safe

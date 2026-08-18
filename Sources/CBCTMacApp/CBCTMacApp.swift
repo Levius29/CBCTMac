@@ -101,6 +101,12 @@ struct CBCTMacApp: App {
 
                 Divider()
 
+                Button("Esporta la relazione…") { model.exportReport() }
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                    .disabled(model.volume == nil)
+
+                Divider()
+
                 Button("Apri piano…") { openPlan() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)

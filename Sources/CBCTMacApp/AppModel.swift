@@ -8,6 +8,7 @@ import MeshKit
 import Metal
 import StudyKit
 import Observation
+import ReportKit
 import SegmentKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -2275,6 +2276,43 @@ final class AppModel {
             guideResult = nil
             lastActionMessage =
                 (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    /// Compone la relazione e la salva, poi la apre.
+    ///
+    /// HTML e non PDF: il PDF si ottiene stampando dal browser, che è un passaggio del sistema.
+    /// Generarlo qui vorrebbe dire scrivere un impaginatore e non poterlo verificare — mentre
+    /// del testo si prova che ogni avvertimento ci sia.
+    func exportReport() {
+        let input = PlanReportInput(
+            studyName: library.selected?.name ?? "Studio",
+            // La catena dall'acquisito al volume in uso, un passo per riga: è ciò che dice se
+            // una misura viene dal dato o da un suo derivato.
+            volumeProvenance: library.selected.map { entry in
+                library.ancestry(of: entry.id).map(\.summary)
+            } ?? [],
+            densityUnitSymbol: densityUnit.symbol,
+            annotations: annotations,
+            roiStatistics: roiStatistics,
+            implants: implants,
+            safetyReports: safetyReports,
+            registrationRMSMM: scanRegistration?.surfaceRMSMM,
+            registrationQuality: scanRegistration?.quality.localizedName,
+            guideVolumeMM3: guideResult?.validation.volumeMM3,
+            guideIsPrintable: guideResult?.validation.isPrintable,
+            guideWarnings: guideResult?.validation.warnings ?? [])
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "relazione.html"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try PlanReport.html(input).write(to: url, atomically: true, encoding: .utf8)
+            NSWorkspace.shared.open(url)
+            lastActionMessage = "Relazione salvata in \(url.lastPathComponent)."
+        } catch {
+            lastActionMessage = "Relazione non salvata: \(error.localizedDescription)"
         }
     }
 
