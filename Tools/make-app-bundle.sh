@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Costruisce CBCTMac.app da questo pacchetto SwiftPM, senza Xcode.
+# Costruisce 3DMED.app da questo pacchetto SwiftPM, senza Xcode.
 #
 # SwiftPM produce un eseguibile nudo. Su macOS un eseguibile nudo che apre finestre SwiftUI
 # funziona a metà: non ha identità di bundle, quindi le finestre di dialogo dei file si
@@ -11,7 +11,7 @@
 #   ./Tools/make-app-bundle.sh              # release, il caso normale
 #   ./Tools/make-app-bundle.sh debug        # più lento all'uso, ma con i simboli
 #
-# Il risultato è ./CBCTMac.app, apribile con doppio clic o con `open CBCTMac.app`.
+# Il risultato è ./3DMED.app, apribile con doppio clic o con `open 3DMED.app`.
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ VERSION="0.1.0"
 
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
-APP="$ROOT/CBCTMac.app"
+APP="$ROOT/3DMED.app"
 
 if [ "$(uname -s)" != "Darwin" ]; then
     echo "Questo script assembla un bundle macOS e va eseguito su macOS." >&2
@@ -44,8 +44,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # Il nome dell'eseguibile dentro il bundle è quello che appare nel Dock e in Monitoraggio
-# Attività, quindi non resta «CBCTMacApp».
-cp "$EXECUTABLE" "$APP/Contents/MacOS/CBCTMac"
+# Attività, quindi non resta «CBCTMacApp». Il pacchetto e i moduli restano CBCTMac: quello è
+# il nome del codice, e cambiarlo toccherebbe ogni import senza cambiare nulla di ciò che si vede.
+cp "$EXECUTABLE" "$APP/Contents/MacOS/3DMED"
 
 # Bundle di risorse di SwiftPM: contengono gli shader Metal.
 #
@@ -73,13 +74,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>CBCTMac</string>
+    <string>3DMED</string>
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
-    <string>CBCTMac</string>
+    <string>3DMED</string>
     <key>CFBundleDisplayName</key>
-    <string>CBCTMac</string>
+    <string>3DMED</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -99,12 +102,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSSupportsSecureRestorableState</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
-    <string>CBCTMac — software non certificato come dispositivo medico. Uso non diagnostico.</string>
+    <string>3DMED — software non certificato come dispositivo medico. Uso non diagnostico.</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
             <key>CFBundleTypeName</key>
-            <string>Piano CBCTMac</string>
+            <string>Piano 3DMED</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
             <key>LSItemContentTypes</key>
@@ -129,6 +132,22 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Icona. Il disegno vive in `Sources/CBCTMacApp/AppIcon.swift`: l'eseguibile appena costruito sa
+# esportarsi l'iconset da solo, e `iconutil` lo impacchetta. Nessun PNG nel repository, e la
+# forma non può divergere da quella che l'app mostra nel Dock, perché è la stessa sorgente.
+echo "▸ Icona…"
+ICONSET="$(mktemp -d)/AppIcon.iconset"
+if "$EXECUTABLE" --export-icon "$ICONSET" >/dev/null 2>&1 && [ -d "$ICONSET" ]; then
+    if iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null; then
+        echo "  AppIcon.icns"
+    else
+        echo "  iconutil non riuscito: l'app userà l'icona generica" >&2
+    fi
+else
+    echo "  esportazione non riuscita: l'app userà l'icona generica" >&2
+fi
+rm -rf "$(dirname "$ICONSET")"
+
 # Firma ad-hoc. Su Apple Silicon un binario non firmato viene ucciso all'avvio; la firma ad-hoc
 # non richiede alcun certificato e basta per eseguire l'app sulla macchina che l'ha costruita.
 # Per distribuirla ad altri servirebbero un Developer ID e la notarizzazione.
@@ -139,7 +158,7 @@ codesign --force --sign - --timestamp=none "$APP" 2>/dev/null \
 echo
 echo "✓ Pronto: $APP"
 echo
-echo "  open CBCTMac.app"
+echo "  open 3DMED.app"
 echo
 echo "  All'avvio compare il fantoccio sintetico. Per aprire uno studio vero usa il pulsante"
 echo "  «Apri» e scegli la **cartella** che contiene i file DICOM della serie."

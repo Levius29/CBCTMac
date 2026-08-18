@@ -66,7 +66,7 @@ struct ContentView: View {
 
     private var windowTitle: String {
         guard model.volume != nil else { return "CBCTMac" }
-        return "CBCTMac — \(model.studyName)"
+        return "\(AppIcon.displayName) — \(model.studyName)"
     }
 
     /// Sceglie una cartella e ne carica lo studio.
@@ -266,7 +266,7 @@ struct StatusBar: View {
                     .foregroundStyle(Palette.warning)
                     .help(model.loadIssues.joined(separator: "\n"))
             }
-            Text("CBCTMac \(AppModel.appVersion)")
+            Text("\(AppIcon.displayName) \(AppModel.appVersion)")
                 .foregroundStyle(Palette.textSecondary.opacity(0.7))
         }
         .font(Typography.numericSmall)

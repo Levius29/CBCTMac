@@ -248,7 +248,7 @@ enum ImageExport {
             color: CGColor(gray: 0, alpha: 1),
             bold: true)
 
-        let stamp = "CBCTMac \(AppModel.appVersion) · \(model.studyName) · \(timestamp())"
+        let stamp = "\(AppIcon.displayName) \(AppModel.appVersion) · \(model.studyName) · \(timestamp())"
         drawText(
             stamp,
             in: context,

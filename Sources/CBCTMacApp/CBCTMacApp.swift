@@ -8,8 +8,41 @@ struct CBCTMacApp: App {
 
     @State private var model = AppModel()
 
+    init() {
+        Self.exportIconAndExitIfRequested()
+    }
+
+    /// `--export-icon <cartella>` scrive l'iconset ed esce, senza aprire nulla.
+    ///
+    /// Nell'`init` e non in un `.task`: da lì la scena esisterebbe già, e chi costruisce il
+    /// pacchetto si vedrebbe lampeggiare una finestra per poi trovarla chiusa da sola.
+    ///
+    /// Sta dentro l'applicazione e non in uno strumento a parte perché il disegno è SwiftUI e va
+    /// reso da AppKit: un eseguibile separato dovrebbe duplicare la sorgente dell'icona, e due
+    /// copie della stessa forma divergono alla prima correzione.
+    @MainActor
+    private static func exportIconAndExitIfRequested() {
+        let arguments = CommandLine.arguments
+        guard let flag = arguments.firstIndex(of: "--export-icon"),
+            flag + 1 < arguments.count
+        else { return }
+
+        // Inizializza AppKit senza avviarne il ciclo: `ImageRenderer` ne ha bisogno, il ciclo no.
+        _ = NSApplication.shared
+
+        let directory = URL(fileURLWithPath: arguments[flag + 1])
+        do {
+            let count = try AppIcon.exportIconset(to: directory)
+            print("Scritti \(count) file in \(directory.path)")
+            exit(count == AppIcon.iconsetSizes.count ? 0 : 1)
+        } catch {
+            print("Esportazione non riuscita: \(error)")
+            exit(1)
+        }
+    }
+
     var body: some Scene {
-        Window("CBCTMac", id: "main") {
+        Window(AppIcon.displayName, id: "main") {
             ContentView(model: model)
                 .sheet(isPresented: $model.isShowingReformat) {
                     ReformatSheet(model: model)
@@ -17,6 +50,10 @@ struct CBCTMacApp: App {
                 .frame(minWidth: 1100, minHeight: 700)
                 .preferredColorScheme(.dark)
                 .task {
+                    // L'eseguibile SPM non è un bundle e il Dock mostrerebbe l'icona generica
+                    // del terminale. Vedi `AppIcon`.
+                    AppIcon.install()
+
                     // Senza parser DICOM l'applicazione non aprirebbe nulla. Il fantoccio
                     // sintetico le dà qualcosa di reale da disegnare fin dal primo avvio, con
                     // misure note contro cui verificare — e senza toccare dati di pazienti.

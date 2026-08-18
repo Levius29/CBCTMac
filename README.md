@@ -89,7 +89,7 @@ subito — dove c'è. Il controllo è sintattico e prudente: legge gli enum di t
 scambiare un `AnatomicalPlane` per un `ViewportSlot` incompleto, e tace quando un enum è coperto
 esattamente.
 
-### Costruire `CBCTMac.app`
+### Costruire `3DMED.app`
 
 `swift run` avvia un eseguibile nudo: senza identità di bundle le finestre di dialogo dei file si
 comportano in modo irregolare, l'applicazione non compare fra le applicazioni e non può dichiarare
@@ -97,12 +97,24 @@ i tipi di documento che sa aprire. Per un `.app` vero, **senza bisogno di Xcode*
 
 ```sh
 ./Tools/make-app-bundle.sh
-open CBCTMac.app
+open 3DMED.app
 ```
 
-Lo script compila in release, assembla `Contents/`, scrive l'`Info.plist` e firma ad-hoc — su
-Apple Silicon un binario non firmato viene terminato all'avvio. Copia anche i bundle di risorse di
-SwiftPM, che contengono gli shader Metal: senza quelli nessun renderer riesce a nascere.
+Lo script compila in release, assembla `Contents/`, scrive l'`Info.plist`, genera l'icona e firma
+ad-hoc — su Apple Silicon un binario non firmato viene terminato all'avvio. Copia anche i bundle
+di risorse di SwiftPM, che contengono gli shader Metal: senza quelli nessun renderer riesce a
+nascere.
+
+> **Il nome.** L'applicazione si chiama **3DMED**; il pacchetto, i moduli e questo repository
+> restano `CBCTMac`. Sono due nomi con due scopi: uno è ciò che si legge sullo schermo, l'altro è
+> ciò che si scrive negli `import`, e tenerli distinti evita di toccare ogni file sorgente per
+> cambiare un'etichetta.
+
+> **L'icona non è un file.** È disegnata in `Sources/CBCTMacApp/AppIcon.swift` in coordinate
+> normalizzate, quindi esce nitida a ogni misura senza che il repository porti un solo PNG.
+> L'eseguibile sa esportarsi l'iconset da solo — `CBCTMacApp --export-icon <cartella>` — e lo
+> script di bundle lo usa per costruire l'`.icns`. La stessa sorgente serve anche il Dock a
+> runtime, così l'icona è la stessa nei due posti per costruzione.
 
 Per distribuire l'app ad altri servono un Developer ID e la notarizzazione, e per una vera
 distribuzione conviene comunque un target app in Xcode.
