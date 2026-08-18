@@ -44,7 +44,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 |---|---|---|---|---|
 | A1 | Nome del paziente al centro della barra del titolo | ❌ | 2 | H |
 | A2 | Versione del programma visibile | 🔶 | 1 | H |
-| A3 | Cinque **modi di lavoro** a schede, non layout: ortogonale, curvo, personalizzato, obliquo, relazione | 🔶 | 3 | K |
+| A3 | Cinque **modi di lavoro** a schede, non layout: ortogonale, curvo, personalizzato, obliquo, relazione | ✅ | 3 | K |
 | A4 | Pannelli laterali richiudibili con memoria dello stato | ❌ | 2 | H |
 | A5 | Pannello contestuale che cambia col tipo di oggetto attivo | ❌ | 3 | E, H |
 | A6 | Galleria delle istantanee salvate | ❌ | 1 | J |
@@ -106,7 +106,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | E2 | Fattore di zoom scritto | ❌ | 2 | C |
 | E3 | Lettere d'orientamento ai quattro bordi | 🔶 | 3 | C |
 | E4 | Algoritmo di ricostruzione dichiarato | ❌ | 1 | C |
-| E5 | Maniglie del mirino sui bordi, colorate come i piani 3D | ❌ | 2 | I |
+| E5 | Maniglie del mirino sui bordi, colorate come i piani 3D | ✅ | 2 | I |
 | E6 | Etichette con **linea di richiamo** che non coprono l'anatomia | ❌ | 3 | F |
 | E7 | Etichette visibili su tutte le viste, 3D compreso | ❌ | 2 | F |
 | E8 | Barra di scala | ✅ | 2 | — |
@@ -150,7 +150,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | H4 | **Banda dell'arcata** disegnata come superficie estrusa | ❌ | 2 | D, G |
 | H5 | **Sezione corrente** disegnata come rettangolo | ❌ | 3 | D, G |
 | H6 | **Riquadro di ritaglio** disegnato | ❌ | 2 | D, G |
-| H7 | Colori dei piani coerenti con le maniglie del mirino | ❌ | 2 | I |
+| H7 | Colori dei piani coerenti con le maniglie del mirino | ✅ | 2 | I |
 | H8 | Cubo di orientamento | ✅ | 2 | — |
 | H9 | Impianti resi in 3D dentro il volume | 🔶 | 2 | G |
 | H10 | Spigoli nascosti resi diversamente da quelli in vista | ❌ | 1 | D |
@@ -164,7 +164,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | I3 | Riquadro di ritaglio con maniglie su tre viste | ❌ | 2 | A, H |
 | I4 | Riquadri **collegati**: uno solo parallelepipedo | ❌ | 2 | A |
 | I5 | Nome e descrizione del volume prodotto | ❌ | 1 | A |
-| I6 | Più volumi nello studio, selezionabili | ❌ | 2 | K |
+| I6 | Più volumi nello studio, selezionabili | ✅ | 2 | K |
 | I7 | Ripristina / Salta nella finestra | ❌ | 1 | H |
 | I8 | Stima di memoria prima di procedere | ❌ | 2 | A |
 | I9 | Riorientamento del volume (piano occlusale orizzontale) | ❌ | 3 | N |
@@ -181,7 +181,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | J6 | Esportazione su disco con visualizzatore | ❌ | 1 | — |
 | J7 | Note del caso | ❌ | 1 | E |
 | J8 | Esportazione del modello 3D (STL) | 🔶 | 2 | J |
-| J9 | Scheda «Rivedi»: rilettura del piano finito | ❌ | 1 | K |
+| J9 | Scheda «Rivedi»: rilettura del piano finito | ✅ | 1 | K |
 
 ### K — Comportamenti trasversali
 
@@ -190,7 +190,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | K1 | Annulla e ripeti | ❌ | 3 | O |
 | K2 | Preset di rendering come anteprime cliccabili | 🔶 | 2 | H |
 | K3 | Impostazioni del mouse configurabili | ❌ | 1 | H |
-| K4 | Stato della sessione conservato fra le schede | 🔶 | 2 | K |
+| K4 | Stato della sessione conservato fra le schede | ✅ | 2 | K |
 | K5 | Salvataggio automatico del piano | ❌ | 2 | O |
 | K6 | Scorciatoie da tastiera coerenti | 🔶 | 2 | H |
 
@@ -209,9 +209,9 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | **F** | Collocazione delle etichette — E6, E7 | Codex | E | da scrivere |
 | **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | — |
 | **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | Codex | A, B, D, E | da scrivere |
-| **I** | Maniglie del mirino colorate — E5, H7 | me | — | — |
+| **I** | Maniglie del mirino colorate — E5, H7 | me | — | ✅ **fatto** |
 | **J** | Esportazione e relazione — J1…J5, J8, D4, D5, B11 | Codex | E | da scrivere |
-| **K** | Modi di lavoro e volumi multipli — A3, I6, J9, K4 | me | A | — |
+| **K** | Modi di lavoro e volumi multipli — A3, I6, J9, K4 | me | A | ✅ **fatto** |
 | **L** | Varianti di misura — B2, B3 | Codex | MeasureKit | da scrivere |
 | **M** | Oggetti protesici — B7, B8, B9, B10 | Codex | ImplantKit | da scrivere |
 | **N** | Automatismi — F10, I9 | Codex | SegmentKit | da scrivere |
@@ -231,6 +231,18 @@ etichette. Algoritmo puro, verificabile per intero.
 
 **Lotto I — maniglie del mirino.** Piccolo ma di sistema: il colore lega la maniglia al piano nel
 3D e il piano alla vista. Tre cose collegate da un segno solo, e va deciso una volta per tutte.
+
+> Fatto. Nel farlo è emerso un difetto più grosso di quello che il lotto prometteva di risolvere:
+> le due linee erano disegnate a metà riquadro *per definizione*, quindi dal primo taglio obliquo
+> in poi mostravano una cosa diversa da quella che il volume stava tagliando. Ora sono
+> l'intersezione vera, calcolata da `CrosshairGeometry` e provata sugli obliqui.
+
+**Lotto K — modi di lavoro.** Fatto, con un limite da dichiarare: «personalizzato» e «obliquo»
+esistono come schede, hanno la loro disposizione e la loro memoria, ma **non hanno ancora
+strumenti propri**. Il piano si inclina già con le maniglie del mirino, e questo copre gran parte
+di «obliquo»; manca la definizione di un piano per tre punti, che è il cuore di «personalizzato».
+Quello arriva col lotto H. Nel frattempo ogni scheda dichiara in una riga a che serve, perché due
+schede con la stessa disposizione e nessuna spiegazione sembrano un doppione.
 
 **Lotto N — automatismi.** Il riorientamento del volume (I9) pesa 3 e nessuno se ne accorge finché
 non si apre una CBCT con la testa inclinata, cioè quasi sempre: allineare il piano occlusale

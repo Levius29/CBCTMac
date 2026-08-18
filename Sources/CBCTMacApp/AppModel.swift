@@ -3,6 +3,7 @@ import DentalKit
 import ImplantKit
 import MeasureKit
 import Metal
+import StudyKit
 import Observation
 import SwiftUI
 import VolumeKit
@@ -76,33 +77,6 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
 
 // MARK: - Layout
 
-enum ViewportLayout: String, CaseIterable, Hashable, Sendable {
-    case single
-    case grid2x2
-    case onePlusThree
-    /// Panorex in alto e griglia di sezioni trasversali sotto. È la disposizione con cui si
-    /// valuta la cresta e si pianifica un impianto.
-    case panoramic
-
-    var localizedName: String {
-        switch self {
-        case .single: return "Singolo"
-        case .grid2x2: return "Griglia 2×2"
-        case .onePlusThree: return "Uno grande e tre"
-        case .panoramic: return "Panorex e sezioni"
-        }
-    }
-
-    var systemImageName: String {
-        switch self {
-        case .single: return "square"
-        case .grid2x2: return "square.grid.2x2"
-        case .onePlusThree: return "rectangle.split.2x2"
-        case .panoramic: return "rectangle.grid.1x2"
-        }
-    }
-}
-
 /// Risoluzione di rendering dei riquadri 2D, in frazione di quella nativa.
 ///
 /// Su un volume grande, e a piena risoluzione Retina, un riquadro può non stare nel budget di un
@@ -136,34 +110,10 @@ enum MPRResolution: String, CaseIterable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// I quattro riquadri possibili.
-enum ViewportSlot: String, CaseIterable, Hashable, Sendable, Identifiable {
-    case axial
-    case coronal
-    case sagittal
-    case volume3D
+// I riquadri e la loro disposizione vivono in `StudyKit`: sono dati, e stando lì si verificano
+// con `swift test` invece che soltanto sul Mac. Qui resta ciò che è davvero interfaccia.
 
-    var id: String { rawValue }
-
-    /// Piano anatomico corrispondente, `nil` per il riquadro 3D.
-    var anatomicalPlane: AnatomicalPlane? {
-        switch self {
-        case .axial: return .axial
-        case .coronal: return .coronal
-        case .sagittal: return .sagittal
-        case .volume3D: return nil
-        }
-    }
-
-    var localizedName: String {
-        switch self {
-        case .axial: return "Assiale"
-        case .coronal: return "Coronale"
-        case .sagittal: return "Sagittale"
-        case .volume3D: return "3D"
-        }
-    }
-
+extension ViewportSlot {
     /// Colore del piano, che è **la stessa informazione** del bordo del riquadro, della traccia
     /// del mirino sugli altri due e del piano disegnato nel 3D. Una sola definizione perché
     /// quelle tre cose devono restare d'accordo: se divergessero, il colore smetterebbe di
@@ -200,9 +150,54 @@ final class AppModel {
     var projection: SlabProjection = .average
     /// Risoluzione di rendering dei riquadri 2D. Vedi `MPRResolution`.
     var mprResolution: MPRResolution = .full
-    var layout: ViewportLayout = .grid2x2
-    var focusedSlot: ViewportSlot = .axial
-    var activeTool: Tool = .navigate
+    /// Modo di lavoro corrente e memoria dei modi. Vedi `WorkspaceSession`.
+    var session = WorkspaceSession()
+
+    /// Disposizione e riquadro attivo **del modo corrente**.
+    ///
+    /// Sono proiezioni della sessione e non due campi a sé: con due campi, cambiare scheda
+    /// significherebbe riassegnarli, e tornando indietro si troverebbe la disposizione di
+    /// fabbrica invece della propria. Passando dalla sessione la memoria è per modo senza che
+    /// nessuna vista debba occuparsene.
+    var layout: ViewportLayout {
+        get { session.layout }
+        set { session.layout = newValue }
+    }
+
+    var focusedSlot: ViewportSlot {
+        get { session.focusedSlot }
+        set { session.focusedSlot = newValue }
+    }
+
+    var workMode: WorkMode { session.mode }
+
+    /// Passa a un altro modo di lavoro.
+    ///
+    /// Il mirino, la finestra di densità, le annotazioni, la curva e gli impianti **non** si
+    /// toccano: sono proprietà del caso, non del modo in cui lo si guarda, e ritrovarli spostati
+    /// dopo un giro fra le schede farebbe perdere il punto che si stava esaminando. Cambiano solo
+    /// disposizione e riquadro attivo, che la sessione ricorda per ciascun modo.
+    func activate(mode: WorkMode) {
+        guard mode != session.mode else { return }
+        session.activate(mode)
+        // Entrando in modo curvo con una curva già disegnata, le sezioni vanno ricostruite: si
+        // può esserci arrivati dopo aver ritagliato il volume, e quelle vecchie apparterrebbero a
+        // dati che non ci sono più.
+        if mode.usesArchCurve, archCurve.isUsable, crossSectionBrowser.sections.isEmpty {
+            rebuildCrossSections()
+        }
+        // In sola lettura nessuno strumento di modifica resta in mano.
+        if !mode.isEditable { activeTool = .navigate }
+    }
+
+    var activeTool: Tool = .navigate {
+        didSet {
+            // Uno strumento di modifica non si prende in «Rivedi». Il guard sta qui e non in ogni
+            // pulsante perché gli strumenti si attivano anche da tastiera e dal menu, e tre vie
+            // allo stesso stato vogliono un solo controllo.
+            if !session.mode.isEditable, activeTool != .navigate { activeTool = .navigate }
+        }
+    }
 
     /// Piano di taglio per ciascun riquadro 2D. Il centro fuori piano segue il mirino; la
     /// posizione nel piano e l'estensione sono indipendenti, così zoom e pan di una vista non
@@ -689,7 +684,7 @@ final class AppModel {
             loadingMessage = nil
             loadIssues = ["Generazione del fantoccio fallita: \(message)"]
         case .loaded(let volume):
-            adopt(volume: volume)
+            openStudy(volume: volume, named: "Fantoccio sintetico", provenance: .synthetic)
             loadingMessage = nil
         }
     }
@@ -743,11 +738,10 @@ final class AppModel {
             loadingMessage = nil
             loadIssues = [message]
         case .loaded(let volume, let messages, let name):
-            adopt(volume: volume)
-            // Gli avvisi si impostano **dopo** `adopt`, che azzera lo stato: altrimenti
+            openStudy(volume: volume, named: name, provenance: .imported)
+            // Gli avvisi si impostano **dopo** `openStudy`, che azzera lo stato: altrimenti
             // sparirebbero proprio quando servono.
             loadIssues = messages
-            studyName = name
             loadingMessage = nil
         }
     }
@@ -757,8 +751,11 @@ final class AppModel {
         case failed(String)
     }
 
-    /// Nome della serie aperta, per il titolo della finestra e la barra laterale.
-    fileprivate(set) var studyName: String = "Fantoccio sintetico"
+    /// I volumi dello studio: quello letto e tutto ciò che se ne è derivato. Vedi `VolumeLibrary`.
+    private(set) var library = VolumeLibrary()
+
+    /// Nome del volume in uso, per il titolo della finestra e la barra laterale.
+    var studyName: String { library.selected?.name ?? "Nessuno studio" }
 
     /// Etichetta in basso a sinistra nei riquadri: da dove vengono i numeri che si stanno leggendo.
     ///
@@ -771,21 +768,60 @@ final class AppModel {
     /// scambiarlo per uno studio vero sarebbe il malinteso peggiore possibile.
     var reconstructionLabel: String {
         guard let volume else { return "—" }
-        if volume.geometry.voxelCount > 0, studyName == "Fantoccio sintetico" {
+        // Il fantoccio si riconosce dalla **provenienza** registrata, non dal nome: il nome si
+        // può cambiare, e un fantoccio rinominato che si spaccia per uno studio vero sarebbe il
+        // malinteso peggiore possibile su questi numeri.
+        if case .synthetic = library.selectedRootProvenance {
             return "FANTOCCIO · \(volume.densityUnit.symbol)"
         }
         return volume.densityUnit.symbol
     }
 
-    /// Adotta un volume dandogli un nome, per esempio dopo un ritaglio.
-    func adopt(volume: Volume, named name: String) {
+    /// Accoglie un volume **derivato** — un ritaglio, un ricampionamento — accanto a quello da
+    /// cui viene, e ci si sposta sopra.
+    ///
+    /// Accanto e non al posto: prima sostituiva, e l'originale non tornava più. Il difetto non si
+    /// vedeva durante l'operazione ma dieci minuti dopo, quando serviva un ritaglio diverso e
+    /// l'unica via era riaprire lo studio perdendo misure, curva e impianti.
+    func adopt(volume: Volume, named name: String, operation: String = "Riformattazione") {
+        guard let parent = library.selectedID else {
+            openStudy(volume: volume, named: name, provenance: .imported)
+            return
+        }
+        guard library.addDerived(volume, named: name, from: parent, operation: operation) != nil
+        else { return }
         adopt(volume: volume)
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        studyName = trimmed.isEmpty ? "Volume riformattato" : trimmed
+    }
+
+    /// Torna su un volume già presente nella raccolta.
+    ///
+    /// Ricostruisce texture e inquadrature perché la griglia è un'altra, ma **non** azzera
+    /// annotazioni e impianti: sono in millimetri Patient, e i millimetri sono gli stessi in un
+    /// ritaglio e nel volume da cui viene. Cancellarli sarebbe la scelta prudente e sbagliata —
+    /// costringerebbe a rifare le misure ogni volta che si confronta un ritaglio con l'originale,
+    /// che è precisamente ciò per cui la raccolta esiste.
+    func selectVolume(_ id: UUID) {
+        guard id != library.selectedID, library.select(id), let entry = library[id] else { return }
+        adopt(volume: entry.volume, preservingPlan: true)
+    }
+
+    /// Toglie un volume derivato dalla raccolta.
+    func removeVolume(_ id: UUID) {
+        let wasSelected = id == library.selectedID
+        guard library.remove(id) else { return }
+        if wasSelected, let entry = library.selected {
+            adopt(volume: entry.volume, preservingPlan: true)
+        }
+    }
+
+    /// Apre uno studio letto da disco o il fantoccio: svuota la raccolta e riparte.
+    func openStudy(volume: Volume, named name: String, provenance: VolumeProvenance) {
+        library.open(volume, named: name, provenance: provenance)
+        adopt(volume: volume)
     }
 
     /// Adotta un volume: costruisce la texture, imposta mirino, finestra e inquadrature.
-    func adopt(volume: Volume) {
+    func adopt(volume: Volume, preservingPlan: Bool = false) {
         self.volume = volume
 
         if let device {
@@ -804,6 +840,7 @@ final class AppModel {
         histogram = volume.rawHistogram(binCount: 256)
 
         resetPlanes()
+        guard !preservingPlan else { return }
         resetArchCurves()
         annotations = []
         roiStatistics = [:]

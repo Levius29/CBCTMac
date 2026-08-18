@@ -2,6 +2,7 @@ import AppKit
 import DICOMCore
 import ImplantKit
 import MeasureKit
+import StudyKit
 import SwiftUI
 import UniformTypeIdentifiers
 import VolumeKit
@@ -24,7 +25,10 @@ struct InspectorPanel: View {
                 // sempre riempirebbe l'ispettore di comandi inerti.
                 // Con uno strumento implantare attivo, o con un impianto selezionato, i
                 // controlli che servono sono quelli, non finestra e livello.
-                if model.activeTool == .implant || model.activeTool == .nerve
+                if model.workMode == .review {
+                    // In rilettura l'ispettore non è un pannello di comandi: è il piano.
+                    ReviewPanel(model: model)
+                } else if model.activeTool == .implant || model.activeTool == .nerve
                     || model.selectedImplant != nil
                 {
                     implantSection
@@ -43,8 +47,10 @@ struct InspectorPanel: View {
                 } else {
                     visualizationSection
                 }
-                Divider().overlay(Palette.separator)
-                measurementsSection
+                if model.workMode != .review {
+                    Divider().overlay(Palette.separator)
+                    measurementsSection
+                }
             }
             .padding(Metrics.spacingLarge)
         }

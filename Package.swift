@@ -54,7 +54,7 @@ import PackageDescription
             name: "CBCTMacApp",
             dependencies: [
                 "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
-                "SegmentKit", "ArtifactKit",
+                "SegmentKit", "ArtifactKit", "StudyKit",
             ]
         )
     ]
@@ -79,6 +79,7 @@ let libraryProducts: [Product] = [
     .library(name: "GuideKit", targets: ["GuideKit"]),
     .library(name: "SegmentKit", targets: ["SegmentKit"]),
     .library(name: "ArtifactKit", targets: ["ArtifactKit"]),
+    .library(name: "StudyKit", targets: ["StudyKit"]),
 ]
 
 let moduleTargets: [Target] = [
@@ -103,6 +104,9 @@ let moduleTargets: [Target] = [
     .target(name: "GuideKit", dependencies: ["DICOMCore", "MeshKit", "ImplantKit"]),
     .target(name: "SegmentKit", dependencies: ["DICOMCore"]),
     .target(name: "ArtifactKit", dependencies: ["DICOMCore", "SegmentKit"]),
+    // Modi di lavoro, riquadri e raccolta dei volumi. Nessuna interfaccia: sono le decisioni che
+    // l'interfaccia esegue, e stando qui si verificano con `swift test` invece che sul Mac.
+    .target(name: "StudyKit", dependencies: ["DICOMCore"]),
 ]
 
 let testTargets: [Target] = [
@@ -117,6 +121,7 @@ let testTargets: [Target] = [
         dependencies: ["GuideKit", "DICOMCore", "MeshKit", "ImplantKit"]
     ),
     .testTarget(name: "SegmentKitTests", dependencies: ["SegmentKit", "DICOMCore"]),
+    .testTarget(name: "StudyKitTests", dependencies: ["StudyKit", "DICOMCore"]),
     .testTarget(
         name: "ArtifactKitTests",
         dependencies: ["ArtifactKit", "DICOMCore", "SegmentKit"]
@@ -131,6 +136,7 @@ let testTargets: [Target] = [
         name: "AppContractTests",
         dependencies: [
             "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
+            "StudyKit",
         ]
     ),
 ]

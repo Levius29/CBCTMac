@@ -1,5 +1,6 @@
 import AppKit
 import DICOMCore
+import StudyKit
 import SwiftUI
 import VolumeKit
 
@@ -19,6 +20,8 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             DisclaimerBanner()
+            WorkModeBar(model: model)
+            Divider().overlay(Palette.separator)
 
             HStack(spacing: 0) {
                 if showSidebar {

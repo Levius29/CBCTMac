@@ -5,6 +5,7 @@ import ImplantKit
 import MeasureKit
 import MeshKit
 import SegmentKit
+import StudyKit
 import Testing
 import VolumeKit
 
@@ -543,5 +544,175 @@ struct ModuleAPIContractTests {
         _ = try JSONEncoder().encode(
             [ImplantPlacement(platformMM: .zero)])
         _ = try JSONEncoder().encode([NerveCanal(side: .left)])
+    }
+
+    // MARK: CrosshairOverlay: le tracce del mirino
+
+    @Test("Le API della geometria del mirino usate dalla sovraimpressione")
+    func crosshairOverlayAPI() throws {
+        let volume = try makeVolume()
+        let geometry = volume.geometry
+        let crosshair = geometry.centerMM
+
+        // `CrosshairOverlay.viewPlane(in:)`
+        let view = MPRPlane.fitted(plane: .axial, geometry: geometry)
+            .matchingAspect(pixelWidth: 400, pixelHeight: 300)
+        let other = MPRPlane.fitted(plane: .sagittal, geometry: geometry)
+            .matchingAspect(pixelWidth: 400, pixelHeight: 300)
+
+        // `CrosshairOverlay.traces(in:)`
+        let trace = try #require(
+            CrosshairGeometry.trace(
+                of: other, in: view, through: crosshair,
+                pixelWidth: 400, pixelHeight: 300))
+
+        // `CrosshairOverlay.draw(_:in:)`
+        _ = trace.start
+        _ = trace.end
+        _ = trace.pivot
+        _ = trace.startHandle
+        _ = trace.endHandle
+        _ = trace.lengthPixels
+        _ = CrosshairGeometry.centreGapPixels
+        _ = trace.start.distance(to: trace.pivot)
+
+        // `CrosshairOverlay.grip(at:among:)`
+        let probe = PixelPoint(x: trace.pivot.x, y: 40)
+        switch trace.grip(at: probe) {
+        case .handle(let isStart): _ = isStart
+        case .line: break
+        case nil: break
+        }
+        _ = trace.distance(from: probe)
+
+        // `CrosshairOverlay.apply(_:item:to:size:)`
+        if let angle = trace.rotation(from: probe, to: PixelPoint(x: probe.x + 10, y: 60)) {
+            _ = other.rotated(
+                aboutAxis: trace.rotationAxisMM, byRadians: angle, aboutMM: crosshair)
+        }
+        let movement = trace.slide(
+            from: probe, to: PixelPoint(x: probe.x + 10, y: 60),
+            in: view, pixelWidth: 400, pixelHeight: 300)
+        _ = crosshair + movement
+    }
+
+    // MARK: Modi di lavoro e raccolta dei volumi
+
+    @Test("Le API dei modi di lavoro usate da AppModel e WorkModeBar")
+    func workModeAPI() {
+        // `AppModel.session`, `layout`, `focusedSlot`, `activate(mode:)`
+        var session = WorkspaceSession()
+        session.layout = .grid2x2
+        session.focusedSlot = .axial
+        session.activate(.curved)
+        _ = session.mode
+        _ = session.layout
+        _ = session.focusedSlot
+        session.reset(.curved)
+        _ = session.hasCustomLayout(.orthogonal)
+
+        // `WorkModeBar.tab(_:)`
+        for mode in WorkMode.allCases {
+            _ = mode.id
+            _ = mode.shortName
+            _ = mode.localizedName
+            _ = mode.systemImageName
+            _ = mode.defaultLayout
+            _ = mode.defaultFocus
+            _ = mode.isEditable
+            _ = mode.usesArchCurve
+            _ = mode.hint
+        }
+
+        // `ViewportGrid` e `ViewportActions`
+        for slot in ViewportSlot.allCases {
+            _ = slot.id
+            _ = slot.localizedName
+            if let anatomical = slot.anatomicalPlane {
+                _ = anatomical.localizedName
+            }
+        }
+        for layout in ViewportLayout.allCases {
+            _ = layout.localizedName
+            _ = layout.systemImageName
+        }
+    }
+
+    @Test("Le API della raccolta dei volumi usate da AppModel e StudySidebar")
+    func volumeLibraryAPI() throws {
+        let volume = try makeVolume()
+
+        // `AppModel.openStudy(volume:named:provenance:)`
+        var library = VolumeLibrary()
+        let root = library.open(volume, named: "Studio", provenance: .imported)
+
+        // `AppModel.adopt(volume:named:operation:)`
+        let derived = library.addDerived(
+            volume, named: "Ritaglio", from: root, operation: "Ritaglio")
+
+        // `AppModel.selectVolume(_:)` e `removeVolume(_:)`
+        if let derived {
+            _ = library.select(derived)
+            _ = library[derived]
+            _ = library.remove(derived)
+        }
+
+        // `StudySidebar.studyTree(volume:)`
+        for entry in library.entries {
+            _ = entry.id
+            _ = entry.name
+            _ = entry.summary
+            _ = entry.provenance.parentID
+            _ = entry.provenance.isImported
+            _ = library.depth(of: entry.id)
+            _ = library.provenanceDescription(of: entry.id)
+        }
+        _ = library.selectedID
+        _ = library.selected
+        _ = library.isEmpty
+        _ = library.entries
+
+        // `AppModel.reconstructionLabel`
+        if case .synthetic = library.selectedRootProvenance {}
+        library.rename(root, to: "Altro nome")
+        _ = library.uniqueName("Ritaglio")
+    }
+
+    // MARK: ReviewPanel: la rilettura del piano
+
+    @Test("Le API che la scheda «Rivedi» legge")
+    func reviewPanelAPI() throws {
+        let volume = try makeVolume()
+        var library = VolumeLibrary()
+        let root = library.open(volume, named: "Studio", provenance: .imported)
+        _ = library.addDerived(volume, named: "Ritaglio", from: root, operation: "Ritaglio")
+
+        // `ReviewPanel.volumeSection`
+        if let entry = library.selected {
+            _ = entry.name
+            _ = entry.summary
+            _ = library.depth(of: entry.id)
+            _ = library.provenanceDescription(of: entry.id)
+        }
+
+        // `ReviewPanel.implantRow(_:)`
+        let implant = ImplantPlacement(platformMM: Vec3(0, 0, 0), label: "13")
+        _ = implant.label
+        _ = implant.colorHex
+        _ = implant.model.diameterMM
+        _ = implant.model.lengthMM
+
+        let report = SafetyAnalyzer.analyze(
+            implant: implant, nerves: [], otherImplants: [], volume: volume,
+            thresholds: .nerve)
+        if let worst = report.findings.max(by: { $0.level < $1.level }) {
+            _ = worst.structureName
+            _ = worst.formattedDistance
+            switch worst.level {
+            case .safe, .caution, .danger: break
+            }
+        }
+        _ = report.angulationDegrees
+        _ = report.worstLevel
     }
 }

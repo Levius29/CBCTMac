@@ -1,5 +1,6 @@
 import DICOMCore
 import MeasureKit
+import StudyKit
 import SwiftUI
 import VolumeKit
 

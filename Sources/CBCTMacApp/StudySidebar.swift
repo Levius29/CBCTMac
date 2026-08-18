@@ -1,4 +1,5 @@
 import DICOMCore
+import StudyKit
 import SwiftUI
 
 // Elenco degli studi.
@@ -8,8 +9,10 @@ import SwiftUI
 // e la spaziatura sono le due cose che si controllano prima di aprire una serie, e in un
 // sottotitolo grigio si perdono.
 //
-// Finché non c'è il parser DICOM mostra la sola voce del fantoccio sintetico. La struttura è
-// però già quella definitiva, così l'innesto del parser non richiede di rifare la vista.
+// I volumi derivati — ritagli, ricampionamenti — compaiono **annidati sotto quello da cui
+// vengono**, non in un elenco piatto. È l'unico posto in cui la catena di provenienza si vede, ed
+// è ciò che rende evidente che il ritaglio non ha sostituito l'originale: prima lo sostituiva, e
+// non c'era modo di accorgersene se non cercando l'originale e non trovandolo più.
 
 struct StudySidebar: View {
 
@@ -26,7 +29,7 @@ struct StudySidebar: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     if let volume = model.volume {
-                        phantomTree(volume: volume)
+                        studyTree(volume: volume)
                     } else {
                         Text("Nessuno studio aperto")
                             .font(Typography.label)
@@ -56,34 +59,48 @@ struct StudySidebar: View {
     }
 
     @ViewBuilder
-    private func phantomTree(volume: Volume) -> some View {
+    private func studyTree(volume: Volume) -> some View {
         TreeRow(
             icon: "person.crop.square", title: "PAZIENTE", indent: 0,
             isSelected: false, isBold: true)
         TreeRow(icon: "calendar", title: "Studio aperto", indent: 1, isSelected: false)
-        TreeRow(
-            icon: "cube", title: model.studyName, indent: 2, isSelected: true,
-            tint: Palette.accent)
 
-        let geometry = volume.geometry
-        TreeRow(
-            icon: "photo.stack",
-            title: "\(geometry.sliceCount) img",
-            indent: 3,
-            isSelected: false,
-            isSecondary: true)
-        TreeRow(
-            icon: "square.stack.3d.up",
-            title: spacingLabel(geometry),
-            indent: 3,
-            isSelected: false,
-            isSecondary: true)
-        TreeRow(
-            icon: "ruler",
-            title: dimensionLabel(geometry),
-            indent: 3,
-            isSelected: false,
-            isSecondary: true)
+        ForEach(model.library.entries) { entry in
+            let isSelected = entry.id == model.library.selectedID
+            TreeRow(
+                icon: entry.provenance.parentID == nil ? "cube" : "crop",
+                title: entry.name,
+                // Il rientro viene dalla profondità nella catena: un ritaglio del ritaglio sta
+                // due gradini dentro, e si vede a colpo d'occhio da dove viene.
+                indent: 2 + model.library.depth(of: entry.id),
+                isSelected: isSelected,
+                tint: isSelected ? Palette.accent : nil
+            )
+            .contentShape(.rect)
+            .onTapGesture { model.selectVolume(entry.id) }
+            .contextMenu {
+                Button("Mostra questo volume") { model.selectVolume(entry.id) }
+                // Il volume di partenza non si toglie: è l'unica copia dei dati letti, e
+                // ricrearlo vuol dire riaprire lo studio.
+                Button("Rimuovi", role: .destructive) { model.removeVolume(entry.id) }
+                    .disabled(entry.provenance.parentID == nil)
+            }
+            .help(model.library.provenanceDescription(of: entry.id))
+
+            if isSelected {
+                let geometry = volume.geometry
+                let indent = 3 + model.library.depth(of: entry.id)
+                TreeRow(
+                    icon: "photo.stack", title: "\(geometry.sliceCount) img",
+                    indent: indent, isSelected: false, isSecondary: true)
+                TreeRow(
+                    icon: "square.stack.3d.up", title: spacingLabel(geometry),
+                    indent: indent, isSelected: false, isSecondary: true)
+                TreeRow(
+                    icon: "ruler", title: dimensionLabel(geometry),
+                    indent: indent, isSelected: false, isSecondary: true)
+            }
+        }
     }
 
     private func spacingLabel(_ geometry: VolumeGeometry) -> String {
