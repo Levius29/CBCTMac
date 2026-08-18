@@ -99,11 +99,11 @@ struct ViewportContainer: View {
                 }
 
                 if slot.anatomicalPlane != nil {
-                    CrosshairOverlay(
-                        model: model,
-                        slot: slot,
-                        pointSize: geometry.size,
-                        pixelSize: pixelSize)
+                    // Niente `pixelSize` qui: la sovraimpressione lavora nello spazio in punti
+                    // del riquadro, e dichiarare la stessa griglia sia per proiettare sia per
+                    // ricevere i clic è ciò che la rende esatta. Passarle i pixel del drawable
+                    // introdurrebbe un fattore di scala fra ciò che disegna e ciò che tocca.
+                    CrosshairOverlay(model: model, slot: slot)
 
                     AnnotationOverlay(
                         model: model,
@@ -340,6 +340,11 @@ struct ViewportContainer: View {
     }
 
     /// ⇧ + trascinamento: **inclina il taglio**, cioè ruota le linee del mirino.
+    ///
+    /// Dalle maniglie del mirino si ottiene la stessa inclinazione afferrando direttamente la
+    /// linea, ed è la via che si scopre da sé. Questa resta perché è l'unica che funziona quando
+    /// la linea è fuori dal riquadro — ingranditi su un molare, il mirino è spesso oltre il
+    /// bordo, e allora non c'è nessuna maniglia da afferrare.
     ///
     /// Trascinando in orizzontale si ruotano i due piani perpendicolari a questo attorno alla sua
     /// normale: sull'assiale significa inclinare coronale e sagittale, che è il gesto con cui si

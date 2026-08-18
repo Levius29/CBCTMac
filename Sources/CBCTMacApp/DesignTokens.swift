@@ -1,3 +1,4 @@
+import DICOMCore
 import SwiftUI
 
 // Token di design.
@@ -38,6 +39,21 @@ enum Palette {
     static let coronal = Color(hex: 0x4FCB6B)
     static let sagittal = Color(hex: 0xFFD426)
     static let volume3D = Color(hex: 0x32B8C6)
+
+    /// L'unica traduzione da piano anatomico a colore.
+    ///
+    /// Il colore di un piano compare in almeno quattro posti — il bordo del suo riquadro, le sue
+    /// tracce nelle altre due viste, il rettangolo che lo rappresenta nel 3D, l'etichetta nella
+    /// barra di stato — e devono essere lo stesso colore. Ripetere lo `switch` in quattro file
+    /// significa che alla prima modifica tre di essi restano indietro, e un colore che quasi
+    /// coincide è peggio di uno palesemente diverso: sembra intenzionale.
+    static func color(for plane: AnatomicalPlane) -> Color {
+        switch plane {
+        case .axial: return axial
+        case .coronal: return coronal
+        case .sagittal: return sagittal
+        }
+    }
 
     /// Colori per la distanza da una struttura da rispettare, usati in Fase 3 per gli allarmi
     /// di prossimita' implanto-nervo.

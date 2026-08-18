@@ -164,13 +164,13 @@ enum ViewportSlot: String, CaseIterable, Hashable, Sendable, Identifiable {
         }
     }
 
+    /// Colore del piano, che è **la stessa informazione** del bordo del riquadro, della traccia
+    /// del mirino sugli altri due e del piano disegnato nel 3D. Una sola definizione perché
+    /// quelle tre cose devono restare d'accordo: se divergessero, il colore smetterebbe di
+    /// essere un'indicazione e diventerebbe rumore.
     var accentColor: Color {
-        switch self {
-        case .axial: return Palette.axial
-        case .coronal: return Palette.coronal
-        case .sagittal: return Palette.sagittal
-        case .volume3D: return Palette.volume3D
-        }
+        guard let anatomical = anatomicalPlane else { return Palette.volume3D }
+        return Palette.color(for: anatomical)
     }
 }
 
@@ -967,6 +967,19 @@ final class AppModel {
             planes[other] = plane.rotated(
                 aboutAxis: axis, byRadians: angle, aboutMM: crosshairMM)
         }
+    }
+
+    /// Ruota **un solo** piano attorno a un asse, col mirino come perno.
+    ///
+    /// È la variante scollegata di `tiltPlanes`: si usa tenendo ⌥ su una maniglia del mirino,
+    /// quando si vuole inclinare una linea lasciando l'altra dov'è. Il risultato sono due piani
+    /// non più perpendicolari fra loro, e va detto che è una scelta con un costo: le sezioni
+    /// trasversali ricavate da due piani obliqui fra loro non sono più ortogonali, quindi le
+    /// misure prese su una non si compongono con quelle prese sull'altra. Serve per guardare,
+    /// meno per misurare — da cui il modificatore, invece del gesto normale.
+    func rotatePlane(_ slot: ViewportSlot, aboutAxis axis: Vec3, byRadians angle: Double) {
+        guard angle.isFinite, let plane = planes[slot] else { return }
+        planes[slot] = plane.rotated(aboutAxis: axis, byRadians: angle, aboutMM: crosshairMM)
     }
 
     /// Riporta un riquadro a inquadrare tutto il volume, senza toccare orientamento né mirino.
