@@ -55,10 +55,8 @@ struct CBCTMacApp: App {
                     // del terminale. Vedi `AppIcon`.
                     AppIcon.install()
 
-                    // Senza parser DICOM l'applicazione non aprirebbe nulla. Il fantoccio
-                    // sintetico le dà qualcosa di reale da disegnare fin dal primo avvio, con
-                    // misure note contro cui verificare — e senza toccare dati di pazienti.
-                    await model.loadSyntheticPhantom()
+                    // Nessuno studio all'avvio: la finestra apre l'archivio, e da lì si sceglie
+                    // che cosa guardare. Il fantoccio si carica dal menu quando serve.
                 }
         }
         .windowStyle(.titleBar)
@@ -88,6 +86,12 @@ struct CBCTMacApp: App {
 
                 Button("Archivio…") { model.isShowingArchive = true }
                     .keyboardShortcut("a", modifiers: [.command, .shift])
+
+                // Il fantoccio: non più all'avvio, ma raggiungibile. È il metro contro cui si
+                // prova la catena di misura, ed è quello su cui lavora la verifica ⇧⌘V.
+                Button("Carica il fantoccio di prova") {
+                    Task { await model.loadSyntheticPhantom() }
+                }
 
                 Divider()
 

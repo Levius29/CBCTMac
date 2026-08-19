@@ -24,6 +24,40 @@ struct ContentView: View {
     @AppStorage("layout.inspectorWidth") private var inspectorWidth = Double(Metrics.inspectorWidth)
 
     var body: some View {
+        Group {
+            if model.volume == nil {
+                // Senza uno studio aperto la finestra **è** l'archivio.
+                //
+                // Prima era la griglia dei riquadri con dentro il fantoccio sintetico, caricato
+                // a ogni avvio: la prima cosa che si vedeva era l'unica che non interessa, e il
+                // proprio lavoro stava dietro un menu. Adesso la griglia compare quando c'è
+                // qualcosa da guardarci dentro.
+                VStack(spacing: 0) {
+                    DisclaimerBanner()
+                    ArchiveHome(model: model, onOpenFolder: openStudyFolder)
+                }
+            } else {
+                workspace
+            }
+        }
+        .background(Palette.chrome)
+        .toolbar { toolbarContent }
+        .overlay { loadingOverlay }
+        .sheet(isPresented: $model.isShowingShortcuts) { ShortcutsSheet() }
+        .sheet(isPresented: $model.isShowingReorient) { ReorientSheet(model: model) }
+        .sheet(isPresented: $model.isShowingArtifact) { ArtifactSheet(model: model) }
+        .sheet(isPresented: $model.isShowingVerification) { VerificationSheet(model: model) }
+        .sheet(isPresented: $model.isShowingScanRegistration) {
+            ScanRegistrationSheet(model: model)
+        }
+        .sheet(isPresented: $model.isShowingGuide) { GuideSheet(model: model) }
+        .sheet(isPresented: $model.isShowingSegmentation) { SegmentationSheet(model: model) }
+        .sheet(isPresented: $model.isShowingArchive) { ArchiveSheet(model: model) }
+        .sheet(isPresented: $model.isAskingToArchive) { ArchivePromptSheet(model: model) }
+        .navigationTitle(windowTitle)
+    }
+
+    private var workspace: some View {
         VStack(spacing: 0) {
             DisclaimerBanner()
             WorkModeBar(model: model)
@@ -54,21 +88,6 @@ struct ContentView: View {
             Divider().overlay(Palette.separator)
             StatusBar(model: model)
         }
-        .background(Palette.chrome)
-        .toolbar { toolbarContent }
-        .overlay { loadingOverlay }
-        .sheet(isPresented: $model.isShowingShortcuts) { ShortcutsSheet() }
-        .sheet(isPresented: $model.isShowingReorient) { ReorientSheet(model: model) }
-        .sheet(isPresented: $model.isShowingArtifact) { ArtifactSheet(model: model) }
-        .sheet(isPresented: $model.isShowingVerification) { VerificationSheet(model: model) }
-        .sheet(isPresented: $model.isShowingScanRegistration) {
-            ScanRegistrationSheet(model: model)
-        }
-        .sheet(isPresented: $model.isShowingGuide) { GuideSheet(model: model) }
-        .sheet(isPresented: $model.isShowingSegmentation) { SegmentationSheet(model: model) }
-        .sheet(isPresented: $model.isShowingArchive) { ArchiveSheet(model: model) }
-        .sheet(isPresented: $model.isAskingToArchive) { ArchivePromptSheet(model: model) }
-        .navigationTitle(windowTitle)
     }
 
     // MARK: Titolo

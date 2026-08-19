@@ -123,6 +123,7 @@ struct ShortcutsSheet: View {
             ("⌘Z / ⇧⌘Z", "Annulla e ripeti"),
             ("?", "Apre e chiude questa legenda"),
             ("⌘0", "Adatta le viste alla finestra"),
+            ("⌘O", "Apri un esame da una cartella DICOM"),
             ("⌘S", "Salva il piano"),
             ("⌘E", "Esporta l'immagine del riquadro attivo"),
             ("⇧⌘R", "Ritaglia e ricampiona il volume"),
