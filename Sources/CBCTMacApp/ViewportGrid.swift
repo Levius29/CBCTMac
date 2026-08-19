@@ -295,7 +295,7 @@ struct ViewportContainer: View {
                 onDragBegan: handleDragBegan,
                 onDragEnded: {
                     model.endHandleDrag()
-                    model.endImplantDrag()
+                    model.endObjectDrag()
                     finishTwoPointDrag()
 
                     // Un tracciato a mano libera si chiude alzando il dito: è il gesto con cui
@@ -351,7 +351,19 @@ struct ViewportContainer: View {
             },
             onInteractionChanged: { active in
                 model.isInteractingWith3D = active
-            }
+                // Il gesto è finito: si chiude anche il trascinamento dell'oggetto, se ce n'era
+                // uno. Senza, l'impianto resterebbe agganciato al puntatore fino alla pressione
+                // successiva.
+                if !active { model.endVolume3DDrag() }
+            },
+            onGrab: { point in
+                model.focusedSlot = slot
+                return model.beginVolume3DDrag(atPixel: point, pixelSize: pixelSize)
+            },
+            onGrabbedDrag: { point in
+                model.dragVolume3D(toPixel: point, pixelSize: pixelSize)
+            },
+            onDrawableSize: { pixelSize = $0 }
         )
     }
 
@@ -541,13 +553,15 @@ struct ViewportContainer: View {
             return true
         }
 
-        // Un impianto afferrato viene prima di tutto il resto: chi preme sul corpo di un impianto
-        // sta spostando quello, non misurando né spostando il mirino. Solo con la navigazione o
-        // con lo strumento impianto in mano, però — con un righello in mano il gesto appartiene
-        // al righello, e afferrare l'impianto lo renderebbe impossibile da misurare.
-        if model.activeTool == .navigate || model.activeTool == .implant,
+        // Un oggetto del piano afferrato viene prima di tutto il resto: chi preme sul corpo di
+        // un impianto o di un dente sta spostando quello, non misurando né spostando il mirino.
+        // Solo con la navigazione o con uno strumento di posa in mano, però — con un righello in
+        // mano il gesto appartiene al righello, e afferrare l'impianto lo renderebbe impossibile
+        // da misurare.
+        if model.activeTool == .navigate || model.activeTool == .implant
+            || model.activeTool == .prostheticTooth,
             let patient = patientPoint(atPixel: pixelPoint),
-            model.beginImplantDrag(at: patient, toleranceMM: grabToleranceMM)
+            model.beginObjectDrag(at: patient, toleranceMM: grabToleranceMM)
         {
             model.focusedSlot = slot
             return true
@@ -664,8 +678,8 @@ struct ViewportContainer: View {
             return
         }
 
-        if model.implantDrag != nil {
-            if let patient = patientPoint(atPixel: point) { model.dragImplant(toMM: patient) }
+        if model.isDraggingObject {
+            if let patient = patientPoint(atPixel: point) { model.dragObject(toMM: patient) }
             return
         }
 

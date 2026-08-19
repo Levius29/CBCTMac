@@ -227,6 +227,25 @@ struct InspectorPanel: View {
         String(format: "%.1f mm", value).replacingOccurrences(of: ".", with: ",")
     }
 
+    /// Quanto si stringe l'impianto, in millimetri e in gradi per lato.
+    private func taperNote(_ model: ImplantModel) -> String {
+        let narrowing = model.platformDiameterMM - model.apexDiameterMM
+        guard model.lengthMM > 0 else { return "" }
+        // Mezza differenza sulla lunghezza: è la pendenza del fianco, cioè l'angolo per lato,
+        // che è come la conicità si legge su un catalogo.
+        let radians = Foundation.atan((narrowing * 0.5) / model.lengthMM)
+        let degrees = radians * 180 / .pi
+        if abs(narrowing) < 0.05 { return "Cilindrico." }
+        let direction = narrowing > 0 ? "si stringe" : "si allarga"
+        // I due numeri si formattano da soli e poi si compongono. Applicare la sostituzione
+        // della virgola decimale all'intera frase cambierebbe anche il punto finale — che è
+        // punteggiatura, non un separatore decimale.
+        let amount = Self.millimetres(abs(narrowing))
+        let angle = String(format: "%.1f°", abs(degrees))
+            .replacingOccurrences(of: ".", with: ",")
+        return "Conicità: \(direction) di \(amount) verso l'apice, \(angle) per lato."
+    }
+
     // MARK: Impianti e nervo
 
     private var implantSection: some View {
@@ -234,22 +253,32 @@ struct InspectorPanel: View {
             SectionHeader("IMPIANTO")
 
             if let implant = model.selectedImplant {
-                LabeledControl("Diametro") {
-                    Menu(
-                        String(format: "%.1f mm", implant.model.diameterMM)
-                            .replacingOccurrences(of: ".", with: ",")
-                    ) {
+                // Tre misure, e ciascuna cambia da sé senza disfare le altre.
+                //
+                // Prima erano due menu che **ricostruivano il modello da capo**: scegliere una
+                // lunghezza rifaceva l'impianto con il diametro corrente e i valori predefiniti
+                // per tutto il resto, quindi cancellava in silenzio ogni personalizzazione del
+                // profilo. Adesso passano tutte da `resize`, che cambia quel che si chiede e
+                // rigenera il profilo dalle tre misure insieme.
+                LabeledControl("Testa Ø") {
+                    Menu(Self.millimetres(implant.model.platformDiameterMM)) {
                         ForEach(ImplantModel.commonDiameters, id: \.self) { diameter in
-                            Button(
-                                String(format: "%.1f mm", diameter)
-                                    .replacingOccurrences(of: ".", with: ",")
-                            ) {
-                                model.updateSelectedImplant { placement in
-                                    placement.model = ImplantModel(
-                                        manufacturer: placement.model.manufacturer,
-                                        line: placement.model.line,
-                                        diameterMM: diameter,
-                                        lengthMM: placement.model.lengthMM)
+                            Button(Self.millimetres(diameter)) {
+                                model.updateSelectedImplant {
+                                    $0.model.resize(platformDiameterMM: diameter)
+                                }
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                }
+
+                LabeledControl("Apice Ø") {
+                    Menu(Self.millimetres(implant.model.apexDiameterMM)) {
+                        ForEach(ImplantModel.commonApexDiameters, id: \.self) { diameter in
+                            Button(Self.millimetres(diameter)) {
+                                model.updateSelectedImplant {
+                                    $0.model.resize(apexDiameterMM: diameter)
                                 }
                             }
                         }
@@ -258,23 +287,22 @@ struct InspectorPanel: View {
                 }
 
                 LabeledControl("Lunghezza") {
-                    Menu(
-                        String(format: "%.0f mm", implant.model.lengthMM)
-                    ) {
+                    Menu(Self.millimetres(implant.model.lengthMM)) {
                         ForEach(ImplantModel.commonLengths, id: \.self) { length in
-                            Button(String(format: "%.1f mm", length)) {
-                                model.updateSelectedImplant { placement in
-                                    placement.model = ImplantModel(
-                                        manufacturer: placement.model.manufacturer,
-                                        line: placement.model.line,
-                                        diameterMM: placement.model.diameterMM,
-                                        lengthMM: length)
-                                }
+                            Button(Self.millimetres(length)) {
+                                model.updateSelectedImplant { $0.model.resize(lengthMM: length) }
                             }
                         }
                     }
                     .menuStyle(.borderlessButton)
                 }
+
+                // La conicità è una conseguenza delle due misure, non un quarto parametro: dirla
+                // evita di doverla calcolare a mente quando si sceglie fra due impianti.
+                Text(taperNote(implant.model))
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 HStack {
                     Text("Etichetta")

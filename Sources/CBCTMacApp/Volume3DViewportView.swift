@@ -26,6 +26,11 @@ struct Volume3DViewportView: NSViewRepresentable {
     var onOrbit: (CGSize) -> Void = { _ in }
     var onMagnify: (Double) -> Void = { _ in }
     var onInteractionChanged: (Bool) -> Void = { _ in }
+    /// Pressione iniziale, in pixel del drawable. Restituisce `true` se ha afferrato qualcosa:
+    /// in quel caso il trascinamento **non** deve far orbitare la telecamera.
+    var onGrab: (CGPoint) -> Bool = { _ in false }
+    var onGrabbedDrag: (CGPoint) -> Void = { _ in }
+    var onDrawableSize: (CGSize) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -43,7 +48,8 @@ struct Volume3DViewportView: NSViewRepresentable {
         view.delegate = context.coordinator
 
         context.coordinator.configure(device: view.device)
-        attachHandlers(to: view)
+        context.coordinator.onDrawableSize = onDrawableSize
+        attachHandlers(to: view, coordinator: context.coordinator)
         return view
     }
 
@@ -54,12 +60,33 @@ struct Volume3DViewportView: NSViewRepresentable {
         context.coordinator.transferFunction = transferFunction
         context.coordinator.quality = quality
         context.coordinator.lighting = lighting
-        attachHandlers(to: view)
+        context.coordinator.onDrawableSize = onDrawableSize
+        attachHandlers(to: view, coordinator: context.coordinator)
         view.setNeedsDisplay(view.bounds)
     }
 
-    private func attachHandlers(to view: InteractiveMetalView) {
-        view.onDrag = { _, delta in onOrbit(delta) }
+    private func attachHandlers(to view: InteractiveMetalView, coordinator: Coordinator) {
+        // # Orbitare, oppure spostare un oggetto — mai tutt'e due
+        //
+        // Sul 3D il trascinamento fa girare la scena, ed è il gesto che ci si aspetta. Ma un
+        // impianto disegnato lì dentro deve potersi prendere, e le due cose partono dallo stesso
+        // evento. Si distinguono al momento della **pressione**: se sotto il puntatore c'è un
+        // oggetto afferrabile, il trascinamento appartiene a quello e la telecamera resta ferma.
+        //
+        // Il coordinatore ricorda la decisione per tutta la durata del gesto. Riprovare a
+        // decidere a ogni movimento farebbe scappare l'oggetto non appena il puntatore ne esce,
+        // e la scena comincerebbe a girare a metà di uno spostamento.
+        view.onDragBegan = { point in
+            coordinator.isMovingObject = onGrab(point)
+            onInteractionChanged(true)
+        }
+        view.onDrag = { point, delta in
+            if coordinator.isMovingObject {
+                onGrabbedDrag(point)
+            } else {
+                onOrbit(delta)
+            }
+        }
         // ⌥ e ⇧ sul 3D non hanno un significato proprio: entrambi restano orbita, così un
         // modificatore premuto per abitudine non blocca il gesto.
         view.onPan = { delta in onOrbit(delta) }
@@ -70,8 +97,10 @@ struct Volume3DViewportView: NSViewRepresentable {
         // La rotella regola lo zoom: sul 3D non ci sono slice da scorrere, e lasciarla inerte
         // sarebbe una piccola frustrazione ripetuta.
         view.onScroll = { steps in onMagnify(1.0 + steps * 0.05) }
-        view.onDragBegan = { _ in onInteractionChanged(true) }
-        view.onDragEnded = { onInteractionChanged(false) }
+        view.onDragEnded = {
+            coordinator.isMovingObject = false
+            onInteractionChanged(false)
+        }
     }
 
     // MARK: - Coordinatore
@@ -80,6 +109,14 @@ struct Volume3DViewportView: NSViewRepresentable {
     final class Coordinator: NSObject, MTKViewDelegate {
 
         var camera = VolumeCamera()
+        /// Vero quando il trascinamento in corso sta spostando un oggetto invece di orbitare.
+        ///
+        /// Deciso alla pressione e tenuto per tutto il gesto: ridecidere a ogni movimento
+        /// farebbe scappare l'oggetto appena il puntatore ne esce, e la scena comincerebbe a
+        /// girare a metà di uno spostamento.
+        var isMovingObject = false
+        var onDrawableSize: ((CGSize) -> Void)?
+        private var lastReportedSize: CGSize = .zero
         var volumeTexture: VolumeTexture?
         var raycaster: VolumeRaycaster?
         var transferFunction: TransferFunction = .bone
@@ -100,6 +137,12 @@ struct Volume3DViewportView: NSViewRepresentable {
             MainActor.assumeIsolated { render(in: view) }
         }
 
+        func reportSizeIfChanged(_ size: CGSize) {
+            guard size != lastReportedSize else { return }
+            lastReportedSize = size
+            onDrawableSize?(size)
+        }
+
         private func render(in view: MTKView) {
             guard let drawable = view.currentDrawable,
                 let commandQueue,
@@ -107,6 +150,10 @@ struct Volume3DViewportView: NSViewRepresentable {
             else { return }
 
             let target = drawable.texture
+            // La dimensione **vera** del drawable, non quella dei punti della vista: è la
+            // griglia su cui il raycaster ha disegnato, ed è la sola con cui un clic si può
+            // riconvertire in millimetri. Vedi `MPRViewportView`.
+            reportSizeIfChanged(CGSize(width: target.width, height: target.height))
 
             if let raycaster, let volumeTexture, target.width > 0, target.height > 0 {
                 do {

@@ -1262,6 +1262,181 @@ final class AppModel {
         implantDrag = nil
     }
 
+    // MARK: Trascinamento dei denti
+
+    /// Dente afferrato, con la presa e l'ultimo punto del passo.
+    private(set) var toothDrag: (id: UUID, grip: ToothGrip, lastMM: Vec3)?
+
+    /// Prova ad afferrare un dente in un punto.
+    ///
+    /// Ha la **precedenza sull'impianto** quando le due prese si sovrappongono, e non è
+    /// arbitrario: un impianto sta sotto la corona che serve, quindi le due zone di presa si
+    /// intersecano quasi sempre. La corona è il pezzo esterno, quello che si vede sopra; nel
+    /// mondo fisico è ciò che la mano incontra per primo, e nell'interfaccia deve valere lo
+    /// stesso — per raggiungere l'impianto basta nascondere il dente o afferrarlo più in basso,
+    /// mentre un dente che non si prende mai perché sotto c'è un impianto non ha rimedio.
+    func beginToothDrag(at pointMM: Vec3, toleranceMM: Double) -> Bool {
+        toothDrag = nil
+        guard workMode.isEditable else { return false }
+
+        var best: (tooth: ProstheticTooth, grip: ToothGrip, distance: Double)?
+        for tooth in teeth where tooth.isVisible {
+            guard
+                let grip = ToothManipulation.grip(
+                    at: pointMM, of: tooth, toleranceMM: toleranceMM)
+            else { continue }
+            let distance = pointMM.distance(to: tooth.positionMM)
+            if best == nil || distance < best!.distance {
+                best = (tooth, grip, distance)
+            }
+        }
+
+        guard let best else { return false }
+        toothDrag = (best.tooth.id, best.grip, pointMM)
+        selectedToothID = best.tooth.id
+        return true
+    }
+
+    /// Continua il trascinamento di un dente.
+    func dragTooth(toMM pointMM: Vec3) {
+        guard let drag = toothDrag,
+            let index = teeth.firstIndex(where: { $0.id == drag.id })
+        else { return }
+
+        teeth[index] = ToothManipulation.dragged(
+            teeth[index], grip: drag.grip, toMM: pointMM, fromMM: drag.lastMM)
+        toothDrag?.lastMM = pointMM
+        recordContinuousUndo("Sposta dente")
+    }
+
+    func endToothDrag() {
+        toothDrag = nil
+    }
+
+    /// Afferra ciò che sta sotto il puntatore: prima un dente, poi un impianto.
+    ///
+    /// Un solo punto d'ingresso perché i riquadri sono cinque e la regola di precedenza deve
+    /// essere una sola. Quando stava scritta in ogni riquadro, un riquadro l'aveva diversa —
+    /// ed è così che il trascinamento dell'impianto era collegato sulle sezioni trasversali
+    /// mentre il disegno non c'era.
+    func beginObjectDrag(at pointMM: Vec3, toleranceMM: Double) -> Bool {
+        if beginToothDrag(at: pointMM, toleranceMM: toleranceMM) { return true }
+        return beginImplantDrag(at: pointMM, toleranceMM: toleranceMM)
+    }
+
+    /// Continua il trascinamento in corso, qualunque sia l'oggetto.
+    func dragObject(toMM pointMM: Vec3) {
+        if toothDrag != nil {
+            dragTooth(toMM: pointMM)
+        } else if implantDrag != nil {
+            dragImplant(toMM: pointMM)
+        }
+    }
+
+    func endObjectDrag() {
+        endToothDrag()
+        endImplantDrag()
+    }
+
+    /// Vero se un oggetto del piano è in corso di trascinamento.
+    var isDraggingObject: Bool { toothDrag != nil || implantDrag != nil }
+
+    // MARK: Trascinamento nel riquadro 3D
+
+    /// Il piano di trascinamento in corso nel 3D: perpendicolare alla vista, per l'oggetto preso.
+    private var volume3DDragAnchor: Vec3?
+
+    /// Afferra un oggetto nel riquadro 3D, da un punto in pixel del drawable.
+    ///
+    /// # Perché nel 3D la profondità va scelta, e non ricavata
+    ///
+    /// In un riquadro 2D un clic identifica **un** punto: il piano di taglio fissa la terza
+    /// coordinata. Nel 3D no — un pixel corrisponde a una retta, e su quella retta ci può stare
+    /// mezzo cranio. Non esiste un modo geometrico di sapere quale profondità intendeva l'utente.
+    ///
+    /// La scelta è: si prende l'oggetto **più vicino all'osservatore** fra quelli il cui
+    /// disegno passa sotto il puntatore, e da lì in poi lo si trascina sul piano che passa per
+    /// esso, perpendicolare alla vista. È la regola dei programmi di modellazione, e ha il
+    /// pregio di essere prevedibile: si sposta ciò che si vede davanti, e la profondità non
+    /// cambia da sola. Per cambiarla si gira la scena e si trascina di nuovo.
+    ///
+    /// - Returns: `true` se qualcosa è stato afferrato. In quel caso il riquadro non deve
+    ///   orbitare, altrimenti l'oggetto e la scena si muoverebbero insieme.
+    func beginVolume3DDrag(atPixel point: CGPoint, pixelSize: CGSize) -> Bool {
+        volume3DDragAnchor = nil
+        guard workMode.isEditable, pixelSize.width > 1, pixelSize.height > 1 else { return false }
+
+        let projector = ScreenProjector(
+            camera: camera,
+            pixelWidth: Int(pixelSize.width),
+            pixelHeight: Int(pixelSize.height))
+
+        // Tolleranza in millimetri: quanto vale un pugno di pixel a questo ingrandimento. Senza
+        // conversione la presa sarebbe generosa da vicino e impossibile da lontano.
+        let millimetresPerPixel = camera.halfHeightMM * 2 / Double(max(pixelSize.height, 1))
+        let toleranceMM = millimetresPerPixel * 10
+
+        /// Il punto sulla retta di vista, alla profondità dell'oggetto candidato.
+        func pointer(at anchorMM: Vec3) -> Vec3 {
+            projector.unproject(
+                x: Double(point.x), y: Double(point.y), onPlaneThrough: anchorMM)
+        }
+
+        // Il più vicino all'osservatore fra quelli afferrabili: `depthMM` cresce allontanandosi.
+        var best: (anchor: Vec3, depth: Double, grab: () -> Bool)?
+        func consider(_ anchorMM: Vec3, _ grab: @escaping () -> Bool) {
+            let depth = projector.project(anchorMM).depthMM
+            guard depth.isFinite else { return }
+            if best == nil || depth < best!.depth {
+                best = (anchorMM, depth, grab)
+            }
+        }
+
+        for tooth in teeth where tooth.isVisible {
+            let probe = pointer(at: tooth.positionMM)
+            guard ToothManipulation.grip(at: probe, of: tooth, toleranceMM: toleranceMM) != nil
+            else { continue }
+            consider(tooth.positionMM) { [weak self] in
+                self?.beginToothDrag(at: probe, toleranceMM: toleranceMM) ?? false
+            }
+        }
+        for implant in implants where implant.isVisible {
+            let centre = implant.platformMM + implant.axis * (implant.model.lengthMM * 0.5)
+            let probe = pointer(at: centre)
+            guard ImplantManipulation.grip(at: probe, of: implant, toleranceMM: toleranceMM) != nil
+            else { continue }
+            consider(centre) { [weak self] in
+                self?.beginImplantDrag(at: probe, toleranceMM: toleranceMM) ?? false
+            }
+        }
+
+        guard let best, best.grab() else { return false }
+        volume3DDragAnchor = best.anchor
+        return true
+    }
+
+    /// Continua il trascinamento nel riquadro 3D.
+    ///
+    /// Il piano resta quello scelto alla presa: ricalcolarlo sulla posizione corrente
+    /// dell'oggetto lo farebbe scivolare in profondità a ogni movimento, e l'impianto
+    /// scapperebbe verso l'osservatore o dentro l'osso senza che nessuno l'abbia chiesto.
+    func dragVolume3D(toPixel point: CGPoint, pixelSize: CGSize) {
+        guard let anchor = volume3DDragAnchor, pixelSize.width > 1, pixelSize.height > 1
+        else { return }
+        let projector = ScreenProjector(
+            camera: camera,
+            pixelWidth: Int(pixelSize.width),
+            pixelHeight: Int(pixelSize.height))
+        let target = projector.unproject(
+            x: Double(point.x), y: Double(point.y), onPlaneThrough: anchor)
+        dragObject(toMM: target)
+    }
+
+    func endVolume3DDrag() {
+        volume3DDragAnchor = nil
+        endObjectDrag()
+    }
+
     /// Propone e applica un asse migliore per l'impianto selezionato.
     ///
     /// Applica subito invece di chiedere conferma: la si annulla con ⌘Z come qualunque altra

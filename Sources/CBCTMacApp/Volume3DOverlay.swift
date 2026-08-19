@@ -65,6 +65,7 @@ struct Volume3DOverlay: View {
                 drawPlanes(&context, geometry: volume.geometry, projector: projector)
                 drawCurrentSection(&context, geometry: volume.geometry, projector: projector)
                 drawImplants(&context, projector: projector)
+                drawTeeth(&context, projector: projector)
             }
             // Sotto c'è il gesto di orbita, e questa sovraimpressione non deve rubarglielo.
             .allowsHitTesting(false)
@@ -205,25 +206,30 @@ struct Volume3DOverlay: View {
 
     // MARK: Gli impianti
 
-    /// Ogni impianto come una silhouette: due fianchi e due estremità.
+    /// Ogni impianto come la sua silhouette, seguendo il profilo.
     ///
-    /// Non è un cilindro reso: è la sua sagoma vista da dove sta la camera, che per un corpo di
-    /// rivoluzione è esattamente un rettangolo con i lati paralleli all'asse. Costa quattro
-    /// segmenti invece di una mesh, e a questa scala non si distingue.
+    /// Non è un cilindro reso: è la sagoma vista da dove sta la camera, che per un corpo di
+    /// rivoluzione si ottiene proiettando ogni quota del profilo a ±raggio lungo la
+    /// perpendicolare comune all'asse e alla direzione di vista. Costa una dozzina di punti
+    /// invece di una mesh, ed è **esatta** — non un'approssimazione a basso costo.
+    ///
+    /// Con il profilo e non col solo diametro nominale: da quando testa e apice sono due
+    /// parametri distinti, un rettangolo mostrerebbe cilindrico un impianto conico, cioè
+    /// nasconderebbe proprio la misura che si è appena regolata.
     private func drawImplants(_ context: inout GraphicsContext, projector: ScreenProjector) {
         for implant in model.implants where implant.isVisible {
             guard let axis = implant.axis.normalized else { continue }
-            let apex = implant.platformMM + axis * implant.model.lengthMM
-            let radius = implant.model.diameterMM * 0.5
+            let profile = implant.model.profile
+            guard profile.count >= 2 else { continue }
 
             // La direzione che a schermo attraversa l'impianto: perpendicolare sia all'asse sia
             // alla direzione di vista. Con l'impianto visto **di punta** i due sono paralleli e
-            // il prodotto vettoriale degenera: allora la sagoma è un cerchio, non un rettangolo,
-            // e disegnarne uno storto sarebbe peggio che non disegnare nulla.
+            // il prodotto vettoriale degenera: allora la sagoma è un cerchio, non una silhouette,
+            // e disegnarne una storta sarebbe peggio che non disegnare nulla.
             guard let side = axis.cross(model.camera.forward).normalized else {
                 let centre = projector.project(implant.platformMM)
                 let scale = screenScale(projector: projector, at: implant.platformMM)
-                let r = radius * scale
+                let r = implant.model.platformDiameterMM * 0.5 * scale
                 context.stroke(
                     Path(
                         ellipseIn: CGRect(
@@ -232,21 +238,58 @@ struct Volume3DOverlay: View {
                 continue
             }
 
+            var left: [CGPoint] = []
+            var right: [CGPoint] = []
+            for level in profile {
+                let centre = implant.platformMM + axis * level.zMM
+                let offset = side * level.radiusMM
+                let a = projector.project(centre + offset)
+                let b = projector.project(centre - offset)
+                left.append(CGPoint(x: a.x, y: a.y))
+                right.append(CGPoint(x: b.x, y: b.y))
+            }
+
+            var outline = Path()
+            outline.move(to: left[0])
+            for point in left.dropFirst() { outline.addLine(to: point) }
+            for point in right.reversed() { outline.addLine(to: point) }
+            outline.closeSubpath()
+
+            let colour = implantColor(implant)
+            context.fill(outline, with: .color(colour.opacity(0.16)))
+            context.stroke(
+                outline, with: .color(colour),
+                lineWidth: implant.id == model.selectedImplantID ? 2 : 1.5)
+        }
+    }
+
+    /// I denti protesici, come gabbie tratteggiate.
+    ///
+    /// La gabbia e non la silhouette, al contrario del 2D: nel 3D si gira attorno alla scena, e
+    /// i dodici spigoli dicono **come è orientato** il dente attorno al proprio asse — che è
+    /// l'informazione per cui la sagoma esiste. L'inviluppo convesso, che in una vista fissa
+    /// basta, in una vista che ruota sembrerebbe una macchia che cambia forma da sola.
+    private func drawTeeth(_ context: inout GraphicsContext, projector: ScreenProjector) {
+        for tooth in model.teeth where tooth.isVisible {
+            let corners = tooth.corners(mesialDirectionMM: model.mesialDirection(for: tooth))
+            guard corners.count == 8 else { continue }
+
+            let projected = corners.map { corner -> CGPoint in
+                let point = projector.project(corner)
+                return CGPoint(x: point.x, y: point.y)
+            }
+
             var path = Path()
-            for sign in [1.0, -1.0] {
-                let offset = side * (radius * sign)
-                let a = projector.project(implant.platformMM + offset)
-                let b = projector.project(apex + offset)
-                path.move(to: CGPoint(x: a.x, y: a.y))
-                path.addLine(to: CGPoint(x: b.x, y: b.y))
+            for (a, b) in ProstheticTooth.cornerEdges {
+                path.move(to: projected[a])
+                path.addLine(to: projected[b])
             }
-            for point in [implant.platformMM, apex] {
-                let a = projector.project(point + side * radius)
-                let b = projector.project(point - side * radius)
-                path.move(to: CGPoint(x: a.x, y: a.y))
-                path.addLine(to: CGPoint(x: b.x, y: b.y))
-            }
-            context.stroke(path, with: .color(implantColor(implant)), lineWidth: 1.5)
+
+            let colour = Color(hexString: tooth.colorHex) ?? Palette.textPrimary
+            context.stroke(
+                path, with: .color(colour.opacity(0.85)),
+                style: StrokeStyle(
+                    lineWidth: tooth.id == model.selectedToothID ? 1.8 : 1.1, dash: [4, 3]))
         }
     }
 

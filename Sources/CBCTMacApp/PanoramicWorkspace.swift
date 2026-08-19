@@ -375,8 +375,10 @@ struct PanoramicWorkspace: View {
         // verso.
         guard let patient = panoramicPatientPoint(atFractionX: x, y: y) else { return }
         if model.beginHandleDrag(at: patient, toleranceMM: panoramicGrabToleranceMM) { return }
-        guard model.activeTool == .navigate || model.activeTool == .implant else { return }
-        model.beginImplantDrag(at: patient, toleranceMM: panoramicGrabToleranceMM)
+        guard model.activeTool == .navigate || model.activeTool == .implant
+            || model.activeTool == .prostheticTooth
+        else { return }
+        model.beginObjectDrag(at: patient, toleranceMM: panoramicGrabToleranceMM)
     }
 
     /// Il punto Patient sotto una frazione del riquadro panoramico.
@@ -407,8 +409,8 @@ struct PanoramicWorkspace: View {
             guard let patient = panoramicPatientPoint(atFractionX: x, y: y) else { return }
             if model.annotationDrag != nil || model.nerveDrag != nil {
                 model.dragHandle(toMM: patient)
-            } else if model.implantDrag != nil {
-                model.dragImplant(toMM: patient)
+            } else {
+                model.dragObject(toMM: patient)
             }
             return
         }
@@ -578,7 +580,7 @@ struct PanoramicWorkspace: View {
                 onDragEnded: {
                     cutLineDrag = nil
                     model.endHandleDrag()
-                    model.endImplantDrag()
+                    model.endObjectDrag()
                 },
                 onCancel: { model.cancelToolSession() },
                 onDragMoved: movePanoramicDrag,
@@ -962,8 +964,8 @@ struct CrossSectionCell: View {
                     guard let patient = patientPoint(at: point) else { return }
                     if model.annotationDrag != nil || model.nerveDrag != nil {
                         model.dragHandle(toMM: patient)
-                    } else if model.implantDrag != nil {
-                        model.dragImplant(toMM: patient)
+                    } else {
+                        model.dragObject(toMM: patient)
                     }
                 },
                 // gesto-non-richiesto: onPan — una sezione è centrata sulla curva per
@@ -990,14 +992,16 @@ struct CrossSectionCell: View {
                     // Un impianto si aggiusta guardando la **sezione trasversale**: è lì che si
                     // vede il rapporto con la corticale vestibolare e col canale, ed è quindi lì
                     // che serve poterlo afferrare.
-                    guard model.activeTool == .navigate || model.activeTool == .implant,
+                    guard
+                        model.activeTool == .navigate || model.activeTool == .implant
+                            || model.activeTool == .prostheticTooth,
                         let patient = patientPoint(at: point)
                     else { return }
-                    model.beginImplantDrag(at: patient, toleranceMM: grabToleranceMM)
+                    model.beginObjectDrag(at: patient, toleranceMM: grabToleranceMM)
                 },
                 onDragEnded: {
                     model.endHandleDrag()
-                    model.endImplantDrag()
+                    model.endObjectDrag()
                 },
                 onCancel: { model.cancelToolSession() },
                 onDrawableSize: { pixelSize = $0 }

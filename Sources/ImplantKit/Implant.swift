@@ -30,11 +30,23 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
     public var id: UUID
     public var manufacturer: String
     public var line: String
+    /// Diametro nominale del corpo: quello con cui l'impianto si chiama e si ordina.
     public var diameterMM: Double
     public var lengthMM: Double
-    /// Diametro della piattaforma protesica, di norma pari o poco diverso dal diametro del corpo.
+    /// Diametro della **testa**, cioè della piattaforma protesica.
     public var platformDiameterMM: Double
+    /// Diametro all'**apice**.
+    ///
+    /// Un impianto conico non è un cilindro con la punta arrotondata: si stringe lungo tutta la
+    /// sua altezza, e quanto si stringe decide se passa fra due radici o fra due corticali. Era
+    /// murato a una frazione fissa del corpo; adesso è un parametro, perché è una misura che si
+    /// guarda quando si sceglie l'impianto.
+    public var apexDiameterMM: Double
     /// Profilo dalla piattaforma all'apice, ordinato per `zMM` crescente.
+    ///
+    /// Generato dai tre diametri, e conservato invece che ricalcolato: un giorno lo si potrà
+    /// sostituire con quello letto da uno STL del produttore, e il resto del programma non deve
+    /// accorgersi della differenza.
     public var profile: [ProfilePoint]
 
     public init(
@@ -44,16 +56,84 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
         diameterMM: Double,
         lengthMM: Double,
         platformDiameterMM: Double? = nil,
+        apexDiameterMM: Double? = nil,
         profile: [ProfilePoint]? = nil
     ) {
         self.id = id
         self.manufacturer = manufacturer
         self.line = line
-        self.diameterMM = max(diameterMM, 0.1)
-        self.lengthMM = max(lengthMM, 0.1)
-        self.platformDiameterMM = platformDiameterMM ?? diameterMM
+        let body = max(diameterMM, 0.1)
+        let length = max(lengthMM, 0.1)
+        self.diameterMM = body
+        self.lengthMM = length
+        let platform = max(platformDiameterMM ?? body, 0.1)
+        // Il rapporto predefinito fra apice e corpo è quello tipico di un conico da catalogo.
+        // Resta un valore di partenza, e l'utente lo cambia.
+        let apex = max(apexDiameterMM ?? body * Self.defaultApexRatio, 0.1)
+        self.platformDiameterMM = platform
+        self.apexDiameterMM = apex
         self.profile =
-            profile ?? Self.taperedProfile(diameterMM: diameterMM, lengthMM: lengthMM)
+            profile
+            ?? Self.taperedProfile(
+                platformDiameterMM: platform, apexDiameterMM: apex, lengthMM: length)
+    }
+
+    // MARK: Compatibilità del formato
+
+    private enum CodingKeys: String, CodingKey {
+        case id, manufacturer, line, diameterMM, lengthMM, platformDiameterMM, apexDiameterMM,
+            profile
+    }
+
+    /// Decodifica scritta a mano per una ragione sola: `apexDiameterMM` non esisteva.
+    ///
+    /// Un piano salvato prima non ha quella chiave, e la decodifica sintetizzata lo
+    /// rifiuterebbe — perdendo l'intero piano per un parametro aggiunto dopo. Il valore
+    /// mancante si ricava dal profilo che il file **porta già**: l'ultimo punto è l'apice, e
+    /// leggerlo di lì restituisce esattamente la forma che quel piano aveva.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.manufacturer = try container.decode(String.self, forKey: .manufacturer)
+        self.line = try container.decode(String.self, forKey: .line)
+        self.diameterMM = try container.decode(Double.self, forKey: .diameterMM)
+        self.lengthMM = try container.decode(Double.self, forKey: .lengthMM)
+        self.platformDiameterMM =
+            try container.decodeIfPresent(Double.self, forKey: .platformDiameterMM)
+            ?? diameterMM
+        self.profile = try container.decode([ProfilePoint].self, forKey: .profile)
+        if let apex = try container.decodeIfPresent(Double.self, forKey: .apexDiameterMM) {
+            self.apexDiameterMM = apex
+        } else {
+            self.apexDiameterMM = (profile.last?.radiusMM).map { $0 * 2 }
+                ?? diameterMM * Self.defaultApexRatio
+        }
+    }
+
+    /// Rapporto fra diametro all'apice e diametro del corpo di un conico generico.
+    public static let defaultApexRatio: Double = 0.62
+
+    /// Cambia le tre misure e rigenera il profilo.
+    ///
+    /// In un metodo solo perché il profilo dipende da tutt'e tre: cambiarne una e rigenerare
+    /// con le altre due vecchie darebbe una forma che non corrisponde a nessuna delle due
+    /// configurazioni. È già il genere di sfasamento che non produce errori e si vede soltanto
+    /// misurando la silhouette.
+    public mutating func resize(
+        platformDiameterMM newPlatform: Double? = nil,
+        apexDiameterMM newApex: Double? = nil,
+        lengthMM newLength: Double? = nil
+    ) {
+        platformDiameterMM = max(newPlatform ?? platformDiameterMM, 0.1)
+        apexDiameterMM = max(newApex ?? apexDiameterMM, 0.1)
+        lengthMM = max(newLength ?? lengthMM, 0.1)
+        // Il diametro nominale segue la testa: è quello con cui un impianto si chiama, e
+        // lasciarlo indietro darebbe un'etichetta «Ø4,1» su un impianto largo cinque.
+        diameterMM = platformDiameterMM
+        profile = Self.taperedProfile(
+            platformDiameterMM: platformDiameterMM,
+            apexDiameterMM: apexDiameterMM,
+            lengthMM: lengthMM)
     }
 
     public var displayName: String {
@@ -80,19 +160,43 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
 
     // MARK: Profili generati
 
-    /// Profilo conico: la forma più diffusa negli impianti moderni.
+    /// Profilo conico dai due diametri estremi.
     ///
-    /// Colletto leggermente svasato, corpo che si restringe verso l'apice, punta arrotondata.
-    /// Le proporzioni sono quelle tipiche, non quelle di un prodotto specifico.
-    public static func taperedProfile(diameterMM: Double, lengthMM: Double) -> [ProfilePoint] {
-        let radius = diameterMM / 2
+    /// # La forma, e che cosa la determina
+    ///
+    /// Colletto cilindrico per il primo tratto — la piattaforma non si rastrema, altrimenti non
+    /// avrebbe una sede su cui appoggiare il moncone — poi rastremazione lineare fino al
+    /// diametro d'apice, e infine la punta arrotondata.
+    ///
+    /// La punta si stringe **sotto** il diametro d'apice negli ultimi punti, ed è corretto:
+    /// «diametro all'apice» in un catalogo indica il diametro del corpo alla quota dell'apice,
+    /// non lo zero geometrico della punta, che è un raccordo. Interpretarlo come il raggio
+    /// dell'ultimo punto darebbe un impianto a fondo piatto.
+    public static func taperedProfile(
+        platformDiameterMM: Double,
+        apexDiameterMM: Double,
+        lengthMM: Double
+    ) -> [ProfilePoint] {
+        let head = max(platformDiameterMM, 0.1) / 2
+        let tip = max(apexDiameterMM, 0.1) / 2
+        let length = max(lengthMM, 0.1)
+
+        /// Raggio della rastremazione a una frazione dell'altezza, dopo il colletto.
+        func taper(_ fraction: Double) -> Double {
+            let collar = 0.08
+            guard fraction > collar else { return head }
+            let t = (fraction - collar) / (1 - collar)
+            return head + (tip - head) * t
+        }
+
         return [
-            ProfilePoint(zMM: 0, radiusMM: radius),
-            ProfilePoint(zMM: lengthMM * 0.08, radiusMM: radius),
-            ProfilePoint(zMM: lengthMM * 0.55, radiusMM: radius * 0.92),
-            ProfilePoint(zMM: lengthMM * 0.85, radiusMM: radius * 0.78),
-            ProfilePoint(zMM: lengthMM * 0.96, radiusMM: radius * 0.55),
-            ProfilePoint(zMM: lengthMM, radiusMM: radius * 0.18),
+            ProfilePoint(zMM: 0, radiusMM: head),
+            ProfilePoint(zMM: length * 0.08, radiusMM: head),
+            ProfilePoint(zMM: length * 0.55, radiusMM: taper(0.55)),
+            ProfilePoint(zMM: length * 0.85, radiusMM: taper(0.85)),
+            ProfilePoint(zMM: length * 0.94, radiusMM: taper(0.94)),
+            ProfilePoint(zMM: length * 0.97, radiusMM: tip * 0.62),
+            ProfilePoint(zMM: length, radiusMM: tip * 0.22),
         ]
     }
 
@@ -131,6 +235,9 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
         }
         return models
     }
+
+    /// Diametri d'apice correnti, dal molto conico al quasi cilindrico.
+    public static let commonApexDiameters: [Double] = [2.0, 2.4, 2.8, 3.2, 3.6, 4.0, 4.5, 5.0]
 
     public static let `default` = ImplantModel(
         manufacturer: "Generico", line: "Conico", diameterMM: 4.1, lengthMM: 10.0)

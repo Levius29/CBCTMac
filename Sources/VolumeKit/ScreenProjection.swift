@@ -53,6 +53,26 @@ public struct ScreenProjector: Hashable, Sendable {
             + camera.down * (v * halfHeight)
     }
 
+    /// Riproietta sul piano perpendicolare alla vista che passa per un punto scelto.
+    ///
+    /// # Perché non basta `unproject(x:y:)`
+    ///
+    /// Quella cade sul piano che passa per il **bersaglio della telecamera**. Va bene per posare
+    /// qualcosa di nuovo al centro della scena, e non va bene per trascinare: afferrando un
+    /// impianto che sta dieci millimetri più avanti, il primo movimento del mouse lo
+    /// scaraventerebbe sul piano del bersaglio — un salto in profondità che l'utente non ha
+    /// chiesto e che, guardando da quella direzione, non si vede nemmeno.
+    ///
+    /// La telecamera è **ortografica** — `project` non divide per la profondità — quindi la
+    /// riproiezione su un piano parallelo è una semplice traslazione lungo l'asse di vista. Con
+    /// una prospettiva servirebbe intersecare un raggio, e questa formula sarebbe sbagliata.
+    public func unproject(x: Double, y: Double, onPlaneThrough anchorMM: Vec3) -> Vec3 {
+        let base = unproject(x: x, y: y)
+        let depth = (anchorMM - camera.targetMM).dot(camera.forward)
+        guard depth.isFinite else { return base }
+        return base + camera.forward * depth
+    }
+
     private var aspectRatio: Double {
         Double(pixelWidth) / Double(pixelHeight)
     }

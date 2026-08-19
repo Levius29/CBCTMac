@@ -335,3 +335,113 @@ struct ProstheticPlanningTests {
         #expect(touches.allSatisfy { $0 == 3 })
     }
 }
+
+// MARK: - Le tre misure dell'impianto
+
+@Suite("Misure dell'impianto")
+struct ImplantSizingTests {
+
+    @Test("Il profilo parte dalla testa e arriva al diametro d'apice")
+    func profileHonoursBothDiameters() {
+        let model = ImplantModel(
+            manufacturer: "G", line: "C", diameterMM: 4.1, lengthMM: 12,
+            platformDiameterMM: 4.1, apexDiameterMM: 2.6)
+
+        let first = model.profile[0]
+        #expect(abs(first.radiusMM - 4.1 / 2) < 1e-9)
+
+        // Il diametro d'apice si legge sul **corpo** alla quota dell'apice, non sulla punta:
+        // la punta è un raccordo e si stringe sotto. Verificarlo a 0,94 della lunghezza, dove
+        // la rastremazione è finita e il raccordo non è ancora cominciato.
+        let atApex = model.radius(atZ: 12 * 0.94) * 2
+        #expect(abs(atApex - 2.6) < 0.25, "diametro all'apice \(atApex)")
+
+        // E la punta è più stretta dell'apice, non uguale: un impianto a fondo piatto non
+        // esiste, e disegnarlo così mostrerebbe un ingombro che non c'è.
+        #expect((model.profile.last?.radiusMM ?? 0) < 2.6 / 2)
+
+        // Il profilo è monotono e non risale: una risalita sarebbe una strozzatura inventata.
+        for index in 1..<model.profile.count {
+            #expect(model.profile[index].zMM >= model.profile[index - 1].zMM)
+            #expect(model.profile[index].radiusMM <= model.profile[index - 1].radiusMM + 1e-9)
+        }
+    }
+
+    @Test("Il colletto non si rastrema: la piattaforma ha una sede piatta")
+    func collarStaysCylindrical() {
+        let model = ImplantModel(
+            manufacturer: "G", line: "C", diameterMM: 5, lengthMM: 10,
+            platformDiameterMM: 5, apexDiameterMM: 3)
+        #expect(abs(model.radius(atZ: 0) - 2.5) < 1e-9)
+        #expect(abs(model.radius(atZ: 10 * 0.08) - 2.5) < 1e-9)
+        // Subito dopo comincia a stringersi.
+        #expect(model.radius(atZ: 10 * 0.3) < 2.5)
+    }
+
+    @Test("Un impianto cilindrico resta cilindrico per tutto il corpo")
+    func cylindricalStaysCylindrical() {
+        let model = ImplantModel(
+            manufacturer: "G", line: "C", diameterMM: 4, lengthMM: 10,
+            platformDiameterMM: 4, apexDiameterMM: 4)
+        for fraction in [0.0, 0.2, 0.5, 0.8, 0.94] {
+            #expect(abs(model.radius(atZ: 10 * fraction) - 2) < 1e-9, "quota \(fraction)")
+        }
+    }
+
+    @Test("Cambiare una misura non disfa le altre")
+    func resizeKeepsTheOthers() {
+        var model = ImplantModel(
+            manufacturer: "Generico", line: "Conico", diameterMM: 4.1, lengthMM: 10,
+            platformDiameterMM: 4.1, apexDiameterMM: 2.8)
+
+        model.resize(lengthMM: 13)
+        #expect(model.lengthMM == 13)
+        #expect(model.platformDiameterMM == 4.1)
+        #expect(model.apexDiameterMM == 2.8)
+        // Il profilo si allunga con l'impianto invece di restare quello vecchio.
+        #expect(abs((model.profile.last?.zMM ?? 0) - 13) < 1e-9)
+
+        model.resize(platformDiameterMM: 5.0)
+        #expect(model.platformDiameterMM == 5.0)
+        #expect(model.apexDiameterMM == 2.8)
+        #expect(model.lengthMM == 13)
+        // Il diametro nominale segue la testa: è quello con cui l'impianto si chiama.
+        #expect(model.diameterMM == 5.0)
+    }
+
+    @Test("Le misure non scendono sotto lo zero")
+    func sizesStayPositive() {
+        var model = ImplantModel(manufacturer: "G", line: "C", diameterMM: 4, lengthMM: 10)
+        model.resize(platformDiameterMM: -3, apexDiameterMM: 0, lengthMM: -1)
+        #expect(model.platformDiameterMM > 0)
+        #expect(model.apexDiameterMM > 0)
+        #expect(model.lengthMM > 0)
+        #expect(model.profile.allSatisfy { $0.radiusMM >= 0 && $0.zMM >= 0 })
+    }
+
+    @Test("Un piano salvato prima del diametro d'apice si riapre lo stesso")
+    func oldPlansStillDecode() throws {
+        // Un modello codificato **senza** la chiave `apexDiameterMM`, com'era prima.
+        let json = """
+            {
+              "id": "\(UUID().uuidString)",
+              "manufacturer": "Generico",
+              "line": "Conico",
+              "diameterMM": 4.1,
+              "lengthMM": 10,
+              "platformDiameterMM": 4.1,
+              "profile": [
+                {"zMM": 0, "radiusMM": 2.05},
+                {"zMM": 10, "radiusMM": 1.2}
+              ]
+            }
+            """
+        let decoded = try JSONDecoder().decode(ImplantModel.self, from: Data(json.utf8))
+        #expect(decoded.lengthMM == 10)
+        // Il valore mancante si ricava dal profilo che il file porta già: l'ultimo raggio è
+        // 1,2, quindi il diametro d'apice è 2,4. Inventare un valore predefinito darebbe una
+        // forma diversa da quella che quel piano aveva.
+        #expect(abs(decoded.apexDiameterMM - 2.4) < 1e-9)
+        #expect(decoded.profile.count == 2, "il profilo salvato non viene rigenerato")
+    }
+}
