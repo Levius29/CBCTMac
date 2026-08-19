@@ -42,7 +42,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| A1 | Nome del paziente al centro della barra del titolo | ✅ | 2 | H |
+| A1 | Nome del paziente al centro della barra del titolo | ❌ | 2 | N |
 | A2 | Versione del programma visibile | ✅ | 1 | H |
 | A3 | Cinque **modi di lavoro** a schede, non layout: ortogonale, curvo, personalizzato, obliquo, relazione | ✅ | 3 | K |
 | A4 | Pannelli laterali richiudibili con memoria dello stato | ✅ | 2 | H |
@@ -62,7 +62,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | B6 | Strumento impianto | ✅ | 3 | — |
 | B7 | Strumento tessuto gengivale | ❌ | 1 | M |
 | B8 | Strumento barra protesica | ❌ | 1 | M |
-| B9 | Strumento dente protesico | ❌ | 2 | M |
+| B9 | Strumento dente protesico | ✅ | 2 | M |
 | B10 | Profilo del viso / cefalometria | ❌ | 1 | M |
 | B11 | Piano di taglio arbitrario con varianti | 🔶 | 2 | J |
 | B12 | Strumenti **contestuali**: la palette cambia con la scheda | ✅ | 2 | H |
@@ -92,7 +92,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | D1 | **Spessore per riquadro**, da un elenco di 14 valori fissi | ✅ | 3 | C |
 | D2 | **Proiezione per riquadro** (media, MIP, MinIP) | ✅ | 3 | C |
 | D3 | Adatta alla finestra | ✅ | 3 | — |
-| D4 | Istantanea del riquadro | ❌ | 2 | J |
+| D4 | Istantanea del riquadro | ✅ | 2 | J |
 | D5 | Salvataggio dell'immagine con dropdown di formati | 🔶 | 1 | J |
 | D6 | Disposizione interna del riquadro (1×1, 1×5) | ✅ | 2 | B |
 | D7 | Collegamento fra riquadri: zoom e finestra condivisi | ✅ | 2 | C |
@@ -149,7 +149,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | H3 | **Piani coronale e sagittale** disegnati, colorati | ✅ | 3 | D, G |
 | H4 | **Banda dell'arcata** disegnata come superficie estrusa | ✅ | 2 | D, G |
 | H5 | **Sezione corrente** disegnata come rettangolo | ✅ | 3 | D, G |
-| H6 | **Riquadro di ritaglio** disegnato | ❌ | 2 | D, G |
+| H6 | **Riquadro di ritaglio** disegnato | ✅ | 2 | D, G |
 | H7 | Colori dei piani coerenti con le maniglie del mirino | ✅ | 2 | I |
 | H8 | Cubo di orientamento | ✅ | 2 | — |
 | H9 | Impianti resi in 3D dentro il volume | ✅ | 2 | G |
@@ -173,14 +173,14 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| J1 | Relazione impaginata con immagini e misure | ❌ | 2 | J |
+| J1 | Relazione impaginata con immagini e misure | 🔶 | 2 | J |
 | J2 | Stampa | ❌ | 1 | J |
 | J3 | Copia negli appunti | ✅ | 2 | J |
 | J4 | Istantanea di un riquadro | ✅ | 2 | J |
 | J5 | Esportazione della cartella DICOM | ❌ | 1 | J |
 | J6 | Esportazione su disco con visualizzatore | ❌ | 1 | — |
 | J7 | Note del caso | ❌ | 1 | E |
-| J8 | Esportazione del modello 3D (STL) | 🔶 | 2 | J |
+| J8 | Esportazione del modello 3D (STL) | ✅ | 2 | J |
 | J9 | Scheda «Rivedi»: rilettura del piano finito | ✅ | 1 | K |
 
 ### K — Comportamenti trasversali
