@@ -102,11 +102,51 @@ final class InteractiveMetalView: MTKView {
     override func keyDown(with event: NSEvent) {
         // 53 è Esc. Il confronto sul codice e non sui caratteri: `charactersIgnoringModifiers`
         // per Esc restituisce un carattere di controllo che cambia con la disposizione tastiera.
-        guard event.keyCode == 53 else {
+        if event.keyCode == 53 {
+            onCancel?()
+            return
+        }
+        guard handleNavigationKey(event) else {
             super.keyDown(with: event)
             return
         }
-        onCancel?()
+    }
+
+    /// Le frecce scorrono, esattamente come la rotella.
+    ///
+    /// # Perché passano dai richiami della rotella e non da uno loro
+    ///
+    /// Perché «un passo avanti» significa cose diverse in riquadri diversi — una fetta sulle
+    /// ortogonali, un millimetro d'arcata sulla panorex, una sezione nella striscia — e ogni
+    /// riquadro l'ha già dichiarato collegando la rotella. Un richiamo separato per la tastiera
+    /// vorrebbe dire dichiararlo due volte, e su questo progetto due dichiarazioni della stessa
+    /// cosa sono già divergute abbastanza spesso da non volerne altre.
+    ///
+    /// I modificatori valgono come sulla rotella: ⇧ passo fine, ⌥ significato alternativo. Le
+    /// pagine su e giù fanno dieci passi, che è la scala con cui si attraversa un volume
+    /// cercando la struttura invece di studiarla.
+    private func handleNavigationKey(_ event: NSEvent) -> Bool {
+        let steps: Double
+        switch event.keyCode {
+        case 126, 124: steps = 1     // freccia su, freccia destra
+        case 125, 123: steps = -1    // freccia giù, freccia sinistra
+        case 116: steps = 10         // pagina su
+        case 121: steps = -10        // pagina giù
+        default: return false
+        }
+
+        // La ripetizione automatica del tasto va bene: tenere premuta la freccia deve scorrere.
+        if event.modifierFlags.contains(.option), let onAlternateScroll {
+            onAlternateScroll(steps)
+            return true
+        }
+        if event.modifierFlags.contains(.shift), let onFineScroll {
+            onFineScroll(steps)
+            return true
+        }
+        guard let onScroll else { return false }
+        onScroll(steps)
+        return true
     }
 
     /// Frazione della risoluzione nativa a cui rendere: 1 è piena, 0,5 un quarto dei pixel.

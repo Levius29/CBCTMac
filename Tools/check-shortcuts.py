@@ -35,6 +35,12 @@ SYMBOL_TO_MODIFIER = {"⌘": "command", "⇧": "shift", "⌥": "option", "⌃": 
 # Voci di legenda che non sono `.keyboardShortcut` ma gesti o tasti gestiti altrove.
 NON_MENU_KEYS = {
     "esc": "keyCode == 53",
+    # Le frecce e le pagine sono gestite in `InteractiveMetalView.keyDown`, non da SwiftUI: il
+    # marcatore è il codice del tasto nello `switch`. Togliendo quel ramo il controllo scatta,
+    # che è il punto — una legenda che promette le frecce e un `keyDown` che non le gestisce è
+    # esattamente il caso per cui questo controllo esiste.
+    "↑ ↓ ← →": "case 126, 124",
+    "⇞ ⇟": "case 116",
 }
 
 
