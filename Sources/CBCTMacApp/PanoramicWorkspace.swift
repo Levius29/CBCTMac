@@ -373,6 +373,7 @@ struct PanoramicWorkspace: View {
         // sulla panorex, deve anche potersi prendere: un oggetto disegnato e non afferrabile è
         // la stessa mezza funzione dell'oggetto afferrabile e non disegnato, letta dall'altro
         // verso.
+        guard !NSEvent.modifierFlags.contains(.option) else { return }
         guard let patient = panoramicPatientPoint(atFractionX: x, y: y) else { return }
         if model.beginHandleDrag(at: patient, toleranceMM: panoramicGrabToleranceMM) { return }
         guard model.activeTool == .navigate || model.activeTool == .implant
@@ -561,6 +562,17 @@ struct PanoramicWorkspace: View {
                     guard !model.isDraggingObject, model.annotationDrag == nil,
                         model.nerveDrag == nil
                     else { return }
+
+                    if NSEvent.modifierFlags.contains(.option) {
+                        // ⌥ clic toglie un nodo del canale. Il canale si traccia proprio qui,
+                        // seguendolo lungo l'arcata, ed è quindi qui che si posa il nodo
+                        // sbagliato da togliere.
+                        if let patient {
+                            model.removeNerveNode(
+                                near: patient, toleranceMM: panoramicGrabToleranceMM)
+                        }
+                        return
+                    }
 
                     // Un clic sul panorex seleziona la sezione corrispondente, e con essa porta
                     // le altre viste sul punto: è il modo naturale di passare dalla panoramica al
@@ -922,6 +934,16 @@ struct CrossSectionCell: View {
     private func handleClick(_ point: CGPoint) {
         model.crossSectionBrowser.select(index: section.index)
 
+        guard let patient = patientPoint(at: point) else { return }
+
+        // ⌥ clic toglie un nodo del nervo, come sull'assiale. Il canale si **corregge** guardando
+        // la sezione trasversale — è lì che si vede se il nodo sta nel canale o mezzo millimetro
+        // fuori — e finora lì si potevano solo aggiungere nodi, mai togliere quello sbagliato.
+        if NSEvent.modifierFlags.contains(.option) {
+            model.removeNerveNode(near: patient, toleranceMM: grabToleranceMM)
+            return
+        }
+
         guard model.activeTool != .navigate else {
             // Con la navigazione in mano il clic porta le altre viste qui: è il gesto con cui si
             // passa dalla striscia al punto da guardare.
@@ -929,7 +951,6 @@ struct CrossSectionCell: View {
             return
         }
 
-        guard let patient = patientPoint(at: point) else { return }
         let plane = zoomedPlane.matchingAspect(
             pixelWidth: Int(max(pixelSize.width, 1)), pixelHeight: Int(max(pixelSize.height, 1)))
 
@@ -993,6 +1014,9 @@ struct CrossSectionCell: View {
                 },
                 onDoubleClick: { model.closeToolSession() },
                 onDragBegan: { point in
+                    // ⌥ non afferra: significa «togli», e afferrando impedirebbe al clic di
+                    // arrivare a chi cancella. Stessa regola della griglia.
+                    guard !NSEvent.modifierFlags.contains(.option) else { return }
                     guard let grabbed = patientPoint(at: point) else { return }
                     if model.beginHandleDrag(at: grabbed, toleranceMM: grabToleranceMM) { return }
 

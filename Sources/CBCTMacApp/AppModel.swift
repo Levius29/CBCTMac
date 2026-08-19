@@ -863,6 +863,17 @@ final class AppModel {
         registry.setLocked(locked, id: id)
     }
 
+    /// Scrive la nota libera di un oggetto del piano.
+    ///
+    /// Senza passo di cronologia: una nota non è geometria, e trovarsi ⌘Z che cancella una
+    /// frase invece di riportare indietro un impianto è il genere di sorpresa che fa smettere
+    /// di usare ⌘Z.
+    func setObjectNote(_ note: String, id: UUID) {
+        guard var info = registry[id], info.note != note else { return }
+        info.note = note
+        registry[id] = info
+    }
+
     /// Porta tutte le viste su un oggetto.
     ///
     /// È l'azione più usata di un elenco di oggetti e la più facile da dimenticare: senza, per

@@ -95,7 +95,7 @@ struct ShortcutsSheet: View {
             ("Trascina una maniglia", "Correggi un punto di una misura già posata"),
             ("Trascina un impianto", "Dal corpo lo sposta, dagli estremi lo inclina"),
             ("Trascina un nodo", "Correggi il percorso del nervo"),
-            ("⌥ Clic su un nodo", "Toglie quel nodo, dal nervo o dall'arcata"),
+            ("⌥ Clic su un nodo", "Toglie quel nodo — nervo o arcata, in ogni riquadro"),
         ]
     }
 

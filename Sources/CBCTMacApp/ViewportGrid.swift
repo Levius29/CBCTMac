@@ -553,6 +553,17 @@ struct ViewportContainer: View {
 
     /// Prova ad afferrare qualcosa che appartiene al piano. Restituisce vero se ci riesce.
     private func beginPlanDrag(at pixelPoint: CGPoint) -> Bool {
+        // # ⌥ non afferra
+        //
+        // In tutto il programma ⌥ clic significa **togli**: un punto d'arcata, un nodo del
+        // nervo. Afferrare l'oggetto alla pressione impedirebbe al clic di arrivare a chi lo
+        // cancella, e il gesto smetterebbe di funzionare — cosa che sarebbe successa appena
+        // aggiunta la guardia contro il clic fantasma, senza che nessun test se ne accorgesse.
+        //
+        // Il modificatore si legge una volta alla pressione, come ovunque qui: rilasciarlo a
+        // metà gesto non deve cambiare il significato di ciò che si è cominciato.
+        guard !NSEvent.modifierFlags.contains(.option) else { return false }
+
         // Le maniglie delle misure e i nodi dei nervi vengono per primi: sono più piccoli di un
         // impianto e stanno spesso sopra di esso, quindi dando la precedenza all'impianto
         // resterebbero irraggiungibili. Valgono con qualunque strumento in mano, perché

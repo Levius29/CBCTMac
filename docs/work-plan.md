@@ -76,7 +76,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | C2 | Visibilità per oggetto (occhio) | ✅ | 3 | E |
 | C3 | Colore per oggetto, scelto o assegnato | ✅ | 2 | E |
 | C4 | Cancellazione per oggetto, e di tutto il tipo | ✅ | 2 | E |
-| C5 | Nota testuale allegata a un oggetto | ❌ | 1 | E |
+| C5 | Nota testuale allegata a un oggetto | ✅ | 1 | E |
 | C6 | «Porta al centro» un oggetto: tutte le viste ci si spostano | ✅ | 3 | E |
 | C7 | Selezione evidenziata, coerente fra elenco e viste | ✅ | 3 | E |
 | C8 | Parametri modificabili in linea con passo (L, Ø) | ✅ | 3 | E |
@@ -179,7 +179,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | J4 | Istantanea di un riquadro | ✅ | 2 | J |
 | J5 | Esportazione della cartella DICOM | ❌ | 1 | J |
 | J6 | Esportazione su disco con visualizzatore | ❌ | 1 | — |
-| J7 | Note del caso | ❌ | 1 | E |
+| J7 | Note del caso | ✅ | 1 | E |
 | J8 | Esportazione del modello 3D (STL) | ✅ | 2 | J |
 | J9 | Scheda «Rivedi»: rilettura del piano finito | ✅ | 1 | K |
 

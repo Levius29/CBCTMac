@@ -153,6 +153,7 @@ private struct ObjectRow: View {
     let object: PlanObjectInfo
 
     @State private var isRenaming = false
+    @State private var draftNote = ""
     @State private var draftName = ""
 
     private var isSelected: Bool {
@@ -177,7 +178,38 @@ private struct ObjectRow: View {
             {
                 toothParameters(tooth)
             }
+
+            if isExpanded {
+                noteField
+            }
         }
+    }
+
+    /// La nota libera sull'oggetto.
+    ///
+    /// `PlanObjectInfo.note` esisteva dall'inizio, veniva salvata nel piano e non era
+    /// scrivibile da nessuna parte: un campo che attraversava il formato per non contenere mai
+    /// niente. Serve a quello per cui una nota serve — «attendere guarigione», «il paziente non
+    /// vuole estrarre il 47» — cioè a ricordare fra due settimane perché quell'impianto sta lì.
+    @ViewBuilder
+    private var noteField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "text.bubble")
+                .font(.system(size: 9))
+                .foregroundStyle(Palette.textSecondary)
+            TextField("Nota", text: $draftNote)
+                .textFieldStyle(.plain)
+                .font(Typography.numericSmall)
+                .foregroundStyle(Palette.textPrimary)
+                .onSubmit { model.setObjectNote(draftNote, id: object.id) }
+        }
+        .padding(.leading, 22)
+        .padding(.bottom, 2)
+        .onChange(of: object.id, initial: true) { draftNote = object.note }
+        // Perdendo il fuoco la nota si scrive lo stesso: pretendere Invio farebbe perdere ciò
+        // che si è appena battuto a chi clicca altrove, che è come la maggior parte delle
+        // persone smette di scrivere in un campo.
+        .onDisappear { model.setObjectNote(draftNote, id: object.id) }
     }
 
     /// Le misure della corona.
