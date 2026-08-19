@@ -173,8 +173,38 @@ public enum VolumeFile: Sendable {
 
     // MARK: Campioni
 
+    /// Vero se questa macchina ha già i byte nell'ordine del formato.
+    ///
+    /// Su ogni Mac degli ultimi vent'anni è vero, e resta una **verifica** e non un'assunzione:
+    /// il ramo lento esiste, è corretto, e su una macchina big-endian scriverebbe lo stesso file.
+    private static var isNativelyLittleEndian: Bool { UInt16(1).littleEndian == 1 }
+
     /// Little-endian esplicito, indipendente dall'ordine nativo della macchina.
+    ///
+    /// # Perché la via veloce non è un'ottimizzazione prematura
+    ///
+    /// Un volume da 512³ ha 134 milioni di campioni. Costruendo un `[UInt8]` a byte a byte si
+    /// allocano 268 MB di array **più** i 268 MB del `Data` che lo copia: mezzo gigabyte di
+    /// picco per scriverne un quarto, e 268 milioni di `append`. Quando l'ordine dei byte è già
+    /// quello giusto — su Apple, sempre — i campioni si consegnano al sistema così come stanno,
+    /// senza copie intermedie e senza cicli.
     private static func writeSamples(_ samples: [Int16], to url: URL) throws {
+        if isNativelyLittleEndian {
+            try samples.withUnsafeBufferPointer { buffer in
+                try Data(buffer: buffer).write(to: url, options: .atomic)
+            }
+            return
+        }
+        try portableBytes(of: samples).write(to: url, options: .atomic)
+    }
+
+    /// I byte little-endian costruiti a mano, senza dipendere dall'ordine della macchina.
+    ///
+    /// Interno e non privato perché è la via che su Apple non viene mai percorsa, e una via che
+    /// non si percorre non si sa se funziona. Un test la confronta con quella veloce: è l'unico
+    /// modo di verificare qui il ramo big-endian, e verificare che i due **coincidano** è
+    /// esattamente ciò che serve.
+    static func portableBytes(of samples: [Int16]) -> Data {
         var bytes = [UInt8]()
         bytes.reserveCapacity(samples.count * 2)
         for sample in samples {
@@ -182,19 +212,41 @@ public enum VolumeFile: Sendable {
             bytes.append(UInt8(unsigned & 0xFF))
             bytes.append(UInt8((unsigned >> 8) & 0xFF))
         }
-        try Data(bytes).write(to: url, options: .atomic)
+        return Data(bytes)
     }
 
     private static func readSamples(_ data: Data, count: Int) -> [Int16] {
-        var samples = [Int16]()
-        samples.reserveCapacity(count)
         // `withUnsafeBytes` invece dell'indicizzazione: un `Data` ottenuto da una sotto-sequenza
         // non parte dall'indice zero, e indicizzarlo da zero leggerebbe fuori posto.
-        data.withUnsafeBytes { buffer in
+        //
+        // `copyBytes` e non un ciclo: leggere un volume grande campione per campione sono
+        // centotrenta milioni di iterazioni, e si sentono all'apertura di ogni esame.
+        // L'allineamento non si assume — un `Data` mappato può cominciare a un indirizzo
+        // dispari — quindi si copiano byte, non `Int16`.
+        guard isNativelyLittleEndian else { return portableSamples(from: data, count: count) }
+        return [Int16](unsafeUninitializedCapacity: count) { destination, initialized in
+            data.withUnsafeBytes { source in
+                let raw = UnsafeMutableRawBufferPointer(destination)
+                raw.copyMemory(from: UnsafeRawBufferPointer(rebasing: source[0..<(count * 2)]))
+            }
+            initialized = count
+        }
+    }
+
+    /// I campioni ricostruiti byte a byte, senza dipendere dall'ordine della macchina.
+    ///
+    /// Come `portableBytes`, e per la stessa ragione: su Apple non viene mai eseguita, quindi
+    /// senza un test che la confronti con la via veloce non si saprebbe se funziona. Il primo
+    /// tentativo di provarla con una mutazione infatti non falliva — il ramo non veniva
+    /// percorso, e la mutazione era inerte.
+    static func portableSamples(from data: Data, count: Int) -> [Int16] {
+        var samples = [Int16]()
+        samples.reserveCapacity(count)
+        data.withUnsafeBytes { source in
             var index = 0
             while index < count {
-                let low = UInt16(buffer[index * 2])
-                let high = UInt16(buffer[index * 2 + 1])
+                let low = UInt16(source[index * 2])
+                let high = UInt16(source[index * 2 + 1])
                 samples.append(Int16(bitPattern: low | (high << 8)))
                 index += 1
             }

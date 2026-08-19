@@ -167,4 +167,52 @@ struct VolumeFileTests {
         try JSONEncoder().encode(header).write(to: headerURL)
         #expect(try VolumeFile.read(from: directory).densityUnit == .greyValue)
     }
+
+    @Test("La via veloce e quella portabile si accordano, in scrittura e in lettura")
+    func fastAndPortablePathsAgree() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let volume = try awkwardVolume()
+        try VolumeFile.write(volume, to: directory)
+        let written = try Data(
+            contentsOf: directory.appendingPathComponent(VolumeFile.samplesName))
+
+        // Su Apple si percorre sempre la via veloce, quindi quella portabile non viene mai
+        // eseguita — e una via che non si percorre non si sa se funziona. Confrontarle è
+        // l'unico modo di verificare qui il ramo big-endian.
+        #expect(written == VolumeFile.portableBytes(of: volume.samples))
+        #expect(written.count == volume.samples.count * 2)
+
+        // E la lettura nei due versi. Serviva: la prima volta questo test copriva la sola
+        // scrittura, e una mutazione che invertiva i byte nella lettura portabile non faceva
+        // fallire niente — il ramo non veniva percorso, e la mutazione era inerte.
+        #expect(
+            VolumeFile.portableSamples(from: written, count: volume.samples.count)
+                == volume.samples)
+    }
+
+    @Test("Un volume con molti campioni sopravvive intatto all'andata e ritorno")
+    func largerVolumeSurvives() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // Non enorme, ma abbastanza da percorrere la copia in blocco invece di pochi campioni:
+        // 64³ sono 262 144 valori, e coprono il caso in cui la lettura copia byte grezzi.
+        let geometry = try VolumeGeometry(
+            columnCount: 64, rowCount: 64, sliceCount: 64,
+            columnSpacingMM: 0.3, rowSpacingMM: 0.3, sliceSpacingMM: 0.3,
+            orientation: .standardAxial, originMM: Vec3(-9.6, -9.6, -9.6))
+        var samples = [Int16]()
+        samples.reserveCapacity(geometry.voxelCount)
+        for index in 0..<geometry.voxelCount {
+            samples.append(Int16(truncatingIfNeeded: index &* 2_654_435_761))
+        }
+        let volume = try Volume(geometry: geometry, samples: samples)
+
+        try VolumeFile.write(volume, to: directory)
+        let reread = try VolumeFile.read(from: directory)
+        #expect(reread.samples == volume.samples)
+        #expect(reread.geometry == volume.geometry)
+    }
 }
