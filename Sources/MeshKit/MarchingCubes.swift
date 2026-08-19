@@ -1,6 +1,5 @@
 import Foundation
 import DICOMCore
-import MeshKit
 
 /// Estrazione di isosuperfici mediante marching cubes classico.
 public enum MarchingCubes: Sendable {

@@ -189,8 +189,14 @@ public struct ScalarField: Sendable {
         }
     }
 
-    /// Setter interno usato dai costruttori di campi e dai test analitici del modulo.
-    mutating func setValue(_ value: Double, x: Int, y: Int, z: Int) {
+    /// Scrive un campione, ignorando in silenzio gli indici fuori griglia.
+    ///
+    /// Pubblico da quando `ScalarField` è passato in MeshKit: chi costruisce un campo — la dima
+    /// in GuideKit, la maschera segmentata in SegmentKit — sta in un modulo diverso. Il silenzio
+    /// sugli indici fuori griglia è deliberato e coerente con `value(x:y:z:)`, che fuori
+    /// restituisce `+infinity` invece di far cadere il programma: un campo si riempie a cicli
+    /// annidati, e un solo indice di bordo sbagliato non deve interrompere una costruzione.
+    public mutating func setValue(_ value: Double, x: Int, y: Int, z: Int) {
         guard let index = linearIndex(x: x, y: y, z: z) else { return }
         values[index] = value
     }

@@ -4,7 +4,11 @@ import StudyKit
 import SwiftUI
 import VolumeKit
 
-// Il contorno della scansione intraorale sulle viste 2D.
+// Il contorno di una superficie sulle viste 2D.
+//
+// Nasce per la scansione intraorale, e disegna ora anche la segmentazione: sono la stessa cosa
+// vista da due parti — una mesh intersecata con un piano — e tenerle in due sovraimpressioni
+// gemelle avrebbe significato correggere ogni difetto due volte.
 //
 // # Perché è questo il modo di guardare una scansione, e non il 3D
 //
@@ -19,7 +23,7 @@ import VolumeKit
 // per movimento del mirino, insostenibile sessanta volte al secondo per tre riquadri. Il modello
 // li ricalcola quando i piani cambiano; qui si proietta e si disegna, e basta.
 
-struct ScanContourOverlay: View {
+struct MeshContourOverlay: View {
 
     let model: AppModel
     /// Riquadro ortogonale, quando il contorno viene da lì.
@@ -27,6 +31,12 @@ struct ScanContourOverlay: View {
     /// Anelli e piano espliciti, per una sezione trasversale, che un riquadro non è.
     var explicitLoops: [[Vec3]]?
     var explicitPlane: MPRPlane?
+    /// Colore imposto dal chiamante.
+    ///
+    /// Il colore predefinito dice quanto ci si può fidare della **registrazione**, che è
+    /// informazione buona per la scansione e priva di senso per una segmentazione: quella non è
+    /// registrata a niente, è ricavata dai voxel di questo stesso volume.
+    var colourOverride: Color?
 
     var body: some View {
         Canvas { context, size in
@@ -63,6 +73,7 @@ struct ScanContourOverlay: View {
     /// Un contorno disegnato tutto uguale suggerisce che la registrazione sia un fatto. Non lo è
     /// finché lo scarto non lo dice, e chi guarda deve saperlo senza andare a cercare il numero.
     private var colour: Color {
+        if let colourOverride { return colourOverride }
         guard let quality = model.scanRegistration?.quality else {
             // Non registrata: sta dove la mette il suo file, cioè da nessuna parte in
             // particolare rispetto al paziente.

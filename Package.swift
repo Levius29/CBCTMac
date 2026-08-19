@@ -103,7 +103,7 @@ let moduleTargets: [Target] = [
     // è tutta geometria, e si verifica per intero con `swift test`.
     .target(name: "ImplantKit", dependencies: ["DICOMCore"]),
     .target(name: "GuideKit", dependencies: ["DICOMCore", "MeshKit", "ImplantKit"]),
-    .target(name: "SegmentKit", dependencies: ["DICOMCore"]),
+    .target(name: "SegmentKit", dependencies: ["DICOMCore", "MeshKit"]),
     // La relazione: il pezzo con cui il piano esce dal programma. Genera testo, quindi si
     // verifica con `swift test` come tutto il resto invece che guardando un PDF.
     .target(
@@ -127,7 +127,7 @@ let testTargets: [Target] = [
         name: "GuideKitTests",
         dependencies: ["GuideKit", "DICOMCore", "MeshKit", "ImplantKit"]
     ),
-    .testTarget(name: "SegmentKitTests", dependencies: ["SegmentKit", "DICOMCore"]),
+    .testTarget(name: "SegmentKitTests", dependencies: ["SegmentKit", "DICOMCore", "MeshKit"]),
     .testTarget(name: "StudyKitTests", dependencies: ["StudyKit", "DICOMCore"]),
     .testTarget(
         name: "ReportKitTests",

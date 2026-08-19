@@ -88,6 +88,12 @@ struct CBCTMacApp: App {
 
                 Divider()
 
+                Button("Segmentazione per soglia…") { model.isShowingSegmentation = true }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .disabled(model.volume == nil)
+
+                Divider()
+
                 Button("Importa scansione intraorale…") { importScan() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)

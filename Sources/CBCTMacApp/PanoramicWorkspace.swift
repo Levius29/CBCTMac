@@ -1027,10 +1027,18 @@ struct CrossSectionCell: View {
                 // Il contorno della scansione sulla sezione selezionata: è dove si vede se
                 // segue lo smalto, e la sezione è il piano su cui si decide un impianto.
                 if isSelected, model.isScanVisible, !model.selectedSectionContour.isEmpty {
-                    ScanContourOverlay(
+                    MeshContourOverlay(
                         model: model,
                         explicitLoops: model.selectedSectionContour,
                         explicitPlane: zoomedPlane)
+                }
+
+                if isSelected, !model.segmentationSectionContour.isEmpty {
+                    MeshContourOverlay(
+                        model: model,
+                        explicitLoops: model.segmentationSectionContour,
+                        explicitPlane: zoomedPlane,
+                        colourOverride: Palette.segmentation)
                 }
             }
             .overlay {

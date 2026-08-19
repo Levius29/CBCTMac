@@ -207,7 +207,19 @@ struct ViewportContainer: View {
                     // Il contorno della scansione sopra l'anatomia: è così che si giudica una
                     // registrazione, guardando se segue lo smalto.
                     if model.isScanVisible, model.scan != nil {
-                        ScanContourOverlay(model: model, slot: slot)
+                        MeshContourOverlay(model: model, slot: slot)
+                    }
+
+                    // Il contorno della segmentazione, con il suo colore: quello predefinito
+                    // dice la qualità della registrazione, che per una segmentazione non
+                    // significa niente — non è registrata a nulla, viene dai voxel di questo
+                    // stesso volume.
+                    if let loops = model.segmentationContours[slot] {
+                        MeshContourOverlay(
+                            model: model,
+                            explicitLoops: loops,
+                            explicitPlane: model.planes[slot],
+                            colourOverride: Palette.segmentation)
                     }
 
                     // Le etichette per ultime, sopra tutti i disegni: sono ciò che si legge, e

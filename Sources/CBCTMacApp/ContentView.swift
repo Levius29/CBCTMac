@@ -64,6 +64,7 @@ struct ContentView: View {
             ScanRegistrationSheet(model: model)
         }
         .sheet(isPresented: $model.isShowingGuide) { GuideSheet(model: model) }
+        .sheet(isPresented: $model.isShowingSegmentation) { SegmentationSheet(model: model) }
         .navigationTitle(windowTitle)
     }
 

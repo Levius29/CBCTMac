@@ -30,6 +30,10 @@ enum Palette {
     static let danger = Color(hex: 0xFF453A)
     static let caution = Color(hex: 0xFFD60A)
     static let safe = Color(hex: 0x30D158)
+    /// Il contorno della segmentazione. Viola: non è nessuno dei colori dei piani, e non è
+    /// nessuno dei tre del semaforo di sicurezza — una segmentazione non è né una vista né un
+    /// giudizio, ed è meglio che non somigli a nessuno dei due.
+    static let segmentation = Color(hex: 0x9B6BFF)
 
     // MARK: Colori dei piani
 

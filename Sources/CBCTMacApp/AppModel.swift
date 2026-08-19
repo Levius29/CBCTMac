@@ -786,6 +786,18 @@ final class AppModel {
             }
         }
 
+        if segmentationMesh != nil {
+            live.insert(Self.segmentationObjectID)
+            if updated[Self.segmentationObjectID] == nil {
+                var info = PlanObjectInfo(
+                    id: Self.segmentationObjectID, kind: .mesh,
+                    name: "Segmentazione",
+                    order: updated.objects(of: .mesh).count)
+                info.colorHex = "9B6BFF"
+                updated.register(info)
+            }
+        }
+
         for object in updated.objects where !live.contains(object.id) {
             updated.remove(id: object.id)
         }
@@ -808,6 +820,9 @@ final class AppModel {
         }
         if let index = teeth.firstIndex(where: { $0.id == id }) {
             teeth[index].isVisible = visible
+        }
+        if id == Self.segmentationObjectID {
+            isSegmentationVisible = visible
         }
         recordUndo(visible ? "Mostra oggetto" : "Nascondi oggetto")
     }
@@ -875,6 +890,10 @@ final class AppModel {
     }
 
     func deleteObject(id: UUID) {
+        if id == Self.segmentationObjectID {
+            clearSegmentation()
+            return
+        }
         implants.removeAll { $0.id == id }
         teeth.removeAll { $0.id == id }
         nerveCanals.removeAll { $0.id == id }
@@ -1904,7 +1923,7 @@ final class AppModel {
     /// sarebbe più semplice e sbagliato: annullerebbe la panoramica dell'utente ogni volta che
     /// sposta il mirino in un'altra vista, e l'immagine salterebbe.
     private func syncPlanesToCrosshair() {
-        defer { rebuildScanContours() }
+        defer { rebuildDerivedContours() }
         for (slot, plane) in planes {
             let n = plane.normalMM
             let delta = (crosshairMM - plane.centerMM).dot(n)
@@ -2368,6 +2387,17 @@ final class AppModel {
         }
     }
 
+    /// Ricalcola **ogni** contorno derivato da una superficie: scansione e segmentazione.
+    ///
+    /// Un solo punto perché le due cose dipendono dagli stessi piani e cambiano insieme. Con due
+    /// richiami separati sparsi per il modello sarebbe bastato dimenticarne uno perché la
+    /// segmentazione restasse ferma su una fetta mentre l'immagine scorre — e un contorno fermo
+    /// sull'immagine sbagliata è peggio di nessun contorno.
+    func rebuildDerivedContours() {
+        rebuildScanContours()
+        rebuildSegmentationContours()
+    }
+
     /// Ricalcola il contorno della scansione su ogni riquadro ortogonale.
     func rebuildScanContours() {
         guard let scan, isScanVisible else {
@@ -2394,6 +2424,151 @@ final class AppModel {
             ).loops
         } else {
             selectedSectionContour = []
+        }
+    }
+
+    // MARK: - Segmentazione
+
+    // # Perché la segmentazione compare come contorno e non come voxel colorati
+    //
+    // La via ovvia è dipingere i voxel selezionati sopra le fette, e richiede una texture di
+    // maschera dentro lo shader MPR. È la via giusta a lungo termine ed è anche l'unica che qui
+    // non si può verificare in alcun modo. Il contorno invece arriva sullo schermo per una
+    // strada che nel programma funziona già — `MeshSlicer`, la stessa della scansione
+    // intraorale — e dice le stesse cose: dove passa il confine, se ha buchi, se ha isole. Sopra
+    // l'anatomia è per giunta più leggibile, perché non la copre.
+
+    /// Identificatore fisso della segmentazione nell'elenco degli oggetti.
+    ///
+    /// Fisso e non generato: la segmentazione è **una**, si rifà cambiando la soglia, e un
+    /// identificatore nuovo a ogni esecuzione lascerebbe nell'elenco una riga morta per ogni
+    /// tentativo — con visibilità e colore scelti dall'utente che si perdono a ogni giro.
+    static let segmentationObjectID = UUID(
+        uuidString: "5E6DE7A0-0000-4000-8000-000000000001") ?? UUID()
+
+    /// La maschera corrente, se una segmentazione è stata eseguita.
+    private(set) var segmentationMask: VolumeMask?
+    /// La superficie estratta dalla maschera.
+    private(set) var segmentationMesh: Mesh?
+    private(set) var segmentationStatistics: MaskStatistics?
+    private(set) var segmentationContours: [ViewportSlot: [[Vec3]]] = [:]
+    private(set) var segmentationSectionContour: [[Vec3]] = []
+    private(set) var isSegmenting = false
+    private(set) var segmentationMessage: String?
+
+    var isShowingSegmentation = false
+
+    var isSegmentationVisible = true {
+        didSet { rebuildSegmentationContours() }
+    }
+
+    /// Finestra di densità della soglia, in unità del volume corrente.
+    var segmentationLowerGV: Double = 1000
+    var segmentationUpperGV: Double = 3500
+    /// Tenere solo il componente più grande. Predefinito acceso: su una CBCT la soglia dell'osso
+    /// prende anche la colonna, il mento e ogni scheggia di rumore sopra soglia, e il risultato
+    /// utile è quasi sempre il pezzo più grande.
+    var segmentationKeepsLargest = true
+    /// Passo di campionamento della superficie. Più grosso costa meno e perde dettaglio.
+    var segmentationSpacingMM: Double = 0.6
+
+    /// Soglia, componente più grande, superficie. In quest'ordine e fuori dal main actor.
+    ///
+    /// Non è lavoro da fare mentre l'interfaccia aspetta: su un volume da 512³ la sola soglia
+    /// tocca centotrenta milioni di voxel, e marching cubes ne campiona altrettanti. Lasciarlo
+    /// sul main actor bloccherebbe la finestra per secondi senza nemmeno un cursore che gira.
+    func runSegmentation() async {
+        guard let volume, !isSegmenting else { return }
+        isSegmenting = true
+        segmentationMessage = nil
+
+        let lower = Swift.min(segmentationLowerGV, segmentationUpperGV)
+        let upper = Swift.max(segmentationLowerGV, segmentationUpperGV)
+        let largestOnly = segmentationKeepsLargest
+        let spacing = segmentationSpacingMM
+
+        struct Outcome: Sendable {
+            var mask: VolumeMask?
+            var mesh: Mesh?
+            var statistics: MaskStatistics?
+            var message: String?
+        }
+
+        let outcome = await Task.detached(priority: .userInitiated) { () -> Outcome in
+            do {
+                var mask = try ThresholdSegmentation.segment(
+                    volume, densityRange: lower...upper, label: 1, within: nil)
+                if largestOnly {
+                    mask = try ConnectedComponents.keepingLargest(mask, count: 1)
+                }
+                guard !MaskSurface.isEmpty(mask, label: 1) else {
+                    return Outcome(message: "Nessun voxel in questa finestra di densità.")
+                }
+                let statistics = try MaskAnalysis.statistics(of: volume, within: mask, label: 1)
+                guard
+                    let mesh = MaskSurface.mesh(
+                        of: mask, label: 1, spacingMM: spacing, name: "Segmentazione")
+                else {
+                    // I due «no» di `MaskSurface` sono diversi, e qui si è già escluso il vuoto:
+                    // resta il rifiuto per dimensione della griglia.
+                    return Outcome(
+                        mask: mask, statistics: statistics,
+                        message: "Regione troppo estesa per questo passo. Aumenta il passo di "
+                            + "campionamento.")
+                }
+                return Outcome(mask: mask, mesh: mesh, statistics: statistics)
+            } catch {
+                return Outcome(message: String(describing: error))
+            }
+        }.value
+
+        segmentationMask = outcome.mask
+        segmentationMesh = outcome.mesh
+        segmentationStatistics = outcome.statistics
+        segmentationMessage = outcome.message
+        isSegmenting = false
+        rebuildSegmentationContours()
+        syncRegistry()
+    }
+
+    func clearSegmentation() {
+        segmentationMask = nil
+        segmentationMesh = nil
+        segmentationStatistics = nil
+        segmentationMessage = nil
+        segmentationContours = [:]
+        segmentationSectionContour = []
+        syncRegistry()
+    }
+
+    /// Ricalcola i contorni della segmentazione sui riquadri e sulla sezione selezionata.
+    ///
+    /// Stessa struttura di `rebuildScanContours`, e per le stesse ragioni — inclusa quella per
+    /// cui la sezione trasversale si calcola solo per quella **selezionata**.
+    func rebuildSegmentationContours() {
+        guard let mesh = segmentationMesh, isSegmentationVisible else {
+            segmentationContours = [:]
+            segmentationSectionContour = []
+            return
+        }
+        var contours: [ViewportSlot: [[Vec3]]] = [:]
+        for (slot, plane) in planes where slot.anatomicalPlane != nil {
+            let contour = MeshSlicer.contour(
+                of: mesh, planeOriginMM: plane.centerMM, planeNormalMM: plane.normalMM,
+                toleranceMM: 1e-4)
+            if !contour.loops.isEmpty { contours[slot] = contour.loops }
+        }
+        segmentationContours = contours
+
+        if let section = crossSectionBrowser.selectedSection {
+            segmentationSectionContour = MeshSlicer.contour(
+                of: mesh,
+                planeOriginMM: section.plane.centerMM,
+                planeNormalMM: section.plane.normalMM,
+                toleranceMM: 1e-4
+            ).loops
+        } else {
+            segmentationSectionContour = []
         }
     }
 
