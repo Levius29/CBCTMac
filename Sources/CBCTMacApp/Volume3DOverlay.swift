@@ -66,6 +66,9 @@ struct Volume3DOverlay: View {
                 drawCurrentSection(&context, geometry: volume.geometry, projector: projector)
                 drawImplants(&context, projector: projector)
                 drawTeeth(&context, projector: projector)
+                // Le etichette per ultime, sopra ogni disegno: sono ciò che si legge, e una
+                // linea che ci passa sopra le rende illeggibili. Stessa regola di `LabelOverlay`.
+                drawLabels(&context, projector: projector)
             }
             // Sotto c'è il gesto di orbita, e questa sovraimpressione non deve rubarglielo.
             .allowsHitTesting(false)
@@ -261,6 +264,58 @@ struct Volume3DOverlay: View {
                 outline, with: .color(colour),
                 lineWidth: implant.id == model.selectedImplantID ? 2 : 1.5)
         }
+    }
+
+    /// Le etichette degli oggetti nel 3D.
+    ///
+    /// # Perché non passano da `LabelOverlay`
+    ///
+    /// Quella dispone le etichette evitando che si sovrappongano, e per farlo ha bisogno di un
+    /// piano: `slot` e `MPRPlane`. Il 3D non ha un piano, ha una telecamera. Qui l'etichetta si
+    /// posa accanto alla piattaforma proiettata, senza risoluzione delle collisioni — su una
+    /// scena che ruota due etichette si separano girando di poco, mentre in una vista fissa
+    /// resterebbero sovrapposte per sempre.
+    ///
+    /// Il 3D era l'unica vista in cui gli oggetti non avevano nome: si vedevano le forme e non
+    /// si sapeva quale fosse l'impianto 46.
+    private func drawLabels(_ context: inout GraphicsContext, projector: ScreenProjector) {
+        for implant in model.implants where implant.isVisible {
+            let projected = projector.project(implant.platformMM)
+            let name = model.registry[implant.id]?.name ?? implant.label
+            guard !name.isEmpty else { continue }
+            draw(
+                name, at: CGPoint(x: projected.x, y: projected.y), in: &context,
+                color: implantColor(implant),
+                isSelected: implant.id == model.selectedImplantID)
+        }
+
+        for tooth in model.teeth where tooth.isVisible {
+            let projected = projector.project(tooth.occlusalCentreMM)
+            draw(
+                "\(tooth.toothNumber)", at: CGPoint(x: projected.x, y: projected.y),
+                in: &context,
+                color: Color(hexString: tooth.colorHex) ?? Palette.textPrimary,
+                isSelected: tooth.id == model.selectedToothID)
+        }
+    }
+
+    private func draw(
+        _ text: String,
+        at point: CGPoint,
+        in context: inout GraphicsContext,
+        color: Color,
+        isSelected: Bool
+    ) {
+        let resolved = context.resolve(
+            Text(text).font(Typography.numericSmall).foregroundStyle(color))
+        let size = resolved.measure(in: CGSize(width: 220, height: 40))
+        let origin = CGPoint(x: point.x + 9, y: point.y - size.height / 2)
+        let background = CGRect(
+            x: origin.x - 3, y: origin.y - 2, width: size.width + 6, height: size.height + 4)
+        context.fill(
+            Path(roundedRect: background, cornerRadius: 3),
+            with: .color(.black.opacity(isSelected ? 0.7 : 0.5)))
+        context.draw(resolved, at: origin, anchor: .topLeading)
     }
 
     /// I denti protesici, come gabbie tratteggiate.

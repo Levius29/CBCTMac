@@ -61,6 +61,17 @@ struct ProjectDocument: Codable, Sendable {
     var crossSectionHeightMM: Double
     var archVerticalCentreMM: Double
 
+    /// I parametri della segmentazione, non la maschera.
+    ///
+    /// La maschera è grande quanto il volume e si ricalcola in pochi secondi; i quattro numeri
+    /// che la producono stanno in una riga. Conservare quelli significa riaprire il caso e
+    /// ritrovare la soglia su cui si era lavorato, invece di doverla ricercare
+    /// sull'istogramma — che è la parte lenta, perché è quella che richiede di guardare.
+    var segmentationLowerGV: Double?
+    var segmentationUpperGV: Double?
+    var segmentationKeepsLargest: Bool?
+    var segmentationSpacingMM: Double?
+
     /// Transfer function corrente, così riaprendo il caso il 3D è com'era.
     var transferFunction: TransferFunction
 
@@ -85,6 +96,10 @@ struct ProjectDocument: Codable, Sendable {
         self.crossSectionHeightMM = model.crossSectionHeightMM
         self.archVerticalCentreMM = model.archVerticalCentreMM
         self.transferFunction = model.transferFunction
+        self.segmentationLowerGV = model.segmentationLowerGV
+        self.segmentationUpperGV = model.segmentationUpperGV
+        self.segmentationKeepsLargest = model.segmentationKeepsLargest
+        self.segmentationSpacingMM = model.segmentationSpacingMM
     }
 
     // MARK: Serializzazione
@@ -162,6 +177,10 @@ struct ProjectDocument: Codable, Sendable {
         model.crossSectionHeightMM = crossSectionHeightMM
         model.archVerticalCentreMM = archVerticalCentreMM
         model.transferFunction = transferFunction
+        if let segmentationLowerGV { model.segmentationLowerGV = segmentationLowerGV }
+        if let segmentationUpperGV { model.segmentationUpperGV = segmentationUpperGV }
+        if let segmentationKeepsLargest { model.segmentationKeepsLargest = segmentationKeepsLargest }
+        if let segmentationSpacingMM { model.segmentationSpacingMM = segmentationSpacingMM }
         model.transferPresetName = "Personalizzato"
 
         if let state = plan.viewState {

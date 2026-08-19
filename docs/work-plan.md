@@ -108,7 +108,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | E4 | Algoritmo di ricostruzione dichiarato | ✅ | 1 | C |
 | E5 | Maniglie del mirino sui bordi, colorate come i piani 3D | ✅ | 2 | I |
 | E6 | Etichette con **linea di richiamo** che non coprono l'anatomia | ✅ | 3 | F |
-| E7 | Etichette visibili su tutte le viste, 3D compreso | 🔶 | 2 | F |
+| E7 | Etichette visibili su tutte le viste, 3D compreso | ✅ | 2 | F |
 | E8 | Barra di scala | ✅ | 2 | — |
 | E9 | Finestra e livello mostrati nel riquadro | ✅ | 2 | — |
 
