@@ -50,6 +50,8 @@ struct InspectorPanel: View {
                     orientationSection
                 } else {
                     visualizationSection
+                    Divider().overlay(Palette.separator)
+                    scrollSection
                 }
                 if model.workMode != .review {
                     Divider().overlay(Palette.separator)
@@ -59,6 +61,37 @@ struct InspectorPanel: View {
             .padding(Metrics.spacingLarge)
         }
         .background(Palette.chrome)
+    }
+
+    // MARK: Rotella
+
+    @AppStorage(InteractiveMetalView.ScrollPreference.invertedKey)
+    private var scrollInverted = false
+    @AppStorage(InteractiveMetalView.ScrollPreference.speedKey)
+    private var scrollSpeed = 1.0
+
+    /// Come si comporta la rotella. Sta in fondo alla visualizzazione perché è una preferenza,
+    /// non un parametro del caso: si imposta una volta e non si tocca più.
+    private var scrollSection: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing) {
+            Toggle("Inverti la direzione della rotella", isOn: $scrollInverted)
+                .font(Typography.label)
+                .toggleStyle(.checkbox)
+
+            LabeledSlider(
+                label: "Velocità",
+                value: $scrollSpeed,
+                range: 0.25...4,
+                format: "%.2f×")
+
+            Text(
+                "Un mouse a scatti muove più fette per scatto di un trackpad. Lo zoom con ⌘ non "
+                + "si inverte: «avanti» significa ingrandire su ogni programma esistente."
+            )
+            .font(Typography.label)
+            .foregroundStyle(Palette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // MARK: Visualizzazione

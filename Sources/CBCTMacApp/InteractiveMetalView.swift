@@ -296,18 +296,47 @@ final class InteractiveMetalView: MTKView {
 
     // MARK: Eventi
 
+    // MARK: Preferenze della rotella
+
+    /// Chiavi delle preferenze, lette qui e scritte nell'ispettore.
+    ///
+    /// # Perché una vista legge `UserDefaults` da sé
+    ///
+    /// Perché è l'unico punto in cui la rotella diventa un numero, e farlo passare dal modello
+    /// vorrebbe dire che ogni riquadro applichi la stessa correzione per conto proprio — cinque
+    /// posti in cui dimenticarla, e uno che scorre al contrario degli altri. Qui è una riga
+    /// sola, e vale per ogni riquadro per costruzione.
+    enum ScrollPreference {
+        static let invertedKey = "scroll.inverted"
+        static let speedKey = "scroll.speed"
+
+        static var isInverted: Bool { UserDefaults.standard.bool(forKey: invertedKey) }
+
+        /// Moltiplicatore dei passi. Zero significa «mai impostato», e vale uno.
+        static var speed: Double {
+            let stored = UserDefaults.standard.double(forKey: speedKey)
+            guard stored > 0, stored.isFinite else { return 1 }
+            return min(max(stored, 0.25), 4)
+        }
+    }
+
     override func scrollWheel(with event: NSEvent) {
         // I trackpad producono molti eventi piccoli e continui, i mouse a rotella pochi e
         // discreti. Normalizzare a "passi" evita che sul trackpad le slice sfreccino via.
-        let raw = event.hasPreciseScrollingDeltas
+        let natural = event.hasPreciseScrollingDeltas
             ? event.scrollingDeltaY / 8.0
             : event.scrollingDeltaY
-        guard abs(raw) > 0.001 else { return }
+        // La direzione e la velocità sono preferenze: chi viene da un altro visore ha
+        // l'abitudine opposta, e chi usa un mouse a scatti vuole più fette per scatto di chi usa
+        // un trackpad. Lo zoom con ⌘ resta fuori: lì «avanti» significa ingrandire su ogni
+        // programma esistente, e invertirlo sarebbe una sorpresa e non una preferenza.
+        let raw = natural * (ScrollPreference.isInverted ? -1 : 1) * ScrollPreference.speed
+        guard abs(natural) > 0.001 else { return }
 
         if event.modifierFlags.contains(.command) {
             // Zoom con la rotella, ancorato dove sta il puntatore. Il 5% per passo è abbastanza
             // fine da fermarsi sull'ingrandimento che si vuole.
-            let factor = 1.0 + Double(raw) * 0.05
+            let factor = 1.0 + Double(natural) * 0.05
             guard factor > 0.05 else { return }
             onZoom?(factor, pixelLocation(of: event))
             return

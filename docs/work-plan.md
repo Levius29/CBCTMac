@@ -189,7 +189,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 |---|---|---|---|---|
 | K1 | Annulla e ripeti | ✅ | 3 | O |
 | K2 | Preset di rendering come anteprime cliccabili | ✅ | 2 | H |
-| K3 | Impostazioni del mouse configurabili | ❌ | 1 | H |
+| K3 | Impostazioni del mouse configurabili | ✅ | 1 | H |
 | K4 | Stato della sessione conservato fra le schede | ✅ | 2 | K |
 | K5 | Salvataggio automatico del piano | ✅ | 2 | O |
 | K6 | Scorciatoie da tastiera coerenti | ✅ | 2 | H |
