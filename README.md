@@ -58,7 +58,7 @@ protetti da una guardia Metal, mentre la geometria resta portabile. Il risultato
 
 ```sh
 swift build
-swift run CBCTMacApp
+swift run 3DMED
 swift test
 ```
 
@@ -66,14 +66,14 @@ All'avvio l'applicazione genera un **fantoccio sintetico**: un cubo da 20,00 mm 
 densità note. Serve a verificare le misure contro valori esatti senza toccare dati di pazienti,
 e resta utile anche ora che si aprono studi veri.
 
-> **Stato della verifica.** `swift test` copre i moduli condivisi: 181 test in 27 suite, tutti
+> **Stato della verifica.** `swift test` copre i moduli condivisi: 605 test in 74 suite, tutti
 > verdi su Swift 6.2. Il target dell'applicazione è condizionale a macOS e non entra in quella
 > suite, perché importa SwiftUI, AppKit e Metal; le sue chiamate verso i moduli sono però
-> verificate da `AppContractTests`.
+> verificate da `AppContractTests` e da undici controlli statici in `Tools/`.
 >
 > **Su macOS `swift test` richiede Xcode**, non bastano i Command Line Tools: sette file di test
 > importano `XCTest`, che su macOS vive dentro Xcode e non nella toolchain da riga di comando.
-> `swift build` e `swift run CBCTMacApp` invece non compilano i test e funzionano anche con i soli
+> `swift build` e `swift run 3DMED` invece non compilano i test e funzionano anche con i soli
 > Command Line Tools.
 
 Il target dell'applicazione non compila fuori da macOS, quindi un errore banale in quel codice si
@@ -109,10 +109,19 @@ nascere.
 > restano `CBCTMac`. Sono due nomi con due scopi: uno è ciò che si legge sullo schermo, l'altro è
 > ciò che si scrive negli `import`, e tenerli distinti evita di toccare ogni file sorgente per
 > cambiare un'etichetta.
+>
+> Il **prodotto** SwiftPM si chiama `3DMED`, il **target** `CBCTMacApp`: SwiftPM dà al binario il
+> nome del prodotto e al modulo quello del target. Serve perché macOS, per un eseguibile senza
+> bundle, prende il nome del menu dell'applicazione dal file eseguibile — e finché il prodotto si
+> chiamava `CBCTMacApp` chi lanciava `swift run` leggeva «3DMED» sulla finestra e «CBCTMacApp»
+> accanto alla mela.
+>
+> Se il nome che vedi non è 3DMED, stai eseguendo un binario compilato prima di questo
+> cambiamento. La barra di stato dice sempre quale dei due modi è in esecuzione.
 
 > **L'icona non è un file.** È disegnata in `Sources/CBCTMacApp/AppIcon.swift` in coordinate
 > normalizzate, quindi esce nitida a ogni misura senza che il repository porti un solo PNG.
-> L'eseguibile sa esportarsi l'iconset da solo — `CBCTMacApp --export-icon <cartella>` — e lo
+> L'eseguibile sa esportarsi l'iconset da solo — `3DMED --export-icon <cartella>` — e lo
 > script di bundle lo usa per costruire l'`.icns`. La stessa sorgente serve anche il Dock a
 > runtime, così l'icona è la stessa nei due posti per costruzione.
 

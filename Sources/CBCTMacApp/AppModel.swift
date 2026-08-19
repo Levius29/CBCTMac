@@ -1546,6 +1546,24 @@ final class AppModel {
 
     static let appVersion = "0.1.0-dev"
 
+    /// Come è stato avviato il programma: bundle `.app` oppure eseguibile nudo di SwiftPM.
+    ///
+    /// # Perché è informazione che deve stare a schermo
+    ///
+    /// Perché le due strade non danno la stessa applicazione, e la differenza si manifesta in
+    /// modi che sembrano difetti. Senza bundle macOS non trova un `Info.plist`: il menu accanto
+    /// alla mela prende il nome dal file eseguibile, le finestre di dialogo dei file si
+    /// comportano in modo irregolare, e i tipi di documento non sono dichiarati. Chi vede un
+    /// nome che non si aspetta finisce per chiedersi che cosa abbia compilato — ed è successo.
+    ///
+    /// Si legge da `bundleIdentifier`, che è `nil` esattamente per un eseguibile senza bundle.
+    static var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
+
+    /// Riga d'identità della build: nome, versione, e come è stata avviata.
+    static var buildIdentity: String {
+        "\(AppIcon.displayName) \(appVersion) · \(isBundled ? "app" : "SwiftPM")"
+    }
+
     // MARK: Inizializzazione
 
     init() {

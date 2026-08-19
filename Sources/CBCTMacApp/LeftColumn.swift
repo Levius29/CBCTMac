@@ -66,7 +66,7 @@ struct LeftColumn: View {
                 // indovinare quale build si stia guardando.
                 HStack {
                     Spacer()
-                    Text("\(AppIcon.displayName) \(AppModel.appVersion)")
+                    Text(AppModel.buildIdentity)
                         .font(Typography.label)
                         .foregroundStyle(Palette.textSecondary.opacity(0.6))
                     Spacer()

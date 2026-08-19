@@ -44,12 +44,23 @@ import PackageDescription
 // non fa parte del pacchetto. Senza, un solo `import Metal` fa fallire l'intera suite.
 
 #if os(macOS)
+    // Il **prodotto** si chiama 3DMED, il **target** resta CBCTMacApp.
+    //
+    // Non è pedanteria: SwiftPM dà al binario il nome del prodotto e al modulo il nome del
+    // target, e macOS, per un eseguibile senza bundle, prende il nome del menu
+    // dell'applicazione dal file eseguibile. Finché il prodotto si chiamava `CBCTMacApp` chi
+    // lanciava `swift run` vedeva «3DMED» sulla finestra — che lo prende da
+    // `AppIcon.displayName` — e «CBCTMacApp» accanto alla mela. Due nomi nella stessa schermata
+    // sono peggio di un nome sbagliato: non si sa più che cosa si sta eseguendo.
+    //
+    // Il target resta com'è perché è il nome del **modulo**, e cambiarlo toccherebbe ogni
+    // `import` senza cambiare nulla di ciò che si vede.
     let appProducts: [Product] = [
-        .executable(name: "CBCTMacApp", targets: ["CBCTMacApp"])
+        .executable(name: "3DMED", targets: ["CBCTMacApp"])
     ]
     let appTargets: [Target] = [
-        // Eseguibile SPM: consente `swift run CBCTMacApp` senza generare un progetto Xcode.
-        // Per la distribuzione servirà un vero target app con bundle e Info.plist.
+        // Eseguibile SPM: consente `swift run 3DMED` senza generare un progetto Xcode.
+        // Per la distribuzione serve il bundle, che `Tools/make-app-bundle.sh` assembla.
         .executableTarget(
             name: "CBCTMacApp",
             dependencies: [

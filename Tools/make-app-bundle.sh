@@ -29,10 +29,10 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 echo "▸ Compilazione ($CONFIGURATION)…"
-swift build -c "$CONFIGURATION" --product CBCTMacApp
+swift build -c "$CONFIGURATION" --product 3DMED
 
 BIN_PATH="$(swift build -c "$CONFIGURATION" --show-bin-path)"
-EXECUTABLE="$BIN_PATH/CBCTMacApp"
+EXECUTABLE="$BIN_PATH/3DMED"
 
 if [ ! -x "$EXECUTABLE" ]; then
     echo "Eseguibile non trovato in $EXECUTABLE" >&2
@@ -44,8 +44,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # Il nome dell'eseguibile dentro il bundle è quello che appare nel Dock e in Monitoraggio
-# Attività, quindi non resta «CBCTMacApp». Il pacchetto e i moduli restano CBCTMac: quello è
-# il nome del codice, e cambiarlo toccherebbe ogni import senza cambiare nulla di ciò che si vede.
+# Attività. Dal momento in cui il prodotto SwiftPM si chiama 3DMED la copia non rinomina più
+# niente, ed è giusto così: il nome è uno solo, su ogni strada di compilazione. Il pacchetto e
+# i moduli restano CBCTMac, che è il nome del codice.
 cp "$EXECUTABLE" "$APP/Contents/MacOS/3DMED"
 
 # Bundle di risorse di SwiftPM: contengono gli shader Metal.

@@ -272,8 +272,15 @@ struct StatusBar: View {
                     .foregroundStyle(Palette.warning)
                     .help(model.loadIssues.joined(separator: "\n"))
             }
-            Text("\(AppIcon.displayName) \(AppModel.appVersion)")
+            Text(AppModel.buildIdentity)
                 .foregroundStyle(Palette.textSecondary.opacity(0.7))
+                .help(
+                    AppModel.isBundled
+                        ? "Avviata dal bundle 3DMED.app: identità completa, tipi di documento "
+                            + "dichiarati."
+                        : "Eseguibile SwiftPM senza bundle: il menu accanto alla mela porta il "
+                            + "nome del file eseguibile e le finestre di dialogo dei file sono "
+                            + "irregolari. Per un'app vera: ./Tools/make-app-bundle.sh")
         }
         .font(Typography.numericSmall)
         .foregroundStyle(Palette.textSecondary)
