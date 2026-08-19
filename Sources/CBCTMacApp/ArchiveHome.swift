@@ -241,6 +241,12 @@ private struct HomeExamRow: View {
                     .foregroundStyle(Palette.accent)
                     .help("Con un piano salvato")
             }
+            if entry.hasScan == true {
+                Image(systemName: "cube.transparent")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Palette.accent)
+                    .help("Con la scansione intraorale registrata")
+            }
 
             Button("Apri", action: onOpen)
                 .buttonStyle(.borderless)

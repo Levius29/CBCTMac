@@ -555,6 +555,13 @@ struct PanoramicWorkspace: View {
                 windowLevel: model.windowLevel,
                 onHoverArcLength: { hoverArcLengthMM = $0 },
                 onClickArcLength: { arcLength, patient in
+                    // Stessa guardia degli altri riquadri: un oggetto afferrato senza muoversi
+                    // non deve valere anche come clic, altrimenti lo strumento in mano posa un
+                    // secondo oggetto sopra quello che si è appena preso.
+                    guard !model.isDraggingObject, model.annotationDrag == nil,
+                        model.nerveDrag == nil
+                    else { return }
+
                     // Un clic sul panorex seleziona la sezione corrispondente, e con essa porta
                     // le altre viste sul punto: è il modo naturale di passare dalla panoramica al
                     // dente che interessa.

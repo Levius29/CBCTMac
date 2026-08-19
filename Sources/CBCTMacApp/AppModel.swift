@@ -2550,6 +2550,9 @@ final class AppModel {
         scanRegistration = nil
         scanLandmarks = []
         rebuildScanContours()
+        // Importando una scansione **dopo** aver archiviato, l'archivio deve saperlo: senza,
+        // si salverebbe solo riarchiviando a mano, e chi non lo fa la ritrova sparita.
+        Task { await storeScanInArchive() }
         lastActionMessage =
             "Scansione «\(mesh.name)» importata: \(mesh.triangles.count) triangoli. "
             + "Va registrata prima di poterla usare."
@@ -2561,6 +2564,20 @@ final class AppModel {
         scanRegistration = nil
         scanLandmarks = []
         scanContours = [:]
+        selectedSectionContour = []
+        Task { await storeScanInArchive() }
+    }
+
+    /// Rimette la scansione dove il piano dice che stava.
+    ///
+    /// Senza rifare la registrazione: allinearla di nuovo darebbe un risultato leggermente
+    /// diverso — l'ICP converge al minimo locale più vicino, e il punto di partenza non è più
+    /// lo stesso — e un caso riaperto mostrerebbe una scansione spostata di qualche decimo
+    /// rispetto a quella su cui il piano è stato fatto.
+    func adoptScanTransform(_ transform: Transform3D) {
+        guard scan != nil else { return }
+        scanTransform = transform
+        rebuildDerivedContours()
     }
 
     /// Registra la scansione sul volume, usando le coppie di punti indicate.
@@ -2593,6 +2610,9 @@ final class AppModel {
             scanTransform = outcome.transform
             scanRegistration = outcome
             rebuildScanContours()
+            // La posizione viaggia nel piano, non nello STL: `scheduleArchivedPlanSave` la
+            // scrive da sé. I triangoli non sono cambiati e non si riscrivono.
+            scheduleArchivedPlanSave()
             lastActionMessage = String(
                 format: "Registrata: scarto %.2f mm su %d punti — %@",
                 outcome.surfaceRMSMM, outcome.surfacePointCount,
@@ -2787,6 +2807,7 @@ final class AppModel {
         switch outcome {
         case .success(let entry):
             archivedExamID = entry.id
+            await storeScanInArchive()
             let name = entry.patient.isAnonymous
                 ? "Esame anonimo" : entry.patient.displayName
             lastActionMessage = "Archiviato: \(name) — \(entry.summary)"
@@ -2877,6 +2898,21 @@ final class AppModel {
         }
     }
 
+    /// Scrive nell'archivio la scansione dell'esame aperto, o la toglie se non ce n'è.
+    ///
+    /// In binario e non in ASCII: uno STL ASCII pesa quattro volte tanto e non aggiunge niente
+    /// che serva a chi lo rileggerà, che è questo stesso programma.
+    private func storeScanInArchive() async {
+        guard let id = archivedExamID else { return }
+        let data = scan.map { MeshIO.exportSTLBinary($0) }
+        let store = archive
+        let error = await Task.detached(priority: .utility) { () -> String? in
+            do { try store.setScan(data, for: id); return nil }
+            catch { return error.localizedDescription }
+        }.value
+        if let error { archiveMessage = "Scansione non salvata: \(error)" }
+    }
+
     /// Rilegge l'indice dell'archivio.
     func reloadArchive() async {
         let store = archive
@@ -2905,16 +2941,24 @@ final class AppModel {
         let id = entry.id
 
         let outcome = await Task.detached(priority: .userInitiated) {
-            () -> Result<(Volume, Data?), Error> in
-            do { return .success((try store.loadVolume(id: id), store.loadPlan(id: id))) }
-            catch { return .failure(error) }
+            () -> Result<(Volume, Data?, Mesh?), Error> in
+            do {
+                let volume = try store.loadVolume(id: id)
+                let plan = store.loadPlan(id: id)
+                // La scansione **prima** del piano, perché il piano porta la sua posizione e
+                // applicarla a una scansione che non c'è ancora non farebbe niente.
+                let mesh = store.loadScan(id: id).flatMap {
+                    try? MeshIO.load(data: $0, name: "Scansione")
+                }
+                return .success((volume, plan, mesh))
+            } catch { return .failure(error) }
         }.value
 
         loadingMessage = nil
         switch outcome {
         case .failure(let error):
             loadIssues = [error.localizedDescription]
-        case .success(let (volume, plan)):
+        case .success(let (volume, plan, mesh)):
             openStudy(
                 volume: volume,
                 named: entry.exam.displayTitle,
@@ -2924,7 +2968,9 @@ final class AppModel {
             examSourcePath = entry.sourcePath
             archivedExamID = entry.id
 
-            // Il piano **dopo** `openStudy`, che azzera tutto: nell'ordine inverso sparirebbe.
+            // Scansione e piano **dopo** `openStudy`, che azzera tutto: nell'ordine inverso
+            // sparirebbero. E la scansione prima del piano, che ne porta la posizione.
+            if let mesh { adoptScan(mesh) }
             if let plan, let document = try? ProjectDocument.decoded(from: plan) {
                 let warnings = document.apply(to: self)
                 if !warnings.isEmpty { loadIssues = warnings }

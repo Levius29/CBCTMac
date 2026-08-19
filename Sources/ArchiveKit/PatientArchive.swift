@@ -63,6 +63,11 @@ public struct ArchiveEntry: Hashable, Sendable, Codable, Identifiable {
     public var volumeBytes: Int
     /// Vero se accanto al volume c'è un piano.
     public var hasPlan: Bool
+    /// Vero se accanto al volume c'è la scansione intraorale registrata.
+    ///
+    /// Opzionale perché non esisteva: una voce scritta prima non ha la chiave, e pretenderla
+    /// renderebbe illeggibile un archivio che funziona.
+    public var hasScan: Bool?
     /// Nota libera dell'utente sull'esame.
     public var note: String
 
@@ -81,6 +86,7 @@ public struct ArchiveEntry: Hashable, Sendable, Codable, Identifiable {
         sourcePath: String = "",
         volumeBytes: Int = 0,
         hasPlan: Bool = false,
+        hasScan: Bool? = nil,
         note: String = "",
         patientKey: String? = nil
     ) {
@@ -91,6 +97,7 @@ public struct ArchiveEntry: Hashable, Sendable, Codable, Identifiable {
         self.sourcePath = sourcePath
         self.volumeBytes = volumeBytes
         self.hasPlan = hasPlan
+        self.hasScan = hasScan
         self.note = note
         self.patientKey = patientKey ?? patient.mergeKey ?? "anon:" + id.uuidString
     }
@@ -147,6 +154,7 @@ public struct PatientArchive: Sendable {
     public static let examsFolderName = "esami"
     public static let planName = "piano.cbctplan"
     public static let examName = "esame.json"
+    public static let scanName = "scansione.stl"
 
     public let rootURL: URL
 
@@ -290,6 +298,42 @@ public struct PatientArchive: Sendable {
             to: folder.appendingPathComponent(Self.examName), options: .atomic)
     }
 
+    /// Scrive o rimuove la **sola scansione** di un esame già archiviato.
+    ///
+    /// Come `setPlan`, e per la stessa ragione di peso: una scansione intraorale è qualche
+    /// megabyte, il volume duecentosessanta. Riscrivere il volume per aver importato uno STL
+    /// sarebbe assurdo.
+    ///
+    /// Senza la scansione, riaprendo un caso si ritroverebbe il piano ma non la superficie su
+    /// cui la dima appoggia — e la dima non si potrebbe più ricostruire.
+    public func setScan(_ scan: Data?, for id: UUID) throws {
+        var index = try loadIndex()
+        guard let position = index.entries.firstIndex(where: { $0.id == id }) else {
+            throw ArchiveError.entryNotFound(id)
+        }
+        let folder = directory(for: id)
+        guard FileManager.default.fileExists(atPath: folder.path) else {
+            throw ArchiveError.entryNotFound(id)
+        }
+
+        let scanURL = folder.appendingPathComponent(Self.scanName)
+        if let scan {
+            try scan.write(to: scanURL, options: .atomic)
+        } else {
+            try? FileManager.default.removeItem(at: scanURL)
+        }
+
+        index.entries[position].hasScan = scan != nil
+        try save(index)
+        try? JSONEncoder.archive.encode(index.entries[position]).write(
+            to: folder.appendingPathComponent(Self.examName), options: .atomic)
+    }
+
+    /// La scansione salvata con l'esame, se c'è.
+    public func loadScan(id: UUID) -> Data? {
+        try? Data(contentsOf: directory(for: id).appendingPathComponent(Self.scanName))
+    }
+
     /// Aggiorna la nota di un esame, senza toccarne i dati.
     public func setNote(_ note: String, for id: UUID) throws {
         var index = try loadIndex()
@@ -426,6 +470,8 @@ public struct PatientArchive: Sendable {
             else { continue }
             entry.hasPlan = manager.fileExists(
                 atPath: folder.appendingPathComponent(Self.planName).path)
+            entry.hasScan = manager.fileExists(
+                atPath: folder.appendingPathComponent(Self.scanName).path)
             entries.append(entry)
         }
 

@@ -408,4 +408,55 @@ struct PatientArchiveTests {
         }
         #expect(!FileManager.default.fileExists(atPath: archive.directory(for: ghost).path))
     }
+
+    // MARK: La scansione
+
+    @Test("La scansione viaggia con l'esame, e si aggiorna da sola")
+    func scanTravelsWithTheExam() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let entry = try archive.store(
+            volume: try tinyVolume(), patient: PatientIdentity(patientID: "P1"), exam: exam())
+        #expect(entry.hasScan == nil, "una voce nuova non dichiara ciò che non ha")
+        #expect(archive.loadScan(id: entry.id) == nil)
+
+        let stl = Data("solid prova\nendsolid".utf8)
+        try archive.setScan(stl, for: entry.id)
+        #expect(archive.loadScan(id: entry.id) == stl)
+        #expect(try archive.loadIndex().entries[0].hasScan == true)
+        #expect(try archive.rebuildIndex().entries[0].hasScan == true)
+
+        // Togliendola, l'indice lo sa.
+        try archive.setScan(nil, for: entry.id)
+        #expect(archive.loadScan(id: entry.id) == nil)
+        #expect(try archive.loadIndex().entries[0].hasScan == false)
+    }
+
+    @Test("Scansione e piano non si toccano fra loro")
+    func scanAndPlanAreIndependent() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let plan = Data("{\"misure\":1}".utf8)
+        let entry = try archive.store(
+            volume: try tinyVolume(), patient: PatientIdentity(patientID: "P1"), exam: exam(),
+            plan: plan)
+
+        let stl = Data("solid prova\nendsolid".utf8)
+        try archive.setScan(stl, for: entry.id)
+        #expect(archive.loadPlan(id: entry.id) == plan, "scrivere la scansione non tocca il piano")
+
+        try archive.setPlan(Data("{\"misure\":2}".utf8), for: entry.id)
+        #expect(archive.loadScan(id: entry.id) == stl, "scrivere il piano non tocca la scansione")
+    }
+
+    @Test("Una scansione per un esame che non c'è è un errore")
+    func scanForMissingExamThrows() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+        #expect(throws: ArchiveError.self) {
+            try archive.setScan(Data("solid".utf8), for: UUID())
+        }
+    }
 }

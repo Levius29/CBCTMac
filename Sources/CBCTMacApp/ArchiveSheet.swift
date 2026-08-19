@@ -342,6 +342,12 @@ private struct ExamRow: View {
                     .foregroundStyle(Palette.accent)
                     .help("Con un piano salvato")
             }
+            if entry.hasScan == true {
+                Image(systemName: "cube.transparent")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Palette.accent)
+                    .help("Con la scansione intraorale registrata")
+            }
             Text(size)
                 .font(Typography.numericSmall)
                 .foregroundStyle(Palette.textSecondary)

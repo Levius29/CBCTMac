@@ -39,6 +39,18 @@ struct ProjectDocument: Codable, Sendable {
     /// che serva alzare `formatVersion`, che resta riservato ai cambiamenti *incompatibili*.
     var teeth: [ProstheticTooth]?
 
+    /// Dove sta la scansione intraorale rispetto al volume, dopo la registrazione.
+    ///
+    /// Qui la **posizione**, nell'archivio i triangoli. È la stessa divisione del resto del
+    /// formato: il piano è leggero e non contiene immagini, quindi non può contenere nemmeno
+    /// una superficie da qualche megabyte. Riaprendo un caso dall'archivio le due parti si
+    /// ritrovano; aprendo un `.cbctplan` da solo si ritrova il piano senza la scansione, che è
+    /// esattamente ciò che quel formato promette.
+    var scanTransform: Transform3D?
+    /// Scarto quadratico medio della registrazione, per non doverla rifare solo per sapere
+    /// quanto valeva.
+    var scanRegistrationRMSMM: Double?
+
     // Curva dell'arcata e parametri delle viste derivate.
     var archControlPointsMM: [[Double]]
     var archUpAxis: [Double]
@@ -60,6 +72,8 @@ struct ProjectDocument: Codable, Sendable {
         self.implants = model.implants
         self.nerveCanals = model.nerveCanals
         self.teeth = model.teeth
+        self.scanTransform = model.scan == nil ? nil : model.scanTransform
+        self.scanRegistrationRMSMM = model.scanRegistration?.surfaceRMSMM
         self.archControlPointsMM = model.archCurve.controlPointsMM.map { [$0.x, $0.y, $0.z] }
         self.archUpAxis = [
             model.archCurve.upAxis.x, model.archCurve.upAxis.y, model.archCurve.upAxis.z,
@@ -128,6 +142,7 @@ struct ProjectDocument: Codable, Sendable {
         model.implants = implants
         model.nerveCanals = nerveCanals
         model.teeth = teeth ?? []
+        if let scanTransform { model.adoptScanTransform(scanTransform) }
 
         let points = archControlPointsMM.compactMap { values -> Vec3? in
             guard values.count >= 3 else { return nil }

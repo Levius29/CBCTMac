@@ -397,6 +397,17 @@ struct ViewportContainer: View {
         // Una pressione su una maniglia che non si è mossa non è un clic sull'immagine: senza
         // questo, sfiorare una maniglia sposterebbe il mirino invece di non fare nulla.
         guard crosshairDrag == nil else { return }
+
+        // Stessa ragione per un impianto o un dente afferrato, e qui il difetto era peggio.
+        //
+        // `mouseUp` emette il clic **prima** di chiudere il trascinamento, quindi un clic senza
+        // movimento su un impianto arrivava fin qui. Con lo strumento impianto in mano lo
+        // afferrava *e* ne posava uno nuovo nello stesso punto: due impianti sovrapposti, di cui
+        // il secondo invisibile perché coperto dal primo. Con lo strumento dente lo stesso, e da
+        // oggi che i denti si afferrano sarebbe stato il doppio dei casi.
+        guard !model.isDraggingObject else { return }
+        guard model.annotationDrag == nil, model.nerveDrag == nil else { return }
+
         guard let patient = patientPoint(atPixel: point) else { return }
 
         // Disegno dell'arcata: un solo gesto per tre azioni, distinte da ciò che l'utente fa e
