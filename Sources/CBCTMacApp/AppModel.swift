@@ -1,3 +1,4 @@
+import ArchiveKit
 import ArtifactKit
 import DICOMCore
 import DentalKit
@@ -1612,6 +1613,7 @@ final class AppModel {
             loadIssues = ["Generazione del fantoccio fallita: \(message)"]
         case .loaded(let volume):
             openStudy(volume: volume, named: "Fantoccio sintetico", provenance: .synthetic)
+            clearIdentity(examTitle: "Fantoccio sintetico")
             loadingMessage = nil
         }
     }
@@ -1650,7 +1652,20 @@ final class AppModel {
                 messages.append(contentsOf: result.geometryIssues.map(\.localizedDescription))
                 messages.append(contentsOf: scan.failures.map { "\($0.url.lastPathComponent): \($0.reason)" })
 
-                return .loaded(result.volume, messages, series.description ?? "Serie CBCT")
+                // L'identità si legge dalla **prima immagine della serie scelta**, non da un
+                // file qualunque della cartella: una cartella può contenere più studi, e
+                // prendere il primo file darebbe il paziente sbagliato quando la serie
+                // ricostruita è di un altro.
+                let identity = series.instances.first.flatMap { StudyIdentity.read(from: $0.url) }
+                if identity == nil {
+                    messages.append(
+                        "Metadati del paziente non leggibili: l'esame si apre lo stesso, ma "
+                        + "senza nome né data non si può archiviare in modo ritrovabile.")
+                }
+
+                return .loaded(
+                    result.volume, messages, series.description ?? "Serie CBCT",
+                    identity ?? StudyIdentity(), directory.path)
             } catch let error as VolumeBuildError {
                 return .failed(error.localizedDescription)
             } catch let error as DICOMParsingError {
@@ -1664,17 +1679,19 @@ final class AppModel {
         case .failed(let message):
             loadingMessage = nil
             loadIssues = [message]
-        case .loaded(let volume, let messages, let name):
+        case .loaded(let volume, let messages, let name, let identity, let sourcePath):
             openStudy(volume: volume, named: name, provenance: .imported)
             // Gli avvisi si impostano **dopo** `openStudy`, che azzera lo stato: altrimenti
-            // sparirebbero proprio quando servono.
+            // sparirebbero proprio quando servono. Vale anche per l'identità.
+            adoptIdentity(identity, sourcePath: sourcePath, volume: volume)
             loadIssues = messages
             loadingMessage = nil
+            offerToArchive()
         }
     }
 
     private enum StudyOutcome: Sendable {
-        case loaded(Volume, [String], String)
+        case loaded(Volume, [String], String, StudyIdentity, String)
         case failed(String)
     }
 
@@ -2445,6 +2462,248 @@ final class AppModel {
         }
     }
 
+    // MARK: - Archivio dei pazienti
+
+    // # Che cosa conserva, e che cosa no
+    //
+    // Il volume ricostruito, i metadati del paziente e dell'esame, e il piano. **Non** i file
+    // DICOM originali: rileggerli sarebbe cinquecento aperture a ogni riapertura, e conservarli
+    // raddoppierebbe lo spazio. Chi deve consegnarli a un laboratorio si tiene la cartella, e
+    // l'archivio ne registra il percorso proprio per poterla ritrovare.
+    //
+    // # Dati di paziente su disco
+    //
+    // Questo è il punto in cui il programma smette di essere solo un visore. Il fascicolo sta
+    // in `~/Libreria/Application Support/3DMED/Archivio`, in chiaro, sotto la protezione del
+    // disco del Mac e di nient'altro. È una scelta dell'utente, e l'interfaccia gliela mette
+    // davanti scritta invece di lasciargliela scoprire.
+
+    /// Che cosa fare quando si apre un esame nuovo.
+    enum ArchivePolicy: String, CaseIterable, Hashable, Sendable, Identifiable {
+        /// Chiede ogni volta. È il valore predefinito: archiviare è una decisione su dei dati
+        /// di una persona, e prenderla al posto dell'utente la prima volta sarebbe sbagliato in
+        /// tutt'e due i versi possibili.
+        case ask
+        case always
+        case never
+
+        var id: String { rawValue }
+
+        var localizedName: String {
+            switch self {
+            case .ask: return "Chiedi ogni volta"
+            case .always: return "Archivia sempre"
+            case .never: return "Non archiviare mai"
+            }
+        }
+    }
+
+    private static let archivePolicyKey = "archivePolicy"
+
+    var archivePolicy: ArchivePolicy {
+        get {
+            ArchivePolicy(
+                rawValue: UserDefaults.standard.string(forKey: Self.archivePolicyKey) ?? "")
+                ?? .ask
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: Self.archivePolicyKey) }
+    }
+
+    /// La cartella dell'archivio, creata alla prima archiviazione e non prima.
+    static var archiveRootURL: URL {
+        let support = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+        return support.appendingPathComponent(AppIcon.displayName)
+            .appendingPathComponent("Archivio")
+    }
+
+    private var archive: PatientArchive { PatientArchive(rootURL: Self.archiveRootURL) }
+
+    /// Il paziente e l'esame aperti adesso, come li scrive il file.
+    private(set) var patient = PatientIdentity()
+    private(set) var exam = ExamMetadata()
+    /// La cartella da cui l'esame è stato importato.
+    private(set) var examSourcePath = ""
+    /// L'identificatore della voce d'archivio, se l'esame aperto viene dall'archivio o vi è
+    /// stato messo. Serve a riarchiviare sulla stessa voce invece di crearne una nuova.
+    private(set) var archivedExamID: UUID?
+
+    /// Vero quando c'è qualcosa da mostrare nel pannello dei metadati.
+    var hasExamMetadata: Bool { !patient.name.isEmpty || !exam.studyDate.isEmpty || archivedExamID != nil }
+
+    /// Elenco dei pazienti in archivio, ricaricato su richiesta.
+    private(set) var archivedPatients: [ArchivedPatient] = []
+    private(set) var archiveBytes = 0
+    private(set) var archiveMessage: String?
+    private(set) var isArchiving = false
+    var isShowingArchive = false
+    /// La domanda «lo archivio?» dopo l'apertura di un esame nuovo.
+    var isAskingToArchive = false
+    var archiveSearchText = ""
+
+    /// Prende i metadati dopo il caricamento di uno studio.
+    func adoptIdentity(_ identity: StudyIdentity, sourcePath: String, volume: Volume) {
+        patient = PatientIdentity(identity)
+        var metadata = ExamMetadata(identity)
+        metadata.adopt(geometry: volume.geometry)
+        exam = metadata
+        examSourcePath = sourcePath
+        archivedExamID = nil
+    }
+
+    /// Azzera i metadati: il fantoccio non è di nessuno.
+    func clearIdentity(examTitle: String) {
+        patient = PatientIdentity()
+        exam = ExamMetadata(seriesDescription: examTitle)
+        if let volume { exam.adopt(geometry: volume.geometry) }
+        examSourcePath = ""
+        archivedExamID = nil
+    }
+
+    /// Decide che cosa fare dopo aver aperto un esame nuovo.
+    ///
+    /// Non chiede per un esame che **viene** dall'archivio — sarebbe chiedere di archiviare
+    /// qualcosa che è già archiviato — né per il fantoccio, che non è di nessuno.
+    func offerToArchive() {
+        guard archivedExamID == nil, !isPhantomOpen else { return }
+        switch archivePolicy {
+        case .ask: isAskingToArchive = true
+        case .always: Task { await archiveCurrentExam() }
+        case .never: break
+        }
+    }
+
+    /// Mette in archivio l'esame aperto, col piano corrente.
+    func archiveCurrentExam(includingPlan: Bool = true) async {
+        guard let volume, !isArchiving else { return }
+        isArchiving = true
+        archiveMessage = nil
+
+        let plan: Data? = includingPlan ? try? ProjectDocument(from: self).encoded() : nil
+        let store = archive
+        let identity = patient
+        let metadata = exam
+        let source = examSourcePath
+
+        let outcome = await Task.detached(priority: .userInitiated) { () -> Result<ArchiveEntry, Error> in
+            do {
+                return .success(
+                    try store.store(
+                        volume: volume, patient: identity, exam: metadata,
+                        sourcePath: source, plan: plan))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
+        isArchiving = false
+        switch outcome {
+        case .success(let entry):
+            archivedExamID = entry.id
+            let name = entry.patient.isAnonymous
+                ? "Esame anonimo" : entry.patient.displayName
+            lastActionMessage = "Archiviato: \(name) — \(entry.summary)"
+            await reloadArchive()
+        case .failure(let error):
+            archiveMessage = error.localizedDescription
+            loadIssues.append("Archiviazione non riuscita: \(error.localizedDescription)")
+        }
+    }
+
+    /// Rilegge l'indice dell'archivio.
+    func reloadArchive() async {
+        let store = archive
+        let outcome = await Task.detached(priority: .userInitiated) {
+            () -> (patients: [ArchivedPatient], bytes: Int, message: String?) in
+            do {
+                let index = try store.loadIndex()
+                return (store.patients(in: index), store.totalBytes(in: index), nil)
+            } catch {
+                return ([], 0, error.localizedDescription)
+            }
+        }.value
+        archivedPatients = outcome.patients
+        archiveBytes = outcome.bytes
+        archiveMessage = outcome.message
+    }
+
+    /// Riapre un esame dall'archivio, col piano che ci era stato salvato.
+    func openArchived(_ entry: ArchiveEntry) async {
+        guard !isArchiving else { return }
+        loadingMessage = "Apertura dall'archivio…"
+        let store = archive
+        let id = entry.id
+
+        let outcome = await Task.detached(priority: .userInitiated) {
+            () -> Result<(Volume, Data?), Error> in
+            do { return .success((try store.loadVolume(id: id), store.loadPlan(id: id))) }
+            catch { return .failure(error) }
+        }.value
+
+        loadingMessage = nil
+        switch outcome {
+        case .failure(let error):
+            loadIssues = [error.localizedDescription]
+        case .success(let (volume, plan)):
+            openStudy(
+                volume: volume,
+                named: entry.exam.displayTitle,
+                provenance: .imported)
+            patient = entry.patient
+            exam = entry.exam
+            examSourcePath = entry.sourcePath
+            archivedExamID = entry.id
+
+            // Il piano **dopo** `openStudy`, che azzera tutto: nell'ordine inverso sparirebbe.
+            if let plan, let document = try? ProjectDocument.decoded(from: plan) {
+                let warnings = document.apply(to: self)
+                if !warnings.isEmpty { loadIssues = warnings }
+            }
+            isShowingArchive = false
+        }
+    }
+
+    /// Toglie un esame dall'archivio.
+    func removeArchived(_ entry: ArchiveEntry) async {
+        let store = archive
+        let id = entry.id
+        let error = await Task.detached(priority: .userInitiated) { () -> String? in
+            do { try store.remove(id: id); return nil } catch { return error.localizedDescription }
+        }.value
+        if let error {
+            archiveMessage = error
+        } else {
+            if archivedExamID == id { archivedExamID = nil }
+            await reloadArchive()
+        }
+    }
+
+    /// Aggiorna la nota di un esame archiviato.
+    func setArchiveNote(_ note: String, for entry: ArchiveEntry) async {
+        let store = archive
+        let id = entry.id
+        let error = await Task.detached(priority: .userInitiated) { () -> String? in
+            do { try store.setNote(note, for: id); return nil } catch { return error.localizedDescription }
+        }.value
+        if let error { archiveMessage = error } else { await reloadArchive() }
+    }
+
+    /// Ricostruisce l'indice dalle cartelle degli esami.
+    func rebuildArchiveIndex() async {
+        let store = archive
+        let error = await Task.detached(priority: .userInitiated) { () -> String? in
+            do { _ = try store.rebuildIndex(); return nil } catch { return error.localizedDescription }
+        }.value
+        if let error { archiveMessage = error } else { await reloadArchive() }
+        lastActionMessage = "Indice dell'archivio ricostruito dalle cartelle."
+    }
+
+    /// I pazienti filtrati dalla casella di ricerca.
+    var filteredArchivedPatients: [ArchivedPatient] {
+        archive.search(archiveSearchText, in: archivedPatients)
+    }
+
     // MARK: - Segmentazione
 
     // # Perché la segmentazione compare come contorno e non come voxel colorati
@@ -3100,11 +3359,20 @@ final class AppModel {
     // MARK: Esportazione
 
     func makePlanDocument() -> PlanDocument {
+        // Gli UID veri dello studio aperto, non due segnaposto.
+        //
+        // Erano murati a «sintetico» e «fantoccio» da quando il fantoccio era l'unica cosa che
+        // il programma sapesse aprire, e nessuno li ha più guardati. Un piano salvato su un
+        // paziente dichiarava quindi di appartenere al fantoccio, e riaprendolo su un altro
+        // studio nessun controllo poteva accorgersi che non c'entrava — perché il riferimento
+        // era finto in tutt'e due i casi, e due valori finti coincidono sempre.
         var document = PlanDocument(
             study: StudyReference(
-                studyInstanceUID: "sintetico",
-                seriesInstanceUID: "fantoccio",
-                seriesDescription: "Fantoccio sintetico",
+                studyInstanceUID: exam.studyInstanceUID.isEmpty
+                    ? "sintetico" : exam.studyInstanceUID,
+                seriesInstanceUID: exam.seriesInstanceUID.isEmpty
+                    ? "fantoccio" : exam.seriesInstanceUID,
+                seriesDescription: exam.displayTitle,
                 geometryFingerprint: volume.map { GeometryFingerprint($0.geometry) }
             ),
             annotations: annotations,

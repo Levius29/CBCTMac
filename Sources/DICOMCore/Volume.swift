@@ -29,6 +29,19 @@ public enum DensityUnit: Hashable, Sendable, Codable {
         }
     }
 
+    /// L'inverso di `symbol`, per rileggere un volume archiviato.
+    ///
+    /// Un simbolo sconosciuto dà `.greyValue`, e il verso di questo ripiego non è indifferente.
+    /// Dichiarare HU su dati che non lo sono invita a confrontarli con le soglie di
+    /// letteratura, che è precisamente l'errore che il Contratto 4 esiste per impedire.
+    /// Dichiarare GV su una TC vera fa perdere un'informazione e non induce a sbagliare.
+    public init(symbol: String) {
+        switch symbol.uppercased() {
+        case "HU": self = .declaredHounsfield
+        default: self = .greyValue
+        }
+    }
+
     /// Testo del tooltip che accompagna sempre una lettura di densità.
     public var explanation: String {
         switch self {

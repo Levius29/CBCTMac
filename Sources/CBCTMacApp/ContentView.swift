@@ -1,4 +1,5 @@
 import AppKit
+import ArchiveKit
 import DICOMCore
 import StudyKit
 import SwiftUI
@@ -65,14 +66,26 @@ struct ContentView: View {
         }
         .sheet(isPresented: $model.isShowingGuide) { GuideSheet(model: model) }
         .sheet(isPresented: $model.isShowingSegmentation) { SegmentationSheet(model: model) }
+        .sheet(isPresented: $model.isShowingArchive) { ArchiveSheet(model: model) }
+        .sheet(isPresented: $model.isAskingToArchive) { ArchivePromptSheet(model: model) }
         .navigationTitle(windowTitle)
     }
 
     // MARK: Titolo
 
+    /// Il titolo dice **chi**, non che cosa.
+    ///
+    /// Prima diceva il nome della serie — «CBCT mascellare» — che è la stessa stringa su ogni
+    /// paziente e quindi non identifica niente. Il nome e la data dell'esame invece rispondono
+    /// alla sola domanda per cui si guarda una barra del titolo: sto lavorando sulla persona
+    /// giusta? Con più finestre aperte è l'unica cosa che le distingue.
     private var windowTitle: String {
-        guard model.volume != nil else { return "CBCTMac" }
-        return "\(AppIcon.displayName) — \(model.studyName)"
+        guard model.volume != nil else { return AppIcon.displayName }
+        var parts: [String] = []
+        if !model.patient.isAnonymous { parts.append(model.patient.displayName) }
+        if let date = ArchiveKit.DICOMDate.displayShort(model.exam.studyDate) { parts.append(date) }
+        if parts.isEmpty { parts.append(model.studyName) }
+        return "\(AppIcon.displayName) — " + parts.joined(separator: " · ")
     }
 
     /// Sceglie una cartella e ne carica lo studio.

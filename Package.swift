@@ -66,6 +66,7 @@ import PackageDescription
             dependencies: [
                 "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
                 "GuideKit", "SegmentKit", "ArtifactKit", "StudyKit", "ReportKit",
+                "ArchiveKit",
             ]
         )
     ]
@@ -89,6 +90,7 @@ let libraryProducts: [Product] = [
     .library(name: "ImplantKit", targets: ["ImplantKit"]),
     .library(name: "GuideKit", targets: ["GuideKit"]),
     .library(name: "SegmentKit", targets: ["SegmentKit"]),
+        .library(name: "ArchiveKit", targets: ["ArchiveKit"]),
     .library(name: "ArtifactKit", targets: ["ArtifactKit"]),
     .library(name: "StudyKit", targets: ["StudyKit"]),
     .library(name: "ReportKit", targets: ["ReportKit"]),
@@ -115,6 +117,7 @@ let moduleTargets: [Target] = [
     .target(name: "ImplantKit", dependencies: ["DICOMCore"]),
     .target(name: "GuideKit", dependencies: ["DICOMCore", "MeshKit", "ImplantKit"]),
     .target(name: "SegmentKit", dependencies: ["DICOMCore", "MeshKit"]),
+        .target(name: "ArchiveKit", dependencies: ["DICOMCore"]),
     // La relazione: il pezzo con cui il piano esce dal programma. Genera testo, quindi si
     // verifica con `swift test` come tutto il resto invece che guardando un PDF.
     .target(
@@ -139,6 +142,7 @@ let testTargets: [Target] = [
         dependencies: ["GuideKit", "DICOMCore", "MeshKit", "ImplantKit"]
     ),
     .testTarget(name: "SegmentKitTests", dependencies: ["SegmentKit", "DICOMCore", "MeshKit"]),
+        .testTarget(name: "ArchiveKitTests", dependencies: ["ArchiveKit", "DICOMCore"]),
     .testTarget(name: "StudyKitTests", dependencies: ["StudyKit", "DICOMCore"]),
     .testTarget(
         name: "ReportKitTests",

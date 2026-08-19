@@ -129,6 +129,7 @@ struct ShortcutsSheet: View {
             ("⇧⌘D", "Raddrizza sul piano occlusale"),
             ("⇧⌘M", "Riduci le strie da metallo"),
             ("⇧⌘V", "Verifica di accuratezza sul fantoccio"),
+            ("⇧⌘A", "Archivio dei pazienti"),
             ("⇧⌘S", "Segmentazione per soglia"),
             ("⇧⌘I", "Importa una scansione intraorale"),
             ("⇧⌘G", "Costruisci la dima chirurgica"),

@@ -94,6 +94,10 @@ public enum DICOMTags: Sendable {
     public static let transferSyntaxUID = DICOMTag(group: 0x0002, element: 0x0010)
 
     public static let studyDate = DICOMTag(group: 0x0008, element: 0x0020)
+    public static let studyTime = DICOMTag(group: 0x0008, element: 0x0030)
+    public static let accessionNumber = DICOMTag(group: 0x0008, element: 0x0050)
+    public static let institutionName = DICOMTag(group: 0x0008, element: 0x0080)
+    public static let stationName = DICOMTag(group: 0x0008, element: 0x1010)
     public static let sopClassUID = DICOMTag(group: 0x0008, element: 0x0016)
     public static let sopInstanceUID = DICOMTag(group: 0x0008, element: 0x0018)
     public static let modality = DICOMTag(group: 0x0008, element: 0x0060)
@@ -105,9 +109,16 @@ public enum DICOMTags: Sendable {
     public static let patientName = DICOMTag(group: 0x0010, element: 0x0010)
     public static let patientID = DICOMTag(group: 0x0010, element: 0x0020)
     public static let patientBirthDate = DICOMTag(group: 0x0010, element: 0x0030)
+    public static let patientSex = DICOMTag(group: 0x0010, element: 0x0040)
 
     public static let sliceThickness = DICOMTag(group: 0x0018, element: 0x0050)
     public static let kvp = DICOMTag(group: 0x0018, element: 0x0060)
+    public static let deviceSerialNumber = DICOMTag(group: 0x0018, element: 0x1000)
+    public static let softwareVersions = DICOMTag(group: 0x0018, element: 0x1020)
+    public static let protocolName = DICOMTag(group: 0x0018, element: 0x1030)
+    public static let exposureTime = DICOMTag(group: 0x0018, element: 0x1150)
+    public static let xRayTubeCurrent = DICOMTag(group: 0x0018, element: 0x1151)
+    public static let exposure = DICOMTag(group: 0x0018, element: 0x1152)
     public static let spacingBetweenSlices = DICOMTag(group: 0x0018, element: 0x0088)
 
     public static let studyInstanceUID = DICOMTag(group: 0x0020, element: 0x000D)
@@ -150,20 +161,23 @@ public enum DICOMTags: Sendable {
         case mediaStorageSOPClassUID, transferSyntaxUID, sopClassUID, sopInstanceUID,
              studyInstanceUID, seriesInstanceUID, frameOfReferenceUID:
             return .UI
-        case modality, photometricInterpretation:
+        case modality, photometricInterpretation, patientSex:
             return .CS
         case manufacturer, manufacturerModelName, studyDescription, seriesDescription,
-             patientID, rescaleType:
+             patientID, rescaleType, institutionName, stationName, protocolName,
+             deviceSerialNumber, softwareVersions, accessionNumber:
             return .LO
         case studyDate, patientBirthDate:
             return .DA
+        case studyTime:
+            return .TM
         case patientName:
             return .PN
         case seriesNumber, instanceNumber, numberOfFrames:
             return .IS
         case imagePositionPatient, imageOrientationPatient, pixelSpacing, windowCenter,
              windowWidth, rescaleIntercept, rescaleSlope, sliceThickness,
-             spacingBetweenSlices, kvp:
+             spacingBetweenSlices, kvp, exposureTime, xRayTubeCurrent, exposure:
             return .DS
         case samplesPerPixel, rows, columns, bitsAllocated, bitsStored, highBit,
              pixelRepresentation:

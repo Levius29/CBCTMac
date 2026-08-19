@@ -86,6 +86,9 @@ struct CBCTMacApp: App {
                     .keyboardShortcut("v", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)
 
+                Button("Archivio…") { model.isShowingArchive = true }
+                    .keyboardShortcut("a", modifiers: [.command, .shift])
+
                 Divider()
 
                 Button("Segmentazione per soglia…") { model.isShowingSegmentation = true }
