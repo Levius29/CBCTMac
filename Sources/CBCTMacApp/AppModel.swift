@@ -1012,6 +1012,7 @@ final class AppModel {
     func recordUndo(_ label: String) {
         guard !isRestoring else { return }
         undoHistory.commit(planSnapshot, label: label)
+        scheduleArchivedPlanSave()
     }
 
     /// Come `recordUndo`, ma unisce le chiamate ravvicinate con la stessa etichetta.
@@ -1021,10 +1022,14 @@ final class AppModel {
     func recordContinuousUndo(_ label: String) {
         guard !isRestoring else { return }
         undoHistory.coalesce(planSnapshot, label: label, within: 1.2)
+        scheduleArchivedPlanSave()
     }
 
     func undo() { apply(undoHistory.undo()) }
     func redo() { apply(undoHistory.redo()) }
+
+    // Annullare cambia il piano quanto modificarlo: senza questo, un impianto spostato e poi
+    // riportato indietro con ⌘Z lascerebbe in archivio la versione spostata.
 
     private func apply(_ snapshot: PlanSnapshot?) {
         guard let snapshot else { return }
@@ -1042,6 +1047,7 @@ final class AppModel {
         recomputeSafety()
         syncRegistry()
         if archCurve.isUsable { rebuildCrossSections() }
+        scheduleArchivedPlanSave()
     }
 
     // MARK: Nervo e impianti
@@ -2704,8 +2710,13 @@ final class AppModel {
     /// stato messo. Serve a riarchiviare sulla stessa voce invece di crearne una nuova.
     private(set) var archivedExamID: UUID?
 
-    /// Vero quando c'è qualcosa da mostrare nel pannello dei metadati.
-    var hasExamMetadata: Bool { !patient.name.isEmpty || !exam.studyDate.isEmpty || archivedExamID != nil }
+    /// Vero quando c'è uno studio aperto, e quindi qualcosa da dire su di esso.
+    ///
+    /// Anche — e soprattutto — quando i metadati **mancano**. «Questo esame non porta il nome
+    /// del paziente» è informazione, ed è quella che serve di più: pretendere che i metadati ci
+    /// fossero per mostrare il pannello dei metadati nascondeva l'avviso esattamente nel caso in
+    /// cui contava, e rendeva irraggiungibile il ramo che lo scrive.
+    var hasOpenStudy: Bool { volume != nil }
 
     /// Elenco dei pazienti in archivio, ricaricato su richiesta.
     private(set) var archivedPatients: [ArchivedPatient] = []
@@ -2758,7 +2769,7 @@ final class AppModel {
         let plan: Data? = includingPlan ? try? ProjectDocument(from: self).encoded() : nil
         let store = archive
         let identity = patient
-        let metadata = exam
+        let metadata = archivableExam
         let source = examSourcePath
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> Result<ArchiveEntry, Error> in
@@ -2786,6 +2797,86 @@ final class AppModel {
         }
     }
 
+    /// I metadati con cui archiviare **questo** volume, che può non essere quello importato.
+    ///
+    /// # Il caso che perdeva dati
+    ///
+    /// Un volume derivato — raddrizzato, ritagliato, con le strie ridotte — porta gli stessi
+    /// UID dell'originale, perché viene da quello. Archiviandolo, l'archivio riconosceva la
+    /// stessa serie e **sostituiva**: l'originale spariva, sostituito da una sua elaborazione,
+    /// senza che niente lo dicesse.
+    ///
+    /// Un volume derivato è una serie diversa, e in DICOM lo sarebbe davvero — le serie
+    /// derivate ricevono un UID nuovo. Qui l'UID non si inventa: si **toglie**, e la
+    /// corrispondenza ripiega su data, ora, descrizione e dimensioni. La descrizione porta il
+    /// nome dell'operazione, quindi le due voci restano distinte e si leggono per quello che
+    /// sono.
+    private var archivableExam: ExamMetadata {
+        guard let entry = library.selected, case .derived(_, let operation) = entry.provenance
+        else { return exam }
+
+        var derived = exam
+        derived.seriesInstanceUID = ""
+        derived.seriesDescription =
+            exam.displayTitle.isEmpty ? operation : exam.displayTitle + " — " + operation
+        if let volume { derived.adopt(geometry: volume.geometry) }
+        return derived
+    }
+
+    // MARK: Salvataggio automatico del piano
+
+    /// Contatore dei salvataggi programmati: solo l'ultimo scrive davvero.
+    private var planSaveToken = 0
+    /// Vero quando il piano è cambiato dopo l'ultima scrittura in archivio.
+    private(set) var hasUnsavedPlanChanges = false
+
+    /// Programma il salvataggio del piano nell'esame archiviato.
+    ///
+    /// # Perché con un'attesa, e perché solo il piano
+    ///
+    /// Con un'attesa perché un trascinamento produce un passo di cronologia ogni pochi
+    /// millisecondi: scrivendo a ogni passo si scriverebbe su disco per tutta la durata del
+    /// gesto. Tre secondi dopo l'ultima modifica il gesto è finito, e si scrive una volta sola.
+    ///
+    /// Solo il piano perché il volume pesa 268 MB e non è cambiato. Vedi `setPlan`.
+    ///
+    /// Il contatore serve a far scrivere **soltanto l'ultimo** dei salvataggi programmati: senza,
+    /// dieci modifiche in tre secondi darebbero dieci scritture in coda, ciascuna con uno stato
+    /// più vecchio di quella dopo, e l'ultima a vincere sarebbe quella arrivata per caso per
+    /// ultima allo scheduler.
+    func scheduleArchivedPlanSave() {
+        guard archivedExamID != nil else { return }
+        hasUnsavedPlanChanges = true
+        planSaveToken += 1
+        let token = planSaveToken
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, self.planSaveToken == token else { return }
+            await self.saveArchivedPlan()
+        }
+    }
+
+    /// Scrive subito il piano nell'esame archiviato.
+    ///
+    /// Da chiamare anche prima di lasciare l'esame: l'attesa dei tre secondi protegge dal
+    /// troppo, non dal troppo tardi.
+    func saveArchivedPlan() async {
+        guard let id = archivedExamID else { return }
+        guard let data = try? ProjectDocument(from: self).encoded() else { return }
+
+        let store = archive
+        let error = await Task.detached(priority: .utility) { () -> String? in
+            do { try store.setPlan(data, for: id); return nil }
+            catch { return error.localizedDescription }
+        }.value
+
+        if let error {
+            archiveMessage = "Piano non salvato nell'archivio: \(error)"
+        } else {
+            hasUnsavedPlanChanges = false
+        }
+    }
+
     /// Rilegge l'indice dell'archivio.
     func reloadArchive() async {
         let store = archive
@@ -2806,6 +2897,9 @@ final class AppModel {
     /// Riapre un esame dall'archivio, col piano che ci era stato salvato.
     func openArchived(_ entry: ArchiveEntry) async {
         guard !isArchiving else { return }
+        // Il piano dell'esame che si sta lasciando, subito: l'attesa dei tre secondi protegge
+        // dal troppo, non dal troppo tardi, e questo è il momento in cui è troppo tardi.
+        if hasUnsavedPlanChanges { await saveArchivedPlan() }
         loadingMessage = "Apertura dall'archivio…"
         let store = archive
         let id = entry.id

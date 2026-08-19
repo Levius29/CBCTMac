@@ -171,21 +171,117 @@ private struct ObjectRow: View {
             {
                 implantParameters(implant)
             }
+
+            if isExpanded, object.kind == .prostheticTooth,
+                let tooth = model.teeth.first(where: { $0.id == object.id })
+            {
+                toothParameters(tooth)
+            }
         }
     }
 
+    /// Le misure della corona.
+    ///
+    /// Modificabili, e non solo leggibili: le misure standard sono medie di popolazione, e
+    /// l'anatomia di questo paziente non le rispetta. Un dente della larghezza sbagliata dice
+    /// che l'impianto emerge dentro la corona quando non ci sta, o il contrario — cioè fa
+    /// sbagliare proprio la verifica per cui la sagoma esiste.
     @ViewBuilder
-    private func implantParameters(_ implant: ImplantPlacement) -> some View {
+    private func toothParameters(_ tooth: ProstheticTooth) -> some View {
         HStack(spacing: 10) {
             SteppedValue(
-                label: "Ø", value: implant.model.diameterMM, step: 0.1, format: "%.1f"
+                label: "Largh.", value: tooth.widthMM, step: 0.2, format: "%.1f"
             ) { newValue in
-                model.updateImplant(id: object.id) { $0.model.diameterMM = newValue }
+                model.updateTooth(id: object.id) { $0.widthMM = max(newValue, 0.5) }
+            }
+            SteppedValue(
+                label: "Alt.", value: tooth.heightMM, step: 0.2, format: "%.1f"
+            ) { newValue in
+                model.updateTooth(id: object.id) { $0.heightMM = max(newValue, 0.5) }
+            }
+            SteppedValue(
+                label: "Spess.", value: tooth.depthMM, step: 0.2, format: "%.1f"
+            ) { newValue in
+                model.updateTooth(id: object.id) { $0.depthMM = max(newValue, 0.5) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 22)
+
+        HStack(spacing: 10) {
+            Text("Numero")
+                .font(Typography.numericSmall)
+                .foregroundStyle(Palette.textSecondary)
+            Menu("\(tooth.toothNumber)") {
+                ForEach(Self.fdiQuadrants, id: \.name) { quadrant in
+                    Menu(quadrant.name) {
+                        ForEach(quadrant.numbers, id: \.self) { number in
+                            Button("\(number)") { renumber(to: number) }
+                        }
+                    }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            Spacer(minLength: 0)
+        }
+        .controlSize(.mini)
+        .padding(.leading, 22)
+        .padding(.bottom, 2)
+    }
+
+    /// Cambia il numero FDI, e con esso le misure standard.
+    ///
+    /// Posizione e asse **restano**: si corregge un numero sbagliato su un dente già posato nel
+    /// punto giusto, e rimetterlo al centro del volume vorrebbe dire riposarlo da capo.
+    private func renumber(to number: Int) {
+        guard let standard = ProstheticTooth.standard(forToothNumber: number) else { return }
+        model.updateTooth(id: object.id) { tooth in
+            tooth.toothNumber = number
+            tooth.widthMM = standard.widthMM
+            tooth.heightMM = standard.heightMM
+            tooth.depthMM = standard.depthMM
+            // L'asse si ribalta passando da un'arcata all'altra: un dente superiore ha l'apice
+            // sopra la corona, uno inferiore sotto. Tenere il verso vecchio metterebbe la
+            // radice in bocca.
+            if (tooth.axisMM.dot(standard.axisMM)) < 0 {
+                tooth.axisMM = tooth.axisMM * -1
+            }
+            if tooth.label.isEmpty || Int(tooth.label) != nil {
+                tooth.label = "\(number)"
+            }
+        }
+    }
+
+    private static let fdiQuadrants: [(name: String, numbers: [Int])] = [
+        ("Superiore destro (1×)", Array(11...18)),
+        ("Superiore sinistro (2×)", Array(21...28)),
+        ("Inferiore sinistro (3×)", Array(31...38)),
+        ("Inferiore destro (4×)", Array(41...48)),
+    ]
+
+    @ViewBuilder
+    private func implantParameters(_ implant: ImplantPlacement) -> some View {
+        // Tutte e tre passano da `resize`, che rigenera il profilo.
+        //
+        // Assegnare `model.diameterMM` direttamente — com'era — cambiava il numero e lasciava
+        // il profilo vecchio: la cifra nell'elenco diceva 4,8 e la sagoma disegnata restava
+        // quella da 4,1. Due valori per la stessa cosa, in disaccordo, senza un errore.
+        HStack(spacing: 10) {
+            SteppedValue(
+                label: "Testa", value: implant.model.platformDiameterMM, step: 0.1, format: "%.1f"
+            ) { newValue in
+                model.updateImplant(id: object.id) { $0.model.resize(platformDiameterMM: newValue) }
+            }
+            SteppedValue(
+                label: "Apice", value: implant.model.apexDiameterMM, step: 0.1, format: "%.1f"
+            ) { newValue in
+                model.updateImplant(id: object.id) { $0.model.resize(apexDiameterMM: newValue) }
             }
             SteppedValue(
                 label: "L", value: implant.model.lengthMM, step: 0.5, format: "%.1f"
             ) { newValue in
-                model.updateImplant(id: object.id) { $0.model.lengthMM = newValue }
+                model.updateImplant(id: object.id) { $0.model.resize(lengthMM: newValue) }
             }
             Spacer(minLength: 0)
         }

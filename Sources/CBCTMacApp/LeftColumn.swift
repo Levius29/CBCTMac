@@ -24,7 +24,7 @@ struct LeftColumn: View {
 
                 // In cima, prima di ogni comando: è il controllo che si fa per primo, e che
                 // vale più di qualunque regolazione se la risposta è «non è questo paziente».
-                if model.hasExamMetadata {
+                if model.hasOpenStudy {
                     SidePanel(
                         title: "Esame", systemImage: "person.text.rectangle",
                         storageKey: "esame"

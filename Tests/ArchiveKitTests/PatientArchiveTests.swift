@@ -351,4 +351,61 @@ struct PatientArchiveTests {
             volume: try tinyVolume(), patient: PatientIdentity(patientID: "P1"), exam: exam())
         #expect(try archive.loadIndex().entries[0].note.contains("46"))
     }
+
+    // MARK: Salvataggio del solo piano
+
+    @Test("Il piano si riscrive da solo, senza toccare il volume")
+    func planCanBeUpdatedAlone() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let entry = try archive.store(
+            volume: try tinyVolume(), patient: PatientIdentity(patientID: "P1"), exam: exam())
+        #expect(!entry.hasPlan)
+
+        let samplesURL = archive.directory(for: entry.id)
+            .appendingPathComponent(VolumeFile.samplesName)
+        let before = try FileManager.default.attributesOfItem(atPath: samplesURL.path)
+        let beforeSize = before[.size] as? Int
+
+        let first = Data("{\"passo\":1}".utf8)
+        try archive.setPlan(first, for: entry.id)
+        #expect(archive.loadPlan(id: entry.id) == first)
+        #expect(try archive.loadIndex().entries[0].hasPlan)
+
+        let second = Data("{\"passo\":2}".utf8)
+        try archive.setPlan(second, for: entry.id)
+        #expect(archive.loadPlan(id: entry.id) == second)
+
+        // Il volume non è stato riscritto: è il punto dell'esistenza di questo metodo.
+        let after = try FileManager.default.attributesOfItem(atPath: samplesURL.path)
+        #expect((after[.size] as? Int) == beforeSize)
+        #expect(try archive.loadVolume(id: entry.id).geometry.sliceCount == 2)
+    }
+
+    @Test("Togliere il piano lo toglie davvero, e l'indice lo sa")
+    func planCanBeRemoved() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let entry = try archive.store(
+            volume: try tinyVolume(), patient: PatientIdentity(patientID: "P1"), exam: exam(),
+            plan: Data("{}".utf8))
+        try archive.setPlan(nil, for: entry.id)
+        #expect(archive.loadPlan(id: entry.id) == nil)
+        #expect(try archive.loadIndex().entries[0].hasPlan == false)
+        #expect(try archive.rebuildIndex().entries[0].hasPlan == false)
+    }
+
+    @Test("Un piano per un esame che non c'è è un errore, non una cartella orfana")
+    func planForMissingExamThrows() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let ghost = UUID()
+        #expect(throws: ArchiveError.self) {
+            try archive.setPlan(Data("{}".utf8), for: ghost)
+        }
+        #expect(!FileManager.default.fileExists(atPath: archive.directory(for: ghost).path))
+    }
 }

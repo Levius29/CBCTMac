@@ -258,6 +258,38 @@ public struct PatientArchive: Sendable {
         return entry
     }
 
+    /// Scrive o rimuove il **solo piano** di un esame già archiviato.
+    ///
+    /// Separato da `store` per una ragione di peso, in senso letterale: un volume da 512³ occupa
+    /// 268 MB, un piano qualche decina di kilobyte. Il piano cambia a ogni misura e a ogni
+    /// impianto spostato; riscrivere il volume ogni volta significherebbe un quarto di gigabyte
+    /// sul disco per aver mosso una piattaforma di mezzo millimetro.
+    ///
+    /// - Throws: se l'esame non è in archivio. Scrivere un piano per un esame che non c'è
+    ///   lascerebbe una cartella orfana con dentro il solo piano.
+    public func setPlan(_ plan: Data?, for id: UUID) throws {
+        var index = try loadIndex()
+        guard let position = index.entries.firstIndex(where: { $0.id == id }) else {
+            throw ArchiveError.entryNotFound(id)
+        }
+        let folder = directory(for: id)
+        guard FileManager.default.fileExists(atPath: folder.path) else {
+            throw ArchiveError.entryNotFound(id)
+        }
+
+        let planURL = folder.appendingPathComponent(Self.planName)
+        if let plan {
+            try plan.write(to: planURL, options: .atomic)
+        } else {
+            try? FileManager.default.removeItem(at: planURL)
+        }
+
+        index.entries[position].hasPlan = plan != nil
+        try save(index)
+        try? JSONEncoder.archive.encode(index.entries[position]).write(
+            to: folder.appendingPathComponent(Self.examName), options: .atomic)
+    }
+
     /// Aggiorna la nota di un esame, senza toccarne i dati.
     public func setNote(_ note: String, for id: UUID) throws {
         var index = try loadIndex()

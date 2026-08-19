@@ -304,6 +304,18 @@ struct StatusBar: View {
                     .foregroundStyle(Palette.warning)
                     .help(model.loadIssues.joined(separator: "\n"))
             }
+            if model.archivedExamID != nil {
+                Label(
+                    model.hasUnsavedPlanChanges ? "Salvataggio…" : "Salvato in archivio",
+                    systemImage: model.hasUnsavedPlanChanges
+                        ? "arrow.triangle.2.circlepath" : "checkmark.seal")
+                    .foregroundStyle(
+                        model.hasUnsavedPlanChanges ? Palette.textSecondary : Palette.safe)
+                    .help(
+                        "Il piano di un esame archiviato si riscrive da sé tre secondi dopo "
+                        + "l'ultima modifica, e subito prima di aprirne un altro.")
+                separator
+            }
             Text(AppModel.buildIdentity)
                 .foregroundStyle(Palette.textSecondary.opacity(0.7))
                 .help(
