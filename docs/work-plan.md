@@ -173,7 +173,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| J1 | Relazione impaginata con immagini e misure | 🔶 | 2 | J |
+| J1 | Relazione impaginata con immagini e misure | ✅ | 2 | J |
 | J2 | Stampa | ❌ | 1 | J |
 | J3 | Copia negli appunti | ✅ | 2 | J |
 | J4 | Istantanea di un riquadro | ✅ | 2 | J |

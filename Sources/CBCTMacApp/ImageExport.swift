@@ -34,6 +34,23 @@ enum ImageExport {
         pixelHeight: Int,
         to url: URL
     ) throws {
+        try pngData(
+            plane: plane, model: model, pixelWidth: pixelWidth, pixelHeight: pixelHeight
+        ).write(to: url, options: .atomic)
+    }
+
+    /// Renderizza un piano e ne restituisce i byte PNG.
+    ///
+    /// Separato dalla scrittura su file perché la relazione le immagini non le scrive accanto a
+    /// sé: se le mette dentro. Il rendering è lo stesso, e averne due copie significherebbe
+    /// vederle divergere — una con la barra di scala e l'altra senza, e nessuno saprebbe quale
+    /// delle due è quella giusta.
+    static func pngData(
+        plane: MPRPlane,
+        model: AppModel,
+        pixelWidth: Int,
+        pixelHeight: Int
+    ) throws -> Data {
         guard let device = model.device,
             let renderer = model.mprRenderer,
             let volumeTexture = model.volumeTexture
@@ -57,7 +74,7 @@ enum ImageExport {
             pixelWidth: pixelWidth,
             pixelHeight: pixelHeight)
 
-        try writePNG(composed, to: url)
+        return try encodePNG(composed)
     }
 
     // MARK: Rendering fuori schermo
@@ -289,12 +306,12 @@ enum ImageExport {
 
     // MARK: Scrittura
 
-    private static func writePNG(_ image: CGImage, to url: URL) throws {
+    private static func encodePNG(_ image: CGImage) throws -> Data {
         let bitmap = NSBitmapImageRep(cgImage: image)
         guard let data = bitmap.representation(using: .png, properties: [:]) else {
             throw ExportError.encodingFailed
         }
-        try data.write(to: url, options: .atomic)
+        return data
     }
 
     // MARK: Errori

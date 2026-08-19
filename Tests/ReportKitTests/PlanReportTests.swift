@@ -211,3 +211,89 @@ struct PlanReportTests {
         #expect(!html.contains("https://"))
     }
 }
+
+// MARK: - Le immagini
+
+@Suite("Immagini nella relazione")
+struct ReportImageTests {
+
+    /// Un PNG minimo valido: intestazione, un pixel, fine.
+    private var onePixelPNG: Data {
+        Data([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89,
+        ])
+    }
+
+    @Test("Senza immagini la sezione non compare")
+    func noImagesNoSection() {
+        let html = PlanReport.html(PlanReportInput(studyName: "Caso"))
+        #expect(!html.contains("<h2>Immagini</h2>"))
+        #expect(!html.contains("data:image/png"))
+    }
+
+    @Test("Le immagini entrano nel documento, non accanto a esso")
+    func imagesAreEmbedded() {
+        let html = PlanReport.html(
+            PlanReportInput(
+                studyName: "Caso",
+                images: [
+                    ReportImage(
+                        title: "Assiale", caption: "L 12,4 · P −38,1 · S 64,7 mm",
+                        pngData: onePixelPNG)
+                ]))
+
+        #expect(html.contains("<h2>Immagini</h2>"))
+        // Il PNG è dentro il file: una relazione che rimandasse a file accanto smetterebbe di
+        // essere una relazione appena qualcuno la manda per posta.
+        #expect(html.contains("data:image/png;base64,\(onePixelPNG.base64EncodedString())"))
+        #expect(!html.contains("<img src=\"file:"))
+        #expect(html.contains("Assiale"))
+        #expect(html.contains("L 12,4"))
+    }
+
+    @Test("Un'immagine vuota si salta invece di produrre una figura cieca")
+    func emptyImagesAreSkipped() {
+        let html = PlanReport.html(
+            PlanReportInput(
+                studyName: "Caso",
+                images: [
+                    ReportImage(title: "Rotta", pngData: Data()),
+                    ReportImage(title: "Buona", pngData: onePixelPNG),
+                ]))
+        #expect(html.contains("Buona"))
+        #expect(!html.contains("Rotta"))
+    }
+
+    @Test("Se nessuna immagine è utilizzabile la sezione sparisce del tutto")
+    func allBrokenMeansNoSection() {
+        let html = PlanReport.html(
+            PlanReportInput(
+                studyName: "Caso", images: [ReportImage(title: "Rotta", pngData: Data())]))
+        #expect(!html.contains("<h2>Immagini</h2>"))
+    }
+
+    @Test("I titoli delle immagini passano dall'escape come ogni altro testo")
+    func titlesAreEscaped() {
+        let html = PlanReport.html(
+            PlanReportInput(
+                studyName: "Caso",
+                images: [
+                    ReportImage(
+                        title: "<script>alert(1)</script>", caption: "a & b",
+                        pngData: onePixelPNG)
+                ]))
+        #expect(!html.contains("<script>alert"))
+        #expect(html.contains("&lt;script&gt;"))
+        #expect(html.contains("a &amp; b"))
+    }
+
+    @Test("La stampa non spezza una figura fra due pagine")
+    func printingKeepsFiguresWhole() {
+        let html = PlanReport.html(
+            PlanReportInput(studyName: "Caso", images: [ReportImage(title: "A", pngData: onePixelPNG)]))
+        #expect(html.contains("break-inside: avoid"))
+    }
+}

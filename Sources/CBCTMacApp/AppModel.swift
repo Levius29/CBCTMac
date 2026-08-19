@@ -3304,7 +3304,8 @@ final class AppModel {
     /// Generarlo qui vorrebbe dire scrivere un impaginatore e non poterlo verificare — mentre
     /// del testo si prova che ogni avvertimento ci sia.
     func exportReport() {
-        let input = reportInput()
+        var input = reportInput()
+        input.images = renderReportImages()
 
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "relazione.html"
@@ -3317,6 +3318,65 @@ final class AppModel {
         } catch {
             lastActionMessage = "Relazione non salvata: \(error.localizedDescription)"
         }
+    }
+
+    /// Renderizza le immagini che accompagnano la relazione.
+    ///
+    /// # Quali riquadri, e perché non tutti
+    ///
+    /// I tre ortogonali com'è inquadrato adesso, più la sezione trasversale selezionata quando
+    /// c'è. Non la panorex e non il 3D: la prima è una superficie ricostruita e la seconda una
+    /// resa, e in un documento che porta misure metterle accanto alle sezioni inviterebbe a
+    /// misurarci sopra. Le sezioni sono piani veri, e su un piano vero una scala ha senso.
+    ///
+    /// Un riquadro che non si renderizza non ferma l'esportazione: si perde un'immagine, non la
+    /// relazione. Metal può fallire per ragioni che non hanno niente a che vedere col piano —
+    /// una GPU occupata, una texture non allocabile — e perdere il documento intero per questo
+    /// sarebbe sproporzionato.
+    private func renderReportImages() -> [ReportImage] {
+        guard volume != nil else { return [] }
+        // 900 px di lato: si stampa nitido su mezza pagina A4 e il file resta sotto il paio di
+        // megabyte per immagine. A 1800 il documento diventa difficile da mandare per posta.
+        let side = 900
+        var images: [ReportImage] = []
+
+        for slot in ViewportSlot.allCases where slot.anatomicalPlane != nil {
+            guard let plane = planes[slot] else { continue }
+            let squared = plane.matchingAspect(pixelWidth: side, pixelHeight: side)
+            guard
+                let data = try? ImageExport.pngData(
+                    plane: squared, model: self, pixelWidth: side, pixelHeight: side)
+            else { continue }
+            images.append(
+                ReportImage(
+                    title: slot.localizedName,
+                    caption: crosshairCaption,
+                    pngData: data))
+        }
+
+        if let section = crossSectionBrowser.selectedSection {
+            let plane = section.plane.matchingAspect(pixelWidth: side, pixelHeight: side)
+            if let data = try? ImageExport.pngData(
+                plane: plane, model: self, pixelWidth: side, pixelHeight: side)
+            {
+                images.append(
+                    ReportImage(
+                        title: "Sezione trasversale " + section.label,
+                        caption: crosshairCaption,
+                        pngData: data))
+            }
+        }
+
+        return images
+    }
+
+    /// Dove sta il mirino, per la dicitura sotto un'immagine.
+    private var crosshairCaption: String {
+        String(
+            format: "L %.1f · P %.1f · S %.1f mm · finestra %.0f / %.0f",
+            crosshairMM.x, crosshairMM.y, crosshairMM.z,
+            windowLevel.width, windowLevel.level
+        ).replacingOccurrences(of: ".", with: ",")
     }
 
     /// Esporta la dima in STL.

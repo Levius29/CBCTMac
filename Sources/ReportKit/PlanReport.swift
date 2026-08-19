@@ -33,6 +33,15 @@ public struct PlanReportInput: Sendable {
     public var roiStatistics: [UUID: ROIStatistics]
     public var implants: [ImplantPlacement]
     public var safetyReports: [UUID: SafetyReport]
+    /// Le immagini dei riquadri, già codificate in PNG.
+    ///
+    /// # Perché i byte e non degli URL
+    ///
+    /// Perché una relazione che rimanda a dei file accanto a sé smette di essere una relazione
+    /// appena qualcuno la sposta o la manda per posta — e mandarla è precisamente ciò per cui
+    /// esiste. Le immagini entrano nel documento come `data:` URI: il file cresce, ed è un file
+    /// solo che si apre ovunque e si stampa in PDF dal browser senza portarsi dietro niente.
+    public var images: [ReportImage]
     /// Vincolo protesico per impianto, quando sotto c'è un dente da servire.
     public var prostheticConstraints: [UUID: ProstheticConstraint]
     /// Quanti denti protesici sono stati posati. Serve a distinguere «nessun vincolo perché
@@ -57,6 +66,7 @@ public struct PlanReportInput: Sendable {
         roiStatistics: [UUID: ROIStatistics] = [:],
         implants: [ImplantPlacement] = [],
         safetyReports: [UUID: SafetyReport] = [:],
+        images: [ReportImage] = [],
         prostheticConstraints: [UUID: ProstheticConstraint] = [:],
         prostheticToothCount: Int = 0,
         registrationRMSMM: Double? = nil,
@@ -74,6 +84,7 @@ public struct PlanReportInput: Sendable {
         self.roiStatistics = roiStatistics
         self.implants = implants
         self.safetyReports = safetyReports
+        self.images = images
         self.prostheticConstraints = prostheticConstraints
         self.prostheticToothCount = prostheticToothCount
         self.registrationRMSMM = registrationRMSMM
@@ -82,6 +93,22 @@ public struct PlanReportInput: Sendable {
         self.guideIsPrintable = guideIsPrintable
         self.guideWarnings = guideWarnings
         self.generatedAt = generatedAt
+    }
+}
+
+/// Un'immagine da mettere nella relazione.
+public struct ReportImage: Hashable, Sendable {
+    /// Che cosa mostra: «Assiale», «Sezione 46», «Panorex».
+    public var title: String
+    /// Dove sta il mirino quando l'immagine è stata presa, o un'altra riga di contesto.
+    public var caption: String
+    /// I byte del PNG.
+    public var pngData: Data
+
+    public init(title: String, caption: String = "", pngData: Data) {
+        self.title = title
+        self.caption = caption
+        self.pngData = pngData
     }
 }
 
@@ -99,6 +126,7 @@ public enum PlanReport {
         body += header(input)
         body += reviewSection(input)
         body += provenanceSection(input)
+        body += imagesSection(input)
         body += measurementsSection(input)
         body += implantsSection(input)
         body += workflowSection(input)
@@ -281,6 +309,40 @@ public enum PlanReport {
         }
     }
 
+    /// Le immagini, in una griglia.
+    ///
+    /// Dopo la provenienza e prima delle misure: si guarda l'immagine e poi si legge il numero,
+    /// che è l'ordine in cui si legge un referto. Un'immagine senza dicitura non dice dove sta,
+    /// quindi ognuna porta la propria.
+    private static func imagesSection(_ input: PlanReportInput) -> String {
+        let usable = input.images.filter { !$0.pngData.isEmpty }
+        guard !usable.isEmpty else { return "" }
+
+        var figures = ""
+        for image in usable {
+            let encoded = image.pngData.base64EncodedString()
+            let caption = image.caption.isEmpty
+                ? "" : "<figcaption>\(escape(image.caption))</figcaption>"
+            figures += """
+                <figure>
+                  <img src="data:image/png;base64,\(encoded)" alt="\(escape(image.title))">
+                  <figcaption><strong>\(escape(image.title))</strong></figcaption>
+                  \(caption)
+                </figure>
+                """
+        }
+
+        return """
+            <h2>Immagini</h2>
+            <div class="figures">\(figures)</div>
+            <p class="note">
+              Immagini ricostruite dal volume con la finestra di densità in uso al momento
+              dell'esportazione. Non sono le proiezioni acquisite: una misura presa su carta da
+              queste immagini non ha la scala di quelle, e va fatta nel programma.
+            </p>
+            """
+    }
+
     private static func workflowSection(_ input: PlanReportInput) -> String {
         var items: [String] = []
 
@@ -371,7 +433,21 @@ public enum PlanReport {
         ul.issues li { margin-bottom: 10px; }
         ul.issues li.danger::marker { color: #b91c1c; }
         ul.issues li.caution::marker { color: #b45309; }
-        @media print { body { margin: 0; } .warning { border-color: #000; } }
+        .figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                   gap: 16px; margin-top: 12px; }
+        figure { margin: 0; }
+        figure img { width: 100%; height: auto; display: block; background: #000;
+                     border: 1px solid #ddd; }
+        figcaption { font-size: 12px; color: #666; margin-top: 4px; }
+        figcaption strong { color: #1a1a1a; }
+        /* In stampa una figura non deve spezzarsi fra due pagine: mezza immagine in fondo a un
+           foglio e mezza in cima al successivo non si legge, e questa relazione si stampa. */
+        @media print {
+            body { margin: 0; }
+            .warning { border-color: #000; }
+            figure { break-inside: avoid; page-break-inside: avoid; }
+            .figures { grid-template-columns: repeat(2, 1fr); }
+        }
         </style>
         </head>
         <body>
