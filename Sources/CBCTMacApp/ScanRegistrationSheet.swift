@@ -55,6 +55,18 @@ struct ScanRegistrationSheet: View {
             HStack {
                 Button("Chiudi") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+
+                // Importata la scansione sbagliata, o allineata male e da rifare da capo:
+                // l'azione c'era nel modello e nessun comando la raggiungeva, quindi l'unico
+                // modo di liberarsene era chiudere il caso.
+                Button(role: .destructive) {
+                    model.removeScan()
+                    dismiss()
+                } label: {
+                    Label("Togli la scansione", systemImage: "trash")
+                }
+                .disabled(model.scan == nil)
+
                 Spacer()
                 Button("Registra") { register() }
                     .keyboardShortcut(.defaultAction)

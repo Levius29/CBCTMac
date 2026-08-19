@@ -108,6 +108,12 @@ struct ArchiveSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedEntryID: UUID?
+    @State private var noteDraft = ""
+
+    private var selectedEntry: ArchiveEntry? {
+        guard let id = selectedEntryID else { return nil }
+        return model.archivedPatients.flatMap(\.entries).first { $0.id == id }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.spacing) {
@@ -117,6 +123,11 @@ struct ArchiveSheet: View {
                 empty
             } else {
                 list
+            }
+
+            if let entry = selectedEntry {
+                Divider().overlay(Palette.separator)
+                noteEditor(entry)
             }
 
             if let message = model.archiveMessage {
@@ -201,6 +212,36 @@ struct ArchiveSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// La nota dell'esame selezionato.
+    ///
+    /// # Perché una bozza locale e non un legame diretto
+    ///
+    /// Perché scriverla è battere trenta caratteri, e un legame diretto scriverebbe su disco a
+    /// ogni tasto — trenta riscritture dell'indice per una frase. La bozza vive nella vista e
+    /// arriva in archivio quando si conferma o si cambia selezione, che sono i due momenti in
+    /// cui la frase è finita.
+    private func noteEditor(_ entry: ArchiveEntry) -> some View {
+        VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
+            Text("Nota su questo esame")
+                .font(Typography.label)
+                .foregroundStyle(Palette.textSecondary)
+            HStack(spacing: Metrics.spacing) {
+                TextField("Che cosa ricordare di questo esame", text: $noteDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { commitNote(entry) }
+                Button("Salva") { commitNote(entry) }
+                    .disabled(noteDraft == entry.note)
+            }
+        }
+        .onChange(of: entry.id, initial: true) { noteDraft = entry.note }
+    }
+
+    private func commitNote(_ entry: ArchiveEntry) {
+        let text = noteDraft
+        guard text != entry.note else { return }
+        Task { await model.setArchiveNote(text, for: entry) }
+    }
+
     private var footer: some View {
         HStack {
             Button("Chiudi") { dismiss() }
@@ -212,9 +253,7 @@ struct ArchiveSheet: View {
                 + "divergono: una scrittura interrotta, o una cartella copiata da un altro Mac.")
             Spacer()
             if model.isArchiving { ProgressView().controlSize(.small) }
-            if let id = selectedEntryID,
-                let entry = model.archivedPatients.flatMap(\.entries).first(where: { $0.id == id })
-            {
+            if let entry = selectedEntry {
                 Button(role: .destructive) {
                     selectedEntryID = nil
                     Task { await model.removeArchived(entry) }

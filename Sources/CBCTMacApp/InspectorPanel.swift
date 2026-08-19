@@ -161,20 +161,29 @@ struct InspectorPanel: View {
             }
 
             if let tooth = model.selectedTooth {
+                // Modificabili, non solo leggibili. Erano tre righe di testo, e la nota sotto
+                // diceva «da correggere quando l'anatomia lo chiede» senza offrire un modo di
+                // correggerle: un'istruzione a fare una cosa che il pannello non permette.
                 LabeledControl("Larghezza") {
-                    Text(Self.millimetres(tooth.widthMM))
-                        .font(Typography.numeric)
-                        .foregroundStyle(Palette.textSecondary)
+                    SteppedValue(
+                        label: "", value: tooth.widthMM, step: 0.2, format: "%.1f"
+                    ) { newValue in
+                        model.updateSelectedTooth { $0.widthMM = max(newValue, 0.5) }
+                    }
                 }
                 LabeledControl("Altezza") {
-                    Text(Self.millimetres(tooth.heightMM))
-                        .font(Typography.numeric)
-                        .foregroundStyle(Palette.textSecondary)
+                    SteppedValue(
+                        label: "", value: tooth.heightMM, step: 0.2, format: "%.1f"
+                    ) { newValue in
+                        model.updateSelectedTooth { $0.heightMM = max(newValue, 0.5) }
+                    }
                 }
                 LabeledControl("Spessore") {
-                    Text(Self.millimetres(tooth.depthMM))
-                        .font(Typography.numeric)
-                        .foregroundStyle(Palette.textSecondary)
+                    SteppedValue(
+                        label: "", value: tooth.depthMM, step: 0.2, format: "%.1f"
+                    ) { newValue in
+                        model.updateSelectedTooth { $0.depthMM = max(newValue, 0.5) }
+                    }
                 }
 
                 // Le misure sono medie di popolazione, non di questo paziente: dirlo qui, dove
