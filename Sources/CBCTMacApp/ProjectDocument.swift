@@ -1,3 +1,4 @@
+import CephKit
 import DICOMCore
 import DentalKit
 import Foundation
@@ -82,6 +83,13 @@ struct ProjectDocument: Codable, Sendable {
     var segmentationKeepsLargest: Bool?
     var segmentationSpacingMM: Double?
 
+    /// Il tracciato cefalometrico.
+    ///
+    /// Opzionale per la stessa ragione dei denti e delle barre: i piani salvati prima che la
+    /// cefalometria esistesse non hanno la chiave, e rifiutarli perderebbe il lavoro di chi
+    /// usava già il programma.
+    var cephTracing: CephTracing?
+
     /// Transfer function corrente, così riaprendo il caso il 3D è com'era.
     var transferFunction: TransferFunction
 
@@ -107,6 +115,7 @@ struct ProjectDocument: Codable, Sendable {
         self.crossSectionWidthMM = model.crossSectionWidthMM
         self.crossSectionHeightMM = model.crossSectionHeightMM
         self.archVerticalCentreMM = model.archVerticalCentreMM
+        self.cephTracing = model.cephTracing.isEmpty ? nil : model.cephTracing
         self.transferFunction = model.transferFunction
         self.segmentationLowerGV = model.segmentationLowerGV
         self.segmentationUpperGV = model.segmentationUpperGV
@@ -170,6 +179,7 @@ struct ProjectDocument: Codable, Sendable {
         model.nerveCanals = nerveCanals
         model.teeth = teeth ?? []
         model.bars = bars ?? []
+        model.cephTracing = cephTracing ?? CephTracing()
         model.adoptSnapshots(snapshots ?? [])
         if let scanTransform { model.adoptScanTransform(scanTransform) }
 

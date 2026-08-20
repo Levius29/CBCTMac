@@ -1,5 +1,6 @@
 import ArchiveKit
 import ArtifactKit
+import CephKit
 import DICOMCore
 import DentalKit
 import GuideKit
@@ -48,6 +49,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
     case archCurve
     /// Taglio arbitrario: si traccia una linea e la sezione si allinea a essa.
     case freePlane
+    /// Reperi cefalometrici: si segnano nello spazio, in qualunque riquadro.
+    case cephalometry
 
     var localizedName: String {
         switch self {
@@ -64,6 +67,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .nerve: return "Traccia nervo"
         case .archCurve: return "Disegna arcata"
         case .freePlane: return "Taglio libero"
+        case .cephalometry: return "Cefalometria"
         }
     }
 
@@ -86,6 +90,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .archCurve: return "Fai clic sull'assiale per posare i punti. ⌥ clic per togliere."
         case .freePlane:
             return "Traccia una linea lungo ciò che vuoi vedere in sezione: il taglio si allinea."
+        case .cephalometry:
+            return "Scegli il repere nel pannello e fai clic dov'è. ⌥ clic per toglierlo."
         }
     }
 
@@ -106,6 +112,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .nerve: return "v"
         case .archCurve: return "a"
         case .freePlane: return "l"
+        case .cephalometry: return "k"
         }
     }
 
@@ -124,6 +131,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .nerve: return "point.topleft.down.curvedto.point.bottomright.up"
         case .archCurve: return "scribble.variable"
         case .freePlane: return "line.diagonal"
+        case .cephalometry: return "point.3.connected.trianglepath.dotted"
         }
     }
 
@@ -1071,11 +1079,14 @@ final class AppModel {
         var bars: [ProstheticBar]
         var nerveCanals: [NerveCanal]
         var archCurves: [DentalArch: ArchCurve]
+        /// Anche i reperi cefalometrici: segnarne venticinque e perderne uno con un clic di
+        /// troppo, senza poter tornare indietro, sarebbe la stessa cosa che perderli tutti.
+        var cephTracing: CephTracing
     }
 
     private var undoHistory = UndoHistory<PlanSnapshot>(initial: PlanSnapshot(
         annotations: [], implants: [], teeth: [], bars: [], nerveCanals: [],
-        archCurves: [:]))
+        archCurves: [:], cephTracing: CephTracing()))
 
     /// Vero mentre si sta applicando un annulla: le mutazioni che ne derivano non vanno
     /// registrate, altrimenti annullare creerebbe un passo nuovo e «ripeti» non tornerebbe mai.
@@ -1089,7 +1100,7 @@ final class AppModel {
     private var planSnapshot: PlanSnapshot {
         PlanSnapshot(
             annotations: annotations, implants: implants, teeth: teeth, bars: bars,
-            nerveCanals: nerveCanals, archCurves: archCurves)
+            nerveCanals: nerveCanals, archCurves: archCurves, cephTracing: cephTracing)
     }
 
     /// Registra lo stato attuale come un passo annullabile.
@@ -1124,6 +1135,7 @@ final class AppModel {
         bars = snapshot.bars
         nerveCanals = snapshot.nerveCanals
         archCurves = snapshot.archCurves
+        cephTracing = snapshot.cephTracing
         isRestoring = false
 
         // Ciò che deriva dal piano si ricalcola invece di essere conservato nell'istantanea:
@@ -1133,6 +1145,166 @@ final class AppModel {
         syncRegistry()
         if archCurve.isUsable { rebuildCrossSections() }
         scheduleArchivedPlanSave()
+    }
+
+    // MARK: - Cefalometria
+    //
+    // I reperi si segnano **nello spazio**, in qualunque riquadro, e gli angoli si calcolano
+    // sulla loro proiezione sagittale. Vedi `CephKit`: qui c'è solo ciò che l'interfaccia deve
+    // sapere — quale repere si sta per segnare e da che lato.
+
+    var cephTracing = CephTracing() {
+        didSet { if cephTracing != oldValue { cephMeasuresCache = nil } }
+    }
+
+    /// Il repere che il prossimo clic segnerà. `nil` significa che lo strumento non fa nulla.
+    var cephLandmarkToPlace: CephLandmark? = .nasion
+
+    /// Da che lato si sta segnando, per i reperi bilaterali. Ignorato dagli altri.
+    var cephSide: CephSide = .right
+
+    /// Il profilo del viso estratto, quando c'è.
+    var faceProfile: FaceProfile?
+
+    /// Soglia dell'aria per il profilo, in GV. Modificabile perché fra macchine diverse i GV non
+    /// significano la stessa cosa: vedi il Contratto 4.
+    var faceProfileThresholdGV: Double = FaceProfileExtractor.defaultThresholdGV
+
+    var isShowingCephalometry = false
+
+    private var cephMeasuresCache: [CephMeasure]?
+
+    /// Le misure calcolate, ricalcolate solo quando il tracciato cambia.
+    ///
+    /// In cache perché il pannello le legge a ogni ridisegno e sono ventisette: poco lavoro, ma
+    /// moltiplicato per sessanta fotogrammi al secondo diventa lavoro sprecato senza motivo.
+    var cephMeasures: [CephMeasure] {
+        if let cephMeasuresCache { return cephMeasuresCache }
+        let computed = CephAnalysis.measures(for: cephTracing)
+        cephMeasuresCache = computed
+        return computed
+    }
+
+    var cephMeasuresOutOfRange: Int {
+        cephMeasures.filter { $0.status == .below || $0.status == .above }.count
+    }
+
+    /// Segna il repere scelto e passa al successivo.
+    ///
+    /// # L'avanzamento automatico
+    ///
+    /// Venticinque reperi si segnano in fila, e tornare al pannello dopo ognuno per scegliere il
+    /// prossimo raddoppierebbe i gesti. Dopo un repere bilaterale segnato a destra si passa alla
+    /// sinistra dello stesso, non al successivo: sono lo stesso punto visto da due parti, e
+    /// cercarli in due momenti diversi vuol dire cercarli due volte.
+    func placeSelectedCephLandmark(at pointMM: Vec3) {
+        guard let landmark = cephLandmarkToPlace else {
+            lastActionMessage = "Scegli quale repere segnare nel pannello della cefalometria."
+            return
+        }
+
+        cephTracing.place(landmark, side: cephSide, at: pointMM)
+        recordUndo("Segna \(landmark.localizedName.lowercased())")
+
+        if landmark.isBilateral, cephSide == .right, !cephTracing.isComplete(landmark) {
+            cephSide = .left
+            lastActionMessage = "\(landmark.localizedName): adesso il lato sinistro."
+            return
+        }
+
+        cephSide = .right
+        cephLandmarkToPlace = nextUnplacedCephLandmark(after: landmark)
+        if cephLandmarkToPlace == nil {
+            lastActionMessage = "Tracciato completo: \(cephMeasures.count) misure."
+        }
+    }
+
+    /// Il primo repere non ancora completo dopo quello indicato, girando in tondo.
+    private func nextUnplacedCephLandmark(after landmark: CephLandmark) -> CephLandmark? {
+        let all = CephLandmark.allCases
+        guard let start = all.firstIndex(of: landmark) else { return nil }
+        for offset in 1...all.count {
+            let candidate = all[(start + offset) % all.count]
+            if !cephTracing.isComplete(candidate) { return candidate }
+        }
+        return nil
+    }
+
+    /// Toglie il repere segnato più vicino al punto.
+    ///
+    /// - Returns: `true` se ne ha tolto uno. Chi chiama lo usa per non interpretare lo stesso
+    ///   ⌥ clic anche come «segna qui».
+    @discardableResult
+    func removeCephLandmark(near pointMM: Vec3, toleranceMM: Double) -> Bool {
+        guard let hit = cephTracing.nearest(to: pointMM, withinMM: toleranceMM) else {
+            return false
+        }
+        cephTracing.remove(id: hit.id)
+        cephLandmarkToPlace = hit.landmark
+        cephSide = hit.side == .left ? .left : .right
+        recordUndo("Togli \(hit.landmark.localizedName.lowercased())")
+        lastActionMessage = "\(hit.displayName) tolto."
+        return true
+    }
+
+    /// Toglie tutte le segnature di un repere.
+    func removeCephLandmark(_ landmark: CephLandmark) {
+        guard cephTracing.placedLandmarks.contains(landmark) else { return }
+        cephTracing.remove(landmark)
+        cephLandmarkToPlace = landmark
+        cephSide = .right
+        recordUndo("Togli \(landmark.localizedName.lowercased())")
+    }
+
+    /// Cancella il tracciato.
+    func clearCephTracing() {
+        guard !cephTracing.isEmpty else { return }
+        cephTracing = CephTracing()
+        cephLandmarkToPlace = CephLandmark.allCases.first
+        cephSide = .right
+        recordUndo("Cancella il tracciato cefalometrico")
+    }
+
+    /// Porta il mirino su un repere già segnato, così lo si può controllare.
+    func focusCephLandmark(_ landmark: CephLandmark) {
+        guard let position = cephTracing.positionMM(of: landmark) else { return }
+        crosshairMM = position
+        cephLandmarkToPlace = landmark
+    }
+
+    /// Estrae il profilo del viso sul sagittale che passa per il mirino.
+    ///
+    /// Per il mirino e non per il centro del volume: la testa non è quasi mai centrata nel campo,
+    /// e un profilo preso al centro geometrico taglierebbe di fianco al naso.
+    func extractFaceProfile() {
+        guard let volume else { return }
+        let profile = FaceProfileExtractor.extract(
+            from: volume, lateralXMM: crosshairMM.x, thresholdGV: faceProfileThresholdGV,
+            stepMM: 1)
+
+        guard !profile.isEmpty else {
+            faceProfile = nil
+            lastActionMessage =
+                "Nessun profilo a questa soglia: prova ad abbassarla, o sposta il mirino "
+                + "sul piano mediano."
+            return
+        }
+        faceProfile = profile
+        lastActionMessage = "Profilo estratto: \(profile.pointsMM.count) punti."
+    }
+
+    func clearFaceProfile() { faceProfile = nil }
+
+    /// Quanto un repere cutaneo segnato dista dal profilo estratto, se c'è.
+    ///
+    /// È un controllo, non una misura: un pronasale a dieci millimetri dal profilo è stato
+    /// segnato su un'altra struttura, e nessuna delle misure dei tessuti molli che ne dipendono
+    /// vale qualcosa.
+    func cephProfileOffsetMM(of landmark: CephLandmark) -> Double? {
+        guard landmark.isSoftTissue, let faceProfile,
+            let position = cephTracing.positionMM(of: landmark)
+        else { return nil }
+        return faceProfile.anteriorOffsetMM(of: position)
     }
 
     // MARK: Nervo e impianti
@@ -2280,6 +2452,13 @@ final class AppModel {
         snapshots = []
         snapshotImages = [:]
         nerveCanals = []
+        // Il tracciato cefalometrico e il profilo appartengono al cranio su cui sono stati
+        // segnati. Lasciarli aperti su un altro esame mostrerebbe i reperi di un paziente sulle
+        // immagini di un altro, e le misure che ne escono avrebbero l'aria di riguardarlo.
+        cephTracing = CephTracing()
+        cephLandmarkToPlace = CephLandmark.allCases.first
+        cephSide = .right
+        faceProfile = nil
         roiStatistics = [:]
         selectedAnnotationID = nil
         selectedImplantID = nil
@@ -2633,7 +2812,7 @@ final class AppModel {
     /// Forma che lo strumento attivo chiede, con la variante corrente.
     var activeToolShape: ToolShape {
         switch activeTool {
-        case .navigate, .archCurve:
+        case .navigate, .archCurve, .cephalometry:
             return .singlePoint
         case .freePlane:
             return .twoPoints
@@ -3638,7 +3817,26 @@ final class AppModel {
             registrationQuality: scanRegistration?.quality.localizedName,
             guideVolumeMM3: guideResult?.validation.volumeMM3,
             guideIsPrintable: guideResult?.validation.isPrintable,
-            guideWarnings: guideResult?.validation.warnings ?? [])
+            guideWarnings: guideResult?.validation.warnings ?? [],
+            cephalometry: cephalometryReportRows())
+    }
+
+    /// L'analisi cefalometrica in righe già formattate, per la relazione.
+    ///
+    /// La formattazione sta qui e non in `ReportKit` perché è la stessa che si vede nel pannello:
+    /// un numero che nella relazione comparisse scritto in un altro modo farebbe dubitare che sia
+    /// lo stesso numero.
+    private func cephalometryReportRows() -> [ReportCephRow] {
+        CephAnalysis.groupedMeasures(for: cephTracing).flatMap { group, measures in
+            measures.map { measure in
+                ReportCephRow(
+                    group: group.localizedName,
+                    name: "\(measure.kind.localizedName) (\(measure.kind.abbreviation))",
+                    value: measure.formattedValue,
+                    reference: measure.formattedReference ?? "—",
+                    isOutOfRange: measure.status == .below || measure.status == .above)
+            }
+        }
     }
 
     /// Compone la relazione e la salva, poi la apre.
@@ -4050,6 +4248,10 @@ final class AppModel {
             // un'inclinazione dalla vista corrente.
             toolSession.cancel()
             addImplant(at: pointMM)
+
+        case .cephalometry:
+            toolSession.cancel()
+            placeSelectedCephLandmark(at: pointMM)
 
         case .nerve:
             toolSession.cancel()

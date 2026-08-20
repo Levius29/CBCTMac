@@ -95,6 +95,12 @@ struct CBCTMacApp: App {
 
                 Divider()
 
+                Button("Cefalometria e profilo del viso") {
+                    model.isShowingCephalometry = true
+                    model.activeTool = .cephalometry
+                }
+                .disabled(model.volume == nil)
+
                 Button("Segmentazione per soglia…") { model.isShowingSegmentation = true }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)

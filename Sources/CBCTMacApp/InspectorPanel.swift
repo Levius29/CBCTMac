@@ -1,4 +1,5 @@
 import AppKit
+import CephKit
 import DICOMCore
 import ImplantKit
 import MeasureKit
@@ -28,6 +29,11 @@ struct InspectorPanel: View {
                 if model.workMode == .review {
                     // In rilettura l'ispettore non è un pannello di comandi: è il piano.
                     ReviewPanel(model: model)
+                } else if model.activeTool == .cephalometry || model.isShowingCephalometry {
+                    // La cefalometria si segna facendo clic sui riquadri: il pannello deve
+                    // stare accanto alle immagini, non sopra. Per questo è nell'ispettore e non
+                    // in una finestra.
+                    CephalometryPanel(model: model)
                 } else if model.activeTool == .prostheticTooth || model.selectedTooth != nil {
                     prostheticSection
                 } else if model.activeTool == .implant || model.activeTool == .nerve

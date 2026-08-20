@@ -55,6 +55,8 @@ public struct PlanReportInput: Sendable {
     public var guideVolumeMM3: Double?
     public var guideIsPrintable: Bool?
     public var guideWarnings: [String]
+    /// L'analisi cefalometrica, già formattata. Vuota quando non ne è stata fatta nessuna.
+    public var cephalometry: [ReportCephRow]
     public var generatedAt: Date
 
     public init(
@@ -74,6 +76,7 @@ public struct PlanReportInput: Sendable {
         guideVolumeMM3: Double? = nil,
         guideIsPrintable: Bool? = nil,
         guideWarnings: [String] = [],
+        cephalometry: [ReportCephRow] = [],
         generatedAt: Date = Date()
     ) {
         self.studyName = studyName
@@ -92,7 +95,32 @@ public struct PlanReportInput: Sendable {
         self.guideVolumeMM3 = guideVolumeMM3
         self.guideIsPrintable = guideIsPrintable
         self.guideWarnings = guideWarnings
+        self.cephalometry = cephalometry
         self.generatedAt = generatedAt
+    }
+}
+
+/// Una riga dell'analisi cefalometrica nella relazione.
+///
+/// Testo già formattato, e non i tipi di `CephKit`: la relazione non calcola nulla, impagina. Con
+/// i tipi veri `ReportKit` dipenderebbe da `CephKit` per usarne tre stringhe, e ogni modulo che
+/// aggiunge una sezione alla relazione ne aggiungerebbe una dipendenza.
+public struct ReportCephRow: Hashable, Sendable {
+    public var group: String
+    public var name: String
+    public var value: String
+    public var reference: String
+    /// Vero quando il valore cade fuori dall'intervallo: la relazione lo segnala, non lo giudica.
+    public var isOutOfRange: Bool
+
+    public init(
+        group: String, name: String, value: String, reference: String, isOutOfRange: Bool
+    ) {
+        self.group = group
+        self.name = name
+        self.value = value
+        self.reference = reference
+        self.isOutOfRange = isOutOfRange
     }
 }
 
@@ -128,6 +156,7 @@ public enum PlanReport {
         body += provenanceSection(input)
         body += imagesSection(input)
         body += measurementsSection(input)
+        body += cephalometrySection(input)
         body += implantsSection(input)
         body += workflowSection(input)
         return document(title: "Piano — \(input.studyName)", body: body)
@@ -213,6 +242,46 @@ public enum PlanReport {
             <h2>Misure</h2>
             <table>
               <thead><tr><th>Tipo</th><th>Etichetta</th><th>Valore</th><th>Come è stata presa</th></tr></thead>
+              <tbody>\(rows)</tbody>
+            </table>
+            """
+    }
+
+    /// L'analisi cefalometrica.
+    ///
+    /// Assente del tutto quando non se n'è fatta nessuna, invece di una tabella vuota: una
+    /// sezione vuota in un documento suggerisce che qualcosa sia andato perso.
+    private static func cephalometrySection(_ input: PlanReportInput) -> String {
+        guard !input.cephalometry.isEmpty else { return "" }
+
+        var rows = ""
+        var lastGroup: String?
+        for row in input.cephalometry {
+            if row.group != lastGroup {
+                rows += "<tr><th colspan=\"4\">\(escape(row.group))</th></tr>"
+                lastGroup = row.group
+            }
+            // `caution` esiste già nel foglio di stile: una classe nuova per lo stesso
+            // significato sarebbe una seconda definizione dello stesso giallo.
+            let cellClass = row.isOutOfRange ? "num caution" : "num"
+            rows += """
+                <tr>
+                  <td>\(escape(row.name))</td>
+                  <td class="\(cellClass)">\(escape(row.value))</td>
+                  <td class="note">\(escape(row.reference))</td>
+                  <td class="note">\(row.isOutOfRange ? "fuori intervallo" : "")</td>
+                </tr>
+                """
+        }
+
+        return """
+            <h2>Cefalometria</h2>
+            <p class="note">Gli angoli sono calcolati sulla proiezione dei reperi sul piano
+            sagittale mediano. Gli intervalli di riferimento vengono dalle analisi classiche su
+            popolazioni adulte: non si applicano a un paziente in crescita, e un valore fuori
+            intervallo non è una diagnosi.</p>
+            <table>
+              <thead><tr><th>Misura</th><th>Valore</th><th>Riferimento</th><th></th></tr></thead>
               <tbody>\(rows)</tbody>
             </table>
             """

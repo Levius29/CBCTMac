@@ -296,4 +296,55 @@ struct ReportImageTests {
             PlanReportInput(studyName: "Caso", images: [ReportImage(title: "A", pngData: onePixelPNG)]))
         #expect(html.contains("break-inside: avoid"))
     }
+
+    // MARK: Cefalometria
+
+    private var cephRows: [ReportCephRow] {
+        [
+            ReportCephRow(
+                group: "Rapporti sagittali", name: "Angolo SNA (SNA)", value: "81,9 °",
+                reference: "80–84 ° (Steiner)", isOutOfRange: false),
+            ReportCephRow(
+                group: "Rapporti sagittali", name: "Angolo ANB (ANB)", value: "7,4 °",
+                reference: "0–4 ° (Steiner)", isOutOfRange: true),
+            ReportCephRow(
+                group: "Denti", name: "IMPA (IMPA)", value: "90,0 °",
+                reference: "85–95 ° (Tweed)", isOutOfRange: false),
+        ]
+    }
+
+    @Test("L'analisi cefalometrica compare con valori, riferimenti e gruppi")
+    func cephalometryAppearsWithItsReferences() {
+        let html = PlanReport.html(
+            PlanReportInput(studyName: "Caso", cephalometry: cephRows))
+
+        #expect(html.contains("<h2>Cefalometria</h2>"))
+        #expect(html.contains("Angolo SNA (SNA)"))
+        #expect(html.contains("81,9 °"))
+        #expect(html.contains("80–84 ° (Steiner)"))
+        // I gruppi compaiono una volta sola, come intestazione di blocco.
+        #expect(html.components(separatedBy: "Rapporti sagittali").count == 2)
+        #expect(html.contains("Denti"))
+    }
+
+    @Test("Un valore fuori intervallo è segnalato, non nascosto e non giudicato")
+    func anOutOfRangeValueIsFlagged() {
+        let html = PlanReport.html(
+            PlanReportInput(studyName: "Caso", cephalometry: cephRows))
+
+        #expect(html.contains("fuori intervallo"))
+        #expect(html.contains("class=\"num caution\""))
+        // Una sola riga è fuori intervallo: le altre due non devono portare la marcatura.
+        #expect(html.components(separatedBy: "class=\"num caution\"").count == 2)
+        // E la relazione dice che cosa quel numero non è.
+        #expect(html.contains("non è una diagnosi"))
+    }
+
+    @Test("Senza cefalometria la sezione non c'è affatto")
+    func withoutCephalometryThereIsNoSection() {
+        // Una sezione vuota in un documento fa sospettare che qualcosa sia andato perso: meglio
+        // che non ci sia.
+        let html = PlanReport.html(PlanReportInput(studyName: "Caso"))
+        #expect(!html.contains("Cefalometria"))
+    }
 }

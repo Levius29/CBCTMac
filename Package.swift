@@ -66,7 +66,7 @@ import PackageDescription
             dependencies: [
                 "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
                 "GuideKit", "SegmentKit", "ArtifactKit", "StudyKit", "ReportKit",
-                "ArchiveKit",
+                "ArchiveKit", "CephKit",
             ]
         )
     ]
@@ -93,6 +93,7 @@ let libraryProducts: [Product] = [
         .library(name: "ArchiveKit", targets: ["ArchiveKit"]),
     .library(name: "ArtifactKit", targets: ["ArtifactKit"]),
     .library(name: "StudyKit", targets: ["StudyKit"]),
+    .library(name: "CephKit", targets: ["CephKit"]),
     .library(name: "ReportKit", targets: ["ReportKit"]),
 ]
 
@@ -128,6 +129,9 @@ let moduleTargets: [Target] = [
     // Modi di lavoro, riquadri e raccolta dei volumi. Nessuna interfaccia: sono le decisioni che
     // l'interfaccia esegue, e stando qui si verificano con `swift test` invece che sul Mac.
     .target(name: "StudyKit", dependencies: ["DICOMCore"]),
+    // Cefalometria: reperi nello spazio, angoli sul piano sagittale mediano, profilo del viso.
+    // Geometria pura, quindi si verifica per intero con `swift test`.
+    .target(name: "CephKit", dependencies: ["DICOMCore"]),
 ]
 
 let testTargets: [Target] = [
@@ -144,6 +148,7 @@ let testTargets: [Target] = [
     .testTarget(name: "SegmentKitTests", dependencies: ["SegmentKit", "DICOMCore", "MeshKit"]),
         .testTarget(name: "ArchiveKitTests", dependencies: ["ArchiveKit", "DICOMCore"]),
     .testTarget(name: "StudyKitTests", dependencies: ["StudyKit", "DICOMCore"]),
+    .testTarget(name: "CephKitTests", dependencies: ["CephKit", "DICOMCore"]),
     .testTarget(
         name: "ReportKitTests",
         dependencies: ["ReportKit", "DICOMCore", "MeasureKit", "ImplantKit"]
@@ -162,7 +167,7 @@ let testTargets: [Target] = [
         name: "AppContractTests",
         dependencies: [
             "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
-            "StudyKit", "SegmentKit", "ArtifactKit",
+            "StudyKit", "SegmentKit", "ArtifactKit", "CephKit",
         ]
     ),
 ]

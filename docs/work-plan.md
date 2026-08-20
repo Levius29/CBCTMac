@@ -63,7 +63,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | B7 | Strumento tessuto gengivale | 🔶 | 1 | M |
 | B8 | Strumento barra protesica | ✅ | 1 | M |
 | B9 | Strumento dente protesico | ✅ | 2 | M |
-| B10 | Profilo del viso / cefalometria | ❌ | 1 | M |
+| B10 | Profilo del viso / cefalometria | ✅ | 1 | M |
 | B11 | Piano di taglio arbitrario con varianti | ✅ | 2 | J |
 | B12 | Strumenti **contestuali**: la palette cambia con la scheda | ✅ | 2 | H |
 | B13 | Varianti raggiungibili dal triangolino, non da un menu lontano | ✅ | 2 | H |

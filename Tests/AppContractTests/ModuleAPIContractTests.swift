@@ -1,4 +1,5 @@
 import ArtifactKit
+import CephKit
 import DICOMCore
 import DentalKit
 import Foundation
@@ -977,5 +978,78 @@ struct ModuleAPIContractTests {
         #expect(throws: (any Error).self) {
             try ArtifactReduction.reduceMetalArtifacts(in: volume, settings: automatic)
         }
+    }
+
+    // MARK: AppModel: cefalometria
+
+    @Test("Le API di CephKit usate da AppModel e dal pannello")
+    func cephalometryAPI() throws {
+        let volume = try makeVolume()
+
+        // `AppModel.placeSelectedCephLandmark`, `removeCephLandmark`, `clearCephTracing`.
+        var tracing = CephTracing()
+        tracing.place(.nasion, side: .median, at: Vec3(0, -90, 30))
+        tracing.place(.porion, side: .right, at: Vec3(-60, 0, 0))
+        tracing.place(.porion, side: .left, at: Vec3(60, 0, 0))
+        _ = tracing.isComplete(.porion)
+        _ = tracing.sides(of: .porion)
+        _ = tracing.spreadMM(of: .porion)
+        _ = tracing.positionMM(of: .nasion)
+        _ = tracing.placedLandmarks
+        _ = tracing.isEmpty
+        if let hit = tracing.nearest(to: Vec3(0, -90, 30), withinMM: 3) {
+            _ = hit.displayName
+            _ = hit.side
+            tracing.remove(id: hit.id)
+        }
+        tracing.remove(.porion)
+
+        // `CephalometryPanel`: elenco dei reperi, gruppi, definizioni.
+        for landmark in CephLandmark.allCases {
+            _ = landmark.abbreviation
+            _ = landmark.localizedName
+            _ = landmark.definition
+            _ = landmark.isBilateral
+            _ = landmark.isSoftTissue
+            _ = landmark.group
+        }
+        for group in CephLandmarkGroup.allCases {
+            _ = group.localizedName
+            _ = group.landmarks
+        }
+        for side in CephSide.allCases { _ = side.localizedName }
+
+        // `AppModel.cephMeasures` e la tabella del pannello.
+        let measures = CephAnalysis.measures(for: tracing)
+        for measure in measures {
+            _ = measure.kind.localizedName
+            _ = measure.kind.abbreviation
+            _ = measure.kind.unit.symbol
+            _ = measure.kind.group.localizedName
+            _ = measure.kind.requiredLandmarks
+            _ = measure.kind.reference?.note
+            _ = measure.formattedValue
+            _ = measure.formattedReference
+            _ = measure.status
+        }
+        _ = CephAnalysis.groupedMeasures(for: tracing)
+        _ = CephAnalysis.mostUsefulMissingLandmarks(for: tracing)
+        for status in [CephStatus.below, .within, .above, .unrated] { _ = status.localizedName }
+
+        // `AppModel.extractFaceProfile` e `cephProfileOffsetMM`.
+        let profile = FaceProfileExtractor.extract(
+            from: volume, lateralXMM: volume.geometry.centerMM.x,
+            thresholdGV: FaceProfileExtractor.defaultThresholdGV, stepMM: 1)
+        _ = profile.isEmpty
+        _ = profile.pointsMM
+        _ = profile.planePoints
+        _ = profile.anteriorMostPointMM
+        _ = profile.anteriorOffsetMM(of: volume.geometry.centerMM)
+        _ = profile.interpolatedPointMM(atSuperiorMM: volume.geometry.centerMM.z)
+
+        // `ProjectDocument.cephTracing`: deve andare e tornare da JSON.
+        let restored = try JSONDecoder().decode(
+            CephTracing.self, from: try JSONEncoder().encode(tracing))
+        #expect(restored.points.count == tracing.points.count)
     }
 }

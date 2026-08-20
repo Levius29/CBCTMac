@@ -1,3 +1,4 @@
+import CephKit
 import DICOMCore
 import MeasureKit
 import StudyKit
@@ -222,6 +223,15 @@ struct ViewportContainer: View {
                             colourOverride: Palette.segmentation)
                     }
 
+                    // I reperi cefalometrici e il profilo del viso, sopra i contorni: sono
+                    // punti da centrare, e un contorno che ci passa sopra nasconde proprio ciò
+                    // che si sta cercando di collocare.
+                    if model.activeTool == .cephalometry || !model.cephTracing.isEmpty
+                        || model.faceProfile != nil
+                    {
+                        CephOverlay(model: model, plane: model.planes[slot], slot: slot)
+                    }
+
                     // Le etichette per ultime, sopra tutti i disegni: sono ciò che si legge, e
                     // una linea che ci passa sopra le rende illeggibili. Vedi `LabelOverlay` per
                     // il motivo per cui stanno tutte in un solo strato.
@@ -438,6 +448,16 @@ struct ViewportContainer: View {
         if NSEvent.modifierFlags.contains(.option),
             model.removeNerveNode(near: patient, toleranceMM: grabToleranceMM)
         {
+            return
+        }
+
+        // E ⌥ clic su un repere cefalometrico lo toglie, per la stessa ragione: nell'intero
+        // programma ⌥ vuol dire togliere, e uno strumento che facesse eccezione costringerebbe
+        // a ricordare dove vale la regola.
+        if model.activeTool == .cephalometry, NSEvent.modifierFlags.contains(.option) {
+            model.removeCephLandmark(near: patient, toleranceMM: grabToleranceMM)
+            // Anche se non ha colpito niente: ⌥ non segna. Cancellare deve colpire un bersaglio,
+            // e un ⌥ clic a vuoto che posasse un repere sarebbe l'opposto di quel che si voleva.
             return
         }
 
