@@ -93,7 +93,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | D2 | **Proiezione per riquadro** (media, MIP, MinIP) | ✅ | 3 | C |
 | D3 | Adatta alla finestra | ✅ | 3 | — |
 | D4 | Istantanea del riquadro | ✅ | 2 | J |
-| D5 | Salvataggio dell'immagine con dropdown di formati | 🔶 | 1 | J |
+| D5 | Salvataggio dell'immagine con dropdown di formati | ✅ | 1 | J |
 | D6 | Disposizione interna del riquadro (1×1, 1×5) | ✅ | 2 | B |
 | D7 | Collegamento fra riquadri: zoom e finestra condivisi | ✅ | 2 | C |
 | D8 | Passo di ricostruzione mostrato accanto allo spessore | ✅ | 2 | B |
@@ -124,7 +124,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | F6 | Scostamento vestibolo-linguale sulla rotella | ✅ | 3 | — |
 | F7 | Scorrimento lungo l'arcata, con ingrandimento | ✅ | 2 | — |
 | F8 | **Frecce sull'assiale** che indicano le sezioni mostrate | ✅ | 3 | G |
-| F9 | Anteprima della curva nell'elenco degli oggetti | ❌ | 1 | E |
+| F9 | Anteprima della curva nell'elenco degli oggetti | ✅ | 1 | E |
 | F10 | Curva proposta automaticamente dall'anatomia | ✅ | 2 | N |
 
 ### G — Sezioni trasversali
@@ -174,7 +174,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
 | J1 | Relazione impaginata con immagini e misure | ✅ | 2 | J |
-| J2 | Stampa | ❌ | 1 | J |
+| J2 | Stampa | ✅ | 1 | J |
 | J3 | Copia negli appunti | ✅ | 2 | J |
 | J4 | Istantanea di un riquadro | ✅ | 2 | J |
 | J5 | Esportazione della cartella DICOM | ❌ | 1 | J |

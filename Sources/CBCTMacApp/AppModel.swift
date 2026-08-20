@@ -667,15 +667,57 @@ final class AppModel {
             return
         }
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(focusedSlot.localizedName.lowercased()).png"
-        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue =
+            "\(focusedSlot.localizedName.lowercased()).\(imageExportFormat.fileExtension)"
+        // Tutti e tre i tipi nel pannello: cambiando l'estensione a mano si sceglie il formato,
+        // che è come funziona ogni pannello di salvataggio di macOS. Il menu «Formato» accanto
+        // al comando resta la via esplicita.
+        panel.allowedContentTypes = ImageExport.Format.allCases.map(\.contentType)
         guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        // Vince l'estensione scelta nel pannello, se è una che sappiamo scrivere: salvare un
+        // JPEG dentro un file chiamato `.png` produrrebbe un file che metà dei programmi
+        // rifiuta di aprire.
+        let format =
+            ImageExport.Format.allCases.first { $0.fileExtension == url.pathExtension.lowercased() }
+            ?? imageExportFormat
+
         do {
-            try ImageExport.exportPNG(
-                plane: plane, model: self, pixelWidth: 1600, pixelHeight: 1200, to: url)
-            lastActionMessage = "Immagine salvata in \(url.lastPathComponent)."
+            try ImageExport.export(
+                plane: plane, model: self, pixelWidth: 1600, pixelHeight: 1200,
+                format: format, to: url)
+            lastActionMessage = format.isLossy
+                ? "Immagine salvata in \(url.lastPathComponent). Il JPEG comprime con perdita: "
+                    + "i valori dei pixel non sono più quelli letti dal volume."
+                : "Immagine salvata in \(url.lastPathComponent)."
         } catch {
             lastActionMessage = "Esportazione fallita: \(error.localizedDescription)"
+        }
+    }
+
+    /// Formato predefinito dell'esportazione, ricordato fra le sessioni.
+    var imageExportFormat: ImageExport.Format {
+        get {
+            ImageExport.Format(
+                rawValue: UserDefaults.standard.string(forKey: "export.imageFormat") ?? "")
+                ?? .png
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "export.imageFormat") }
+    }
+
+    /// Stampa il riquadro attivo.
+    func printFocusedViewport() {
+        guard volume != nil, let plane = planes[focusedSlot] else {
+            lastActionMessage = "Nessuno studio aperto."
+            return
+        }
+        do {
+            let title = patient.isAnonymous
+                ? focusedSlot.localizedName
+                : "\(patient.displayName) — \(focusedSlot.localizedName)"
+            try ImageExport.print(plane: plane, model: self, jobTitle: title)
+        } catch {
+            lastActionMessage = "Stampa non riuscita: \(error.localizedDescription)"
         }
     }
 

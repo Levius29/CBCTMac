@@ -130,6 +130,7 @@ struct ShortcutsSheet: View {
             ("⌘O", "Apri un esame da una cartella DICOM"),
             ("⌘S", "Salva il piano"),
             ("⌘E", "Esporta l'immagine del riquadro attivo"),
+            ("⌘P", "Stampa il riquadro attivo"),
             ("⇧⌘R", "Ritaglia e ricampiona il volume"),
             ("⇧⌘D", "Raddrizza sul piano occlusale"),
             ("⇧⌘M", "Riduci le strie da metallo"),

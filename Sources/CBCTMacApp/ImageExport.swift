@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import CoreGraphics
 import DICOMCore
 import ImplantKit
@@ -26,6 +27,100 @@ enum ImageExport {
 
     // MARK: Punto d'ingresso
 
+    /// I formati in cui si può salvare un riquadro.
+    ///
+    /// # Perché tre e non uno
+    ///
+    /// PNG è la scelta giusta per un'immagine radiologica — senza perdite, quindi un valore
+    /// grigio letto sull'immagine è quello che il programma ha disegnato — e resta il
+    /// predefinito. JPEG serve quando l'immagine va in un documento o in una posta e il peso
+    /// conta; TIFF quando la si porta in un programma di fotoritocco che il PNG a 16 bit non
+    /// legge.
+    ///
+    /// La perdita del JPEG è **dichiarata** dove si sceglie: su un'immagine diagnostica una
+    /// compressione con perdita cambia i valori dei pixel, e chi ci misura sopra deve saperlo.
+    enum Format: String, CaseIterable, Identifiable, Sendable {
+        case png
+        case jpeg
+        case tiff
+
+        var id: String { rawValue }
+
+        var localizedName: String {
+            switch self {
+            case .png: return "PNG"
+            case .jpeg: return "JPEG"
+            case .tiff: return "TIFF"
+            }
+        }
+
+        var fileExtension: String {
+            switch self {
+            case .png: return "png"
+            case .jpeg: return "jpg"
+            case .tiff: return "tiff"
+            }
+        }
+
+        var contentType: UTType {
+            switch self {
+            case .png: return .png
+            case .jpeg: return .jpeg
+            case .tiff: return .tiff
+            }
+        }
+
+        /// Vero se il formato altera i valori dei pixel.
+        var isLossy: Bool { self == .jpeg }
+
+        var bitmapType: NSBitmapImageRep.FileType {
+            switch self {
+            case .png: return .png
+            case .jpeg: return .jpeg
+            case .tiff: return .tiff
+            }
+        }
+
+        var properties: [NSBitmapImageRep.PropertyKey: Any] {
+            // Novanta e non cento: a cento il JPEG pesa quasi quanto un PNG e non serve a
+            // niente, sotto novanta gli artefatti si vedono sui bordi dell'osso.
+            self == .jpeg ? [.compressionFactor: 0.9] : [:]
+        }
+    }
+
+    /// Renderizza un piano e ne scrive il file nel formato indicato.
+    static func export(
+        plane: MPRPlane,
+        model: AppModel,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        format: Format,
+        to url: URL
+    ) throws {
+        try imageData(
+            plane: plane, model: model, pixelWidth: pixelWidth, pixelHeight: pixelHeight,
+            format: format
+        ).write(to: url, options: .atomic)
+    }
+
+    /// Renderizza un piano e ne restituisce i byte nel formato indicato.
+    static func imageData(
+        plane: MPRPlane,
+        model: AppModel,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        format: Format
+    ) throws -> Data {
+        let image = try render(
+            plane: plane, model: model, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        guard let data = bitmap.representation(using: format.bitmapType, properties: format.properties)
+        else {
+            throw ExportError.encodingFailed
+        }
+        return data
+    }
+
     /// Renderizza un piano e ne scrive il PNG.
     static func exportPNG(
         plane: MPRPlane,
@@ -51,6 +146,18 @@ enum ImageExport {
         pixelWidth: Int,
         pixelHeight: Int
     ) throws -> Data {
+        try imageData(
+            plane: plane, model: model, pixelWidth: pixelWidth, pixelHeight: pixelHeight,
+            format: .png)
+    }
+
+    /// Il riquadro renderizzato, prima della codifica in un formato.
+    static func render(
+        plane: MPRPlane,
+        model: AppModel,
+        pixelWidth: Int,
+        pixelHeight: Int
+    ) throws -> CGImage {
         guard let device = model.device,
             let renderer = model.mprRenderer,
             let volumeTexture = model.volumeTexture
@@ -67,14 +174,12 @@ enum ImageExport {
             pixelWidth: pixelWidth,
             pixelHeight: pixelHeight)
 
-        let composed = try compose(
+        return try compose(
             base: base,
             plane: plane,
             model: model,
             pixelWidth: pixelWidth,
             pixelHeight: pixelHeight)
-
-        return try encodePNG(composed)
     }
 
     // MARK: Rendering fuori schermo
@@ -306,12 +411,43 @@ enum ImageExport {
 
     // MARK: Scrittura
 
-    private static func encodePNG(_ image: CGImage) throws -> Data {
-        let bitmap = NSBitmapImageRep(cgImage: image)
-        guard let data = bitmap.representation(using: .png, properties: [:]) else {
-            throw ExportError.encodingFailed
-        }
-        return data
+    /// Stampa il riquadro.
+    ///
+    /// # Perché la stampa non passa dalla relazione
+    ///
+    /// Perché stampare un'immagine e stampare un documento sono due cose diverse, e la seconda
+    /// la fa già il browser aprendo la relazione. Qui si stampa **ciò che si sta guardando**,
+    /// che è il gesto per cui esiste un comando Stampa in un visore: una sezione da appendere
+    /// accanto al riunito, o da consegnare.
+    ///
+    /// L'immagine si adatta al foglio conservando le proporzioni. Deformarla per riempire la
+    /// pagina cambierebbe la scala nei due versi in modo diverso, e su un'immagine che porta
+    /// una barra di scala stampata sarebbe una misura sbagliata su carta.
+    static func print(
+        plane: MPRPlane,
+        model: AppModel,
+        jobTitle: String
+    ) throws {
+        // Risoluzione da stampa: 2400 punti sul lato lungo sono circa 300 dpi su venti
+        // centimetri, che è il limite oltre il quale la carta non distingue più.
+        let image = try render(plane: plane, model: model, pixelWidth: 2400, pixelHeight: 1800)
+
+        let info = NSPrintInfo.shared
+        info.orientation = .landscape
+        let printable = CGSize(
+            width: info.paperSize.width - info.leftMargin - info.rightMargin,
+            height: info.paperSize.height - info.topMargin - info.bottomMargin)
+        let scale = Swift.min(
+            printable.width / CGFloat(image.width), printable.height / CGFloat(image.height))
+        let size = CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
+
+        let view = NSImageView(frame: CGRect(origin: .zero, size: size))
+        view.image = NSImage(cgImage: image, size: size)
+        view.imageScaling = .scaleProportionallyUpOrDown
+
+        let operation = NSPrintOperation(view: view, printInfo: info)
+        operation.jobTitle = jobTitle
+        operation.run()
     }
 
     // MARK: Errori

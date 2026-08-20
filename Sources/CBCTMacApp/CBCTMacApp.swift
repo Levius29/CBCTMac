@@ -114,6 +114,19 @@ struct CBCTMacApp: App {
 
                 Divider()
 
+                Picker("Formato immagine", selection: Binding(
+                    get: { model.imageExportFormat },
+                    set: { model.imageExportFormat = $0 }
+                )) {
+                    ForEach(ImageExport.Format.allCases) { format in
+                        Text(format.localizedName).tag(format)
+                    }
+                }
+
+                Button("Stampa il riquadro…") { model.printFocusedViewport() }
+                    .keyboardShortcut("p", modifiers: .command)
+                    .disabled(model.volume == nil)
+
                 Button("Esporta impianti e denti in STL…") { model.exportPlanGeometry() }
                     .disabled(model.implants.isEmpty && model.teeth.isEmpty)
 

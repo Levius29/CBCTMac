@@ -1,4 +1,5 @@
 import DICOMCore
+import DentalKit
 import ImplantKit
 import MeasureKit
 import StudyKit
@@ -177,6 +178,13 @@ private struct ObjectRow: View {
                 let tooth = model.teeth.first(where: { $0.id == object.id })
             {
                 toothParameters(tooth)
+            }
+
+            if isExpanded, object.kind == .archCurve {
+                ArchCurveThumbnail(curve: model.archCurve)
+                    .frame(height: 44)
+                    .padding(.leading, 22)
+                    .padding(.trailing, 6)
             }
 
             if isExpanded {
@@ -540,5 +548,74 @@ struct SteppedValue: View {
             .labelsHidden()
             .controlSize(.mini)
         }
+    }
+}
+
+// MARK: - Anteprima della curva
+
+/// La curva d'arcata disegnata in piccolo, vista dall'alto.
+///
+/// # A che cosa serve un disegno di quattro centimetri
+///
+/// A dire se la curva è quella giusta senza tornare sull'assiale. Una curva tracciata male —
+/// troppo corta da un lato, con un punto fuori posto che la fa piegare — produce una panorex
+/// storta, e il difetto si vede molto meglio nella forma d'insieme che scorrendo la striscia.
+/// L'elenco degli oggetti è il posto in cui si guarda «che cosa c'è nel piano», e una curva è
+/// l'unico oggetto la cui identità **è** la sua forma.
+struct ArchCurveThumbnail: View {
+
+    let curve: ArchCurve
+
+    var body: some View {
+        Canvas { context, size in
+            let samples = curve.isUsable ? curve.resampled(count: 80) : []
+            guard samples.count >= 2 else { return }
+
+            // Proiezione sul piano assiale: la curva è per costruzione una funzione di x e y, e
+            // la componente z non aggiunge niente a una vista dall'alto.
+            var minimum = CGPoint(x: .greatestFiniteMagnitude, y: .greatestFiniteMagnitude)
+            var maximum = CGPoint(x: -.greatestFiniteMagnitude, y: -.greatestFiniteMagnitude)
+            for sample in samples {
+                minimum.x = min(minimum.x, sample.positionMM.x)
+                minimum.y = min(minimum.y, sample.positionMM.y)
+                maximum.x = max(maximum.x, sample.positionMM.x)
+                maximum.y = max(maximum.y, sample.positionMM.y)
+            }
+
+            let span = max(maximum.x - minimum.x, maximum.y - minimum.y)
+            guard span > 1e-6 else { return }
+            // Isotropa e centrata: una curva schiacciata per riempire il riquadro direbbe che
+            // l'arcata ha una forma che non ha, che è l'unica cosa che questa anteprima deve
+            // dire bene.
+            let inset: CGFloat = 4
+            let scale = min(size.width - inset * 2, size.height - inset * 2) / span
+            let centre = CGPoint(
+                x: (minimum.x + maximum.x) / 2, y: (minimum.y + maximum.y) / 2)
+
+            func point(_ mm: Vec3) -> CGPoint {
+                CGPoint(
+                    x: size.width / 2 + (CGFloat(mm.x) - centre.x) * scale,
+                    // La y del paziente cresce verso il dorso; a schermo l'anteriore va in alto.
+                    y: size.height / 2 - (CGFloat(mm.y) - centre.y) * scale)
+            }
+
+            var path = Path()
+            path.move(to: point(samples[0].positionMM))
+            for sample in samples.dropFirst() { path.addLine(to: point(sample.positionMM)) }
+            context.stroke(path, with: .color(Palette.accent), lineWidth: 1.5)
+
+            // I punti di controllo: sono ciò che si trascina, e vederne uno fuori posto è il
+            // motivo per cui questa anteprima esiste.
+            for control in curve.controlPointsMM {
+                let position = point(control)
+                context.fill(
+                    Path(
+                        ellipseIn: CGRect(
+                            x: position.x - 2, y: position.y - 2, width: 4, height: 4)),
+                    with: .color(Palette.textPrimary.opacity(0.8)))
+            }
+        }
+        .background(Palette.viewportBackground.opacity(0.6))
+        .clipShape(.rect(cornerRadius: 3))
     }
 }
