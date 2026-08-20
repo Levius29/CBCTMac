@@ -210,7 +210,7 @@ struct AdjustmentsPanel: View {
                 .disabled(model.volume == nil)
 
                 Button {
-                    model.isShowingReorient = true
+                    model.activeTool = .occlusalPlane
                 } label: {
                     Label("Raddrizza sul piano occlusale…", systemImage: "level")
                         .font(Typography.label)

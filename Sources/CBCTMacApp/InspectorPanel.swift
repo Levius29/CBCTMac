@@ -29,6 +29,10 @@ struct InspectorPanel: View {
                 if model.workMode == .review {
                     // In rilettura l'ispettore non è un pannello di comandi: è il piano.
                     ReviewPanel(model: model)
+                } else if model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty {
+                    // Come la cefalometria: i punti si posano facendo clic sui riquadri, quindi
+                    // il pannello deve stare accanto alle immagini e non sopra.
+                    OcclusalPlanePanel(model: model)
                 } else if model.activeTool == .cephalometry || model.isShowingCephalometry {
                     // La cefalometria si segna facendo clic sui riquadri: il pannello deve
                     // stare accanto alle immagini, non sopra. Per questo è nell'ispettore e non

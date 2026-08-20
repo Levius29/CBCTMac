@@ -73,6 +73,76 @@ public struct ScreenProjector: Hashable, Sendable {
         return base + camera.forward * depth
     }
 
+    /// Il primo punto di superficie che il raggio passante per un pixel incontra.
+    ///
+    /// # A che serve
+    ///
+    /// A poter **indicare qualcosa nel 3D**. Fino a qui il riquadro tridimensionale sapeva
+    /// riproiettare un pixel soltanto su un piano di cui si conoscesse già la profondità: va bene
+    /// per trascinare un impianto che è già lì, e non basta per posare un punto nuovo, perché la
+    /// profondità è precisamente ciò che non si sa.
+    ///
+    /// Qui la profondità la decide l'anatomia: si avanza lungo il raggio e si prende il primo
+    /// campione che supera la soglia. È lo stesso criterio con cui il raycaster decide che cosa
+    /// disegnare, quindi il punto che si ottiene è quello che si stava guardando.
+    ///
+    /// # I due modi in cui sbaglia
+    ///
+    /// Prende qualunque cosa superi la soglia, compreso quel che sta **davanti** a ciò che si
+    /// voleva: con una soglia da tessuto molle si prende la guancia invece del dente. E su una
+    /// superficie molto obliqua rispetto al raggio il punto cade dove il raggio entra, che può
+    /// essere qualche decimo di millimetro più in qua del punto che si intendeva.
+    ///
+    /// - Parameters:
+    ///   - x: pixel orizzontale nel riquadro.
+    ///   - y: pixel verticale nel riquadro.
+    ///   - volume: il volume da attraversare.
+    ///   - thresholdGV: sopra questo valore comincia la superficie.
+    ///   - stepMM: passo di avanzamento. `nil` prende mezzo voxel, che è il passo più lungo che
+    ///     non può saltare una struttura sottile.
+    /// - Returns: il punto in millimetri Patient, o `nil` se il raggio non incontra niente.
+    public func pickSurfacePointMM(
+        x: Double, y: Double, in volume: Volume, thresholdGV: Double, stepMM: Double? = nil
+    ) -> Vec3? {
+        let geometry = volume.geometry
+        let corners = geometry.boundingBoxCornersMM
+        guard !corners.isEmpty else { return nil }
+
+        // Da dove a dove avanzare: la fetta di profondità che il volume occupa lungo la vista.
+        // Partire da più lontano sarebbe tempo speso a campionare il nulla.
+        let depths = corners.map { ($0 - camera.targetMM).dot(camera.forward) }
+        guard let nearest = depths.min(), let farthest = depths.max() else { return nil }
+
+        let spacing = geometry.spacingMM
+        let step = stepMM ?? Swift.max(
+            0.05, Swift.min(spacing.x, Swift.min(spacing.y, spacing.z)) / 2)
+
+        let origin = unproject(x: x, y: y)
+        var travelled = nearest
+        var previousValue: Double?
+        var previousPoint = origin + camera.forward * travelled
+
+        while travelled <= farthest {
+            let point = origin + camera.forward * travelled
+            let value = volume.interpolatedDensityValue(atPatient: point)
+            if let value, value >= thresholdGV {
+                // Il bordo non sta al centro di un voxel: si interpola fra l'ultimo campione
+                // sotto soglia e il primo sopra, come per il profilo del viso.
+                guard let previousValue, previousValue < thresholdGV, value > previousValue else {
+                    return point
+                }
+                let fraction = (thresholdGV - previousValue) / (value - previousValue)
+                return previousPoint.lerp(to: point, t: fraction)
+            }
+            // Fuori dal volume non c'è aria, non c'è niente: interpolare da lì inventerebbe un
+            // bordo mezzo passo più avanti di dove comincia il dato.
+            previousValue = value
+            previousPoint = point
+            travelled += step
+        }
+        return nil
+    }
+
     private var aspectRatio: Double {
         Double(pixelWidth) / Double(pixelHeight)
     }

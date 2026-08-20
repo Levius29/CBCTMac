@@ -52,6 +52,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
     case freePlane
     /// Reperi cefalometrici: si segnano nello spazio, in qualunque riquadro.
     case cephalometry
+    /// I tre punti del piano occlusale, per raddrizzare il volume.
+    case occlusalPlane
 
     var localizedName: String {
         switch self {
@@ -69,6 +71,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .archCurve: return "Disegna arcata"
         case .freePlane: return "Taglio libero"
         case .cephalometry: return "Cefalometria"
+        case .occlusalPlane: return "Piano occlusale"
         }
     }
 
@@ -93,6 +96,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
             return "Traccia una linea lungo ciò che vuoi vedere in sezione: il taglio si allinea."
         case .cephalometry:
             return "Scegli il repere nel pannello e fai clic dov'è. ⌥ clic per toglierlo."
+        case .occlusalPlane:
+            return "Fai clic su due cuspidi e un incisivo, in qualunque riquadro, 3D compreso."
         }
     }
 
@@ -114,6 +119,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .archCurve: return "a"
         case .freePlane: return "l"
         case .cephalometry: return "k"
+        case .occlusalPlane: return "o"
         }
     }
 
@@ -133,6 +139,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .archCurve: return "scribble.variable"
         case .freePlane: return "line.diagonal"
         case .cephalometry: return "point.3.connected.trianglepath.dotted"
+        case .occlusalPlane: return "level"
         }
     }
 
@@ -352,9 +359,6 @@ final class AppModel {
 
     /// Legenda dei comandi. Vedi `ShortcutsSheet`.
     var isShowingShortcuts = false
-
-    /// Finestra di raddrizzamento. Vedi `ReorientSheet`.
-    var isShowingReorient = false
 
     /// Finestra di riduzione delle strie. Vedi `ArtifactSheet`.
     var isShowingArtifact = false
@@ -1319,6 +1323,147 @@ final class AppModel {
             let position = cephTracing.positionMM(of: landmark)
         else { return nil }
         return faceProfile.anteriorOffsetMM(of: position)
+    }
+
+    // MARK: - Piano occlusale
+    //
+    // # Perché non è più una finestra
+    //
+    // Perché i tre punti del piano occlusale stanno **a quote diverse** — due cuspidi e un
+    // incisivo non si vedono mai sulla stessa fetta — e trovarli richiede di navigare fra le
+    // viste. La finestra era modale: mentre era aperta il mirino non si poteva muovere, e
+    // «Posa punto» registrava tre volte lo stesso punto. Dal di fuori si presentava come un
+    // pulsante che fissa un punto a caso, ed era esattamente quello che faceva.
+    //
+    // Adesso è uno strumento: si sceglie, si fa clic dove sta il punto — in qualunque riquadro,
+    // 3D compreso — e le viste restano vive perché il pannello sta nell'ispettore.
+
+    private(set) var occlusalPointsMM: [Vec3] = []
+
+    /// Soglia con cui il clic nel riquadro 3D decide che cosa ha colpito, in GV.
+    ///
+    /// Il valore predefinito è quello dell'osso: sulle corone si sta ben sopra, quindi puntando
+    /// una cuspide il raggio si ferma sullo smalto. Abbassarla fa prendere il tessuto molle,
+    /// cioè la guancia davanti al dente — ed è la ragione per cui è un parametro visibile e non
+    /// una costante nascosta.
+    var occlusalPickThresholdGV: Double = 1000
+
+    /// Passo del volume raddrizzato.
+    var reorientSpacingMM: Double = 0.3
+
+    private(set) var isReorienting = false
+    private(set) var reorientFailure: String?
+
+    var occlusalPlan: ReorientationPlan { ReorientationPlan(referencePointsMM: occlusalPointsMM) }
+
+    /// I problemi che impediscono di raddrizzare, se ce ne sono.
+    var occlusalProblems: [String] { occlusalPlan.validate() }
+
+    /// Di quanto è inclinato il piano posato rispetto all'orizzontale.
+    ///
+    /// Risponde alla domanda che ci si pone davvero: **vale la pena** ricampionare? Sotto un paio
+    /// di gradi non cambia nulla di leggibile, e il ricampionamento costa una copia del volume e
+    /// una perdita di nitidezza per interpolazione.
+    var occlusalTiltDegrees: Double? {
+        guard let normal = occlusalPlan.planeNormalMM else { return nil }
+        let cosine = Swift.min(Swift.max(abs(normal.dot(Vec3(0, 0, 1))), 0), 1)
+        return Foundation.acos(cosine) * 180 / .pi
+    }
+
+    func placeOcclusalPoint(at pointMM: Vec3) {
+        guard occlusalPointsMM.count < 3 else {
+            lastActionMessage =
+                "Il piano ha già i suoi tre punti. ⌥ clic su uno per toglierlo, oppure azzera."
+            return
+        }
+        occlusalPointsMM.append(pointMM)
+        reorientFailure = nil
+        if occlusalPointsMM.count == 3 {
+            lastActionMessage = occlusalProblems.first ?? "Piano definito: puoi raddrizzare."
+        } else {
+            lastActionMessage =
+                "Punto \(occlusalPointsMM.count) di 3 posato."
+        }
+    }
+
+    /// Toglie il punto indicato.
+    func removeOcclusalPoint(at index: Int) {
+        guard occlusalPointsMM.indices.contains(index) else { return }
+        occlusalPointsMM.remove(at: index)
+        reorientFailure = nil
+    }
+
+    func clearOcclusalPoints() {
+        occlusalPointsMM = []
+        reorientFailure = nil
+    }
+
+    /// Posa un punto da un clic nel riquadro 3D.
+    ///
+    /// La profondità la decide l'anatomia: si avanza lungo il raggio e si prende la prima
+    /// superficie. È l'unico modo di indicare un punto in una vista che non ha un piano — e
+    /// sulle cuspidi è anche il modo giusto, perché quel che si vede lì è proprio la superficie
+    /// che si vuole indicare.
+    func placeOcclusalPointFrom3D(atPixel point: CGPoint, pixelSize: CGSize) {
+        guard let volume, pixelSize.width > 1, pixelSize.height > 1 else { return }
+        let projector = ScreenProjector(
+            camera: camera,
+            pixelWidth: Int(pixelSize.width),
+            pixelHeight: Int(pixelSize.height))
+
+        guard
+            let picked = projector.pickSurfacePointMM(
+                x: Double(point.x), y: Double(point.y), in: volume,
+                thresholdGV: occlusalPickThresholdGV)
+        else {
+            lastActionMessage =
+                "Il raggio non ha incontrato niente sopra \(Int(occlusalPickThresholdGV)) GV. "
+                + "Punta una struttura densa, o abbassa la soglia."
+            return
+        }
+        placeOcclusalPoint(at: picked)
+    }
+
+    /// Raddrizza il volume sul piano posato.
+    ///
+    /// Fuori dal thread dell'interfaccia, come la riduzione delle strie e per lo stesso motivo:
+    /// ricampionare una CBCT a campo grande sono decine di secondi, e sul main actor sarebbero
+    /// decine di secondi di finestra congelata.
+    func applyOcclusalReorientation() {
+        guard let volume, !isReorienting, occlusalPointsMM.count == 3 else { return }
+        guard occlusalProblems.isEmpty else {
+            reorientFailure = occlusalProblems.joined(separator: " ")
+            return
+        }
+
+        let plan = occlusalPlan
+        let spacing = reorientSpacingMM
+        isReorienting = true
+        reorientFailure = nil
+        lastActionMessage = "Raddrizzamento in corso…"
+
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                Result {
+                    try VolumeReorientation.reoriented(volume, plan: plan, spacingMM: spacing)
+                }
+            }.value
+
+            isReorienting = false
+            switch outcome {
+            case .success(let reoriented):
+                adoptReoriented(reoriented, plan: plan)
+                // I punti se ne vanno col riferimento in cui erano stati posati: nel volume
+                // nuovo indicherebbero un'altra anatomia, e il piano che definivano è adesso
+                // orizzontale per costruzione.
+                clearOcclusalPoints()
+                activeTool = .navigate
+            case .failure(let error):
+                reorientFailure =
+                    (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                lastActionMessage = "Raddrizzamento non riuscito."
+            }
+        }
     }
 
     // MARK: Nervo e impianti
@@ -2516,6 +2661,8 @@ final class AppModel {
         // Qui e non chiamando `removeScan()`: quella scrive anche nell'archivio, e in questo
         // momento `archivedExamID` indica ancora l'esame **precedente** — cancellerebbe la
         // scansione dal caso da cui si sta uscendo.
+        occlusalPointsMM = []
+        reorientFailure = nil
         scan = nil
         scanTransform = .identity
         scanRegistration = nil
@@ -2878,7 +3025,7 @@ final class AppModel {
     /// Forma che lo strumento attivo chiede, con la variante corrente.
     var activeToolShape: ToolShape {
         switch activeTool {
-        case .navigate, .archCurve, .cephalometry:
+        case .navigate, .archCurve, .cephalometry, .occlusalPlane:
             return .singlePoint
         case .freePlane:
             return .twoPoints
@@ -4416,6 +4563,10 @@ final class AppModel {
         case .cephalometry:
             toolSession.cancel()
             placeSelectedCephLandmark(at: pointMM)
+
+        case .occlusalPlane:
+            toolSession.cancel()
+            placeOcclusalPoint(at: pointMM)
 
         case .nerve:
             toolSession.cancel()

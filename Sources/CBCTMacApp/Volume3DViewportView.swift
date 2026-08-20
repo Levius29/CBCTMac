@@ -30,6 +30,10 @@ struct Volume3DViewportView: NSViewRepresentable {
     /// in quel caso il trascinamento **non** deve far orbitare la telecamera.
     var onGrab: (CGPoint) -> Bool = { _ in false }
     var onGrabbedDrag: (CGPoint) -> Void = { _ in }
+    /// Clic senza trascinamento, in pixel del drawable. Serve a posare un punto indicando una
+    /// superficie: è l'unico modo di dare una profondità a un clic in una vista che non ha un
+    /// piano.
+    var onClick: (CGPoint) -> Void = { _ in }
     var onDrawableSize: (CGSize) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
@@ -94,6 +98,7 @@ struct Volume3DViewportView: NSViewRepresentable {
         // Il punto d'ancoraggio non serve qui: la camera orbita e ingrandisce attorno al centro
         // del volume, non attorno al puntatore.
         view.onZoom = { factor, _ in onMagnify(factor) }
+        view.onClick = onClick
         // La rotella regola lo zoom: sul 3D non ci sono slice da scorrere, e lasciarla inerte
         // sarebbe una piccola frustrazione ripetuta.
         view.onScroll = { steps in onMagnify(1.0 + steps * 0.05) }

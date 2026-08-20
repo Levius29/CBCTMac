@@ -1112,4 +1112,40 @@ struct ModuleAPIContractTests {
         #expect(
             restored.transform.isApproximatelyEqual(to: outcome.transform, tolerance: 1e-12))
     }
+
+    // MARK: AppModel: il piano occlusale
+
+    @Test("Le API usate per posare i tre punti e raddrizzare")
+    func occlusalPlaneAPI() throws {
+        let volume = try makeVolume()
+        let centre = volume.geometry.centerMM
+
+        // `AppModel.placeOcclusalPointFrom3D`: nel 3D la profondità la decide l'anatomia.
+        let projector = ScreenProjector(
+            camera: VolumeCamera.fitted(to: volume.geometry), pixelWidth: 400, pixelHeight: 400)
+        let picked = try #require(
+            projector.pickSurfacePointMM(x: 200, y: 200, in: volume, thresholdGV: 0))
+        // Sul fantoccio è la faccia anteriore del cubo, dieci millimetri davanti al centro.
+        #expect(abs(picked.y - (centre.y - SyntheticVolume.cubeEdgeMM / 2)) < 1)
+
+        // `AppModel.occlusalPlan`, `occlusalProblems`, `occlusalTiltDegrees`.
+        let plan = ReorientationPlan(referencePointsMM: [
+            centre + Vec3(-20, 0, 0), centre + Vec3(20, 0, 2), centre + Vec3(0, -25, 1),
+        ])
+        #expect(plan.validate().isEmpty)
+        let normal = try #require(plan.planeNormalMM)
+        _ = plan.pivotMM
+        _ = plan.rotation()
+        _ = plan.transformed(centre)
+        // L'inclinazione che il pannello mostra: l'angolo fra la normale e la verticale.
+        let tilt = Foundation.acos(min(max(abs(normal.dot(Vec3(0, 0, 1))), 0), 1)) * 180 / .pi
+        #expect(tilt > 0 && tilt < 90)
+
+        // Tre punti allineati non definiscono un piano, e il programma lo deve dire invece di
+        // ruotare a caso.
+        let collinear = ReorientationPlan(referencePointsMM: [
+            centre, centre + Vec3(10, 0, 0), centre + Vec3(20, 0, 0),
+        ])
+        #expect(!collinear.validate().isEmpty)
+    }
 }

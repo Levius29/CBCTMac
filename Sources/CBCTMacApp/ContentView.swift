@@ -44,7 +44,6 @@ struct ContentView: View {
         .toolbar { toolbarContent }
         .overlay { loadingOverlay }
         .sheet(isPresented: $model.isShowingShortcuts) { ShortcutsSheet() }
-        .sheet(isPresented: $model.isShowingReorient) { ReorientSheet(model: model) }
         .sheet(isPresented: $model.isShowingArtifact) { ArtifactSheet(model: model) }
         .sheet(isPresented: $model.isShowingVerification) { VerificationSheet(model: model) }
         .sheet(isPresented: $model.isShowingScanRegistration) {

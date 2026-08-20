@@ -232,6 +232,12 @@ struct ViewportContainer: View {
                         CephOverlay(model: model, plane: model.planes[slot], slot: slot)
                     }
 
+                    // I tre punti del piano occlusale, che stanno a quote diverse: senza vedere
+                    // dove sono i primi due non si può giudicare dove mettere il terzo.
+                    if model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty {
+                        OcclusalPlaneOverlay(model: model, plane: model.planes[slot])
+                    }
+
                     // Le etichette per ultime, sopra tutti i disegni: sono ciò che si legge, e
                     // una linea che ci passa sopra le rende illeggibili. Vedi `LabelOverlay` per
                     // il motivo per cui stanno tutte in un solo strato.
@@ -373,6 +379,18 @@ struct ViewportContainer: View {
             onGrabbedDrag: { point in
                 model.dragVolume3D(toPixel: point, pixelSize: pixelSize)
             },
+            // Un clic nel 3D posa un punto del piano occlusale, e soltanto quello.
+            //
+            // È l'unica vista che non ha un piano, quindi la profondità di un clic non è data:
+            // la decide l'anatomia, avanzando lungo il raggio fino alla prima superficie. Per
+            // gli altri strumenti non si fa, e non è una dimenticanza — una misura presa su
+            // «la prima cosa che il raggio incontra» dipenderebbe dalla soglia e dall'angolo di
+            // vista, cioè non sarebbe una misura.
+            onClick: { point in
+                model.focusedSlot = slot
+                guard model.activeTool == .occlusalPlane else { return }
+                model.placeOcclusalPointFrom3D(atPixel: point, pixelSize: pixelSize)
+            },
             onDrawableSize: { pixelSize = $0 }
         )
     }
@@ -458,6 +476,18 @@ struct ViewportContainer: View {
         // La ricerca è in **pixel** e non in millimetri, come per la curva d'arcata: un repere a
         // quindici millimetri dal piano è disegnato — sbiadito, ma lì — e con una tolleranza nello
         // spazio un ⌥ clic proprio sopra di esso non lo troverebbe.
+        // ⌥ clic su un punto del piano occlusale lo toglie: la regola di tutto il programma.
+        if model.activeTool == .occlusalPlane, NSEvent.modifierFlags.contains(.option) {
+            if let plane = adjustedPlane,
+                let index = OcclusalPlaneOverlay.nearest(
+                    in: model.occlusalPointsMM, to: point, plane: plane,
+                    width: Int(pixelSize.width), height: Int(pixelSize.height))
+            {
+                model.removeOcclusalPoint(at: index)
+            }
+            return
+        }
+
         if model.activeTool == .cephalometry, NSEvent.modifierFlags.contains(.option) {
             if let plane = adjustedPlane {
                 let hit = CephOverlay.nearest(

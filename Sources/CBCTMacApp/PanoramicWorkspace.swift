@@ -955,6 +955,18 @@ struct CrossSectionCell: View {
         if NSEvent.modifierFlags.contains(.option) {
             // Con la cefalometria in mano ⌥ toglie un repere, non un nodo del nervo: la regola è
             // «⌥ toglie ciò che lo strumento in mano posa», la stessa dei riquadri ortogonali.
+            if model.activeTool == .occlusalPlane {
+                let plane = zoomedPlane.matchingAspect(
+                    pixelWidth: Int(max(pixelSize.width, 1)),
+                    pixelHeight: Int(max(pixelSize.height, 1)))
+                if let index = OcclusalPlaneOverlay.nearest(
+                    in: model.occlusalPointsMM, to: point, plane: plane,
+                    width: Int(max(pixelSize.width, 1)), height: Int(max(pixelSize.height, 1)))
+                {
+                    model.removeOcclusalPoint(at: index)
+                }
+                return
+            }
             if model.activeTool == .cephalometry {
                 let plane = zoomedPlane.matchingAspect(
                     pixelWidth: Int(max(pixelSize.width, 1)),
@@ -1107,6 +1119,10 @@ struct CrossSectionCell: View {
                 // questa riga si poteva segnare un repere che non compariva da nessuna parte.
                 if model.activeTool == .cephalometry || !model.cephTracing.isEmpty {
                     CephOverlay(model: model, plane: zoomedPlane)
+                }
+
+                if model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty {
+                    OcclusalPlaneOverlay(model: model, plane: zoomedPlane)
                 }
 
                 // Il contorno della scansione sulla sezione selezionata: è dove si vede se
