@@ -55,6 +55,7 @@ struct ContentView: View {
         .sheet(isPresented: $model.isShowingArchive) { ArchiveSheet(model: model) }
         .sheet(isPresented: $model.isAskingToArchive) { ArchivePromptSheet(model: model) }
         .navigationTitle(windowTitle)
+        .navigationSubtitle(windowSubtitle)
     }
 
     private var workspace: some View {
@@ -98,13 +99,28 @@ struct ContentView: View {
     /// paziente e quindi non identifica niente. Il nome e la data dell'esame invece rispondono
     /// alla sola domanda per cui si guarda una barra del titolo: sto lavorando sulla persona
     /// giusta? Con più finestre aperte è l'unica cosa che le distingue.
+    /// Il titolo della finestra: **chi**.
+    ///
+    /// Il nome dell'applicazione finché non c'è niente aperto, poi il paziente. È la convenzione
+    /// di macOS — il titolo è il documento, il nome del programma sta nel menu — ed è anche ciò
+    /// che si guarda per essere sicuri di lavorare sul caso giusto.
     private var windowTitle: String {
         guard model.volume != nil else { return AppIcon.displayName }
+        if !model.patient.isAnonymous { return model.patient.displayName }
+        return model.studyName
+    }
+
+    /// Il sottotitolo: **quando**, e **quale volume**.
+    ///
+    /// Il nome del volume ci sta perché su un derivato è l'informazione che manca di più:
+    /// «Strie ridotte» dice che non si stanno guardando i voxel acquisiti. Sull'originale
+    /// coincide col resto e non si ripete.
+    private var windowSubtitle: String {
+        guard model.volume != nil else { return "" }
         var parts: [String] = []
-        if !model.patient.isAnonymous { parts.append(model.patient.displayName) }
         if let date = ArchiveKit.DICOMDate.displayShort(model.exam.studyDate) { parts.append(date) }
-        if parts.isEmpty { parts.append(model.studyName) }
-        return "\(AppIcon.displayName) — " + parts.joined(separator: " · ")
+        if model.studyName != windowTitle { parts.append(model.studyName) }
+        return parts.joined(separator: " · ")
     }
 
     /// Sceglie una cartella e ne carica lo studio.
@@ -155,22 +171,14 @@ struct ContentView: View {
             .help(model.redoLabel.map { "Ripeti: \($0)" } ?? "Niente da ripetere")
         }
 
-        // Il nome dello studio al centro della barra. Non è un vezzo preso dai visori
-        // commerciali: è ciò che si guarda per essere sicuri di lavorare sul caso giusto, e sta
-        // nel punto di massima attenzione dello schermo.
-        ToolbarItem(placement: .principal) {
-            VStack(spacing: 0) {
-                Text(model.studyName)
-                    .font(Typography.body.weight(.semibold))
-                    .foregroundStyle(Palette.textPrimary)
-                if let message = model.lastActionMessage {
-                    Text(message)
-                        .font(Typography.label)
-                        .foregroundStyle(Palette.textSecondary)
-                        .lineLimit(1)
-                }
-            }
-        }
+        // Qui c'era il nome dello studio, al centro della barra. Era **il secondo titolo**: la
+        // finestra ne ha già uno, e macOS lo disegna da sé nello stesso punto. I due si
+        // sovrapponevano, e con due righe — nome e ultimo messaggio — l'elemento cresceva oltre
+        // l'altezza della barra e sfondava sopra il banner.
+        //
+        // Il nome sta adesso dov'è il posto suo, nel titolo della finestra, e il messaggio
+        // dell'ultima azione in fondo, nella barra di stato: è transitorio, e la barra di stato
+        // è la riga delle cose transitorie.
 
         ToolbarItem {
             Button { model.isShowingShortcuts = true } label: {
@@ -298,7 +306,19 @@ struct StatusBar: View {
             Text(densityText)
             separator
             Text(spacingText)
-            Spacer()
+
+            // L'ultima azione compiuta. Stava al centro della barra degli strumenti, dove
+            // cresceva sopra il titolo della finestra; qui è una riga fra le altre e non spinge
+            // niente, perché tronca invece di allargarsi.
+            if let message = model.lastActionMessage {
+                separator
+                Text(message)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(message)
+            }
+
+            Spacer(minLength: Metrics.spacing)
             if !model.loadIssues.isEmpty {
                 Label("\(model.loadIssues.count)", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(Palette.warning)
