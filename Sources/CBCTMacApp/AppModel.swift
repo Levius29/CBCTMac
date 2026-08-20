@@ -1121,6 +1121,21 @@ final class AppModel {
         scheduleArchivedPlanSave()
     }
 
+    /// Riparte con la cronologia dallo stato attuale, che diventa il fondo.
+    ///
+    /// # Il guasto che toglie di mezzo
+    ///
+    /// Aprire un piano riversa impianti, denti, nervi e reperi nel modello **senza** passare da
+    /// `recordUndo`, com'è giusto: caricare un piano non è una modifica da annullare. Ma la
+    /// cronologia restava ferma allo stato di prima — vuoto se si era appena aperto uno studio,
+    /// o peggio, il piano del caso precedente. Bastava spostare un impianto e premere ⌘Z per
+    /// vedersi cancellare tutto il piano caricato, o sostituire con quello di un altro paziente.
+    ///
+    /// Da chiamare alla fine di ogni caricamento in blocco. Vedi `ProjectDocument.apply(to:)`.
+    func resetUndoBaseline() {
+        undoHistory.reset(to: planSnapshot)
+    }
+
     func undo() { apply(undoHistory.undo()) }
     func redo() { apply(undoHistory.redo()) }
 
@@ -1155,7 +1170,13 @@ final class AppModel {
     // sapere — quale repere si sta per segnare e da che lato.
 
     var cephTracing = CephTracing() {
-        didSet { if cephTracing != oldValue { cephMeasuresCache = nil } }
+        // Le misure si ricalcolano **all'atto della modifica**, non alla prima lettura. Una cache
+        // riempita dentro un getter è una scrittura durante un ridisegno, e in un tipo osservato
+        // quello è il modo di far invalidare la vista mentre la sta costruendo.
+        didSet {
+            guard cephTracing != oldValue else { return }
+            cephMeasures = CephAnalysis.measures(for: cephTracing)
+        }
     }
 
     /// Il repere che il prossimo clic segnerà. `nil` significa che lo strumento non fa nulla.
@@ -1173,18 +1194,8 @@ final class AppModel {
 
     var isShowingCephalometry = false
 
-    private var cephMeasuresCache: [CephMeasure]?
-
-    /// Le misure calcolate, ricalcolate solo quando il tracciato cambia.
-    ///
-    /// In cache perché il pannello le legge a ogni ridisegno e sono ventisette: poco lavoro, ma
-    /// moltiplicato per sessanta fotogrammi al secondo diventa lavoro sprecato senza motivo.
-    var cephMeasures: [CephMeasure] {
-        if let cephMeasuresCache { return cephMeasuresCache }
-        let computed = CephAnalysis.measures(for: cephTracing)
-        cephMeasuresCache = computed
-        return computed
-    }
+    /// Le misure calcolate. Si aggiornano quando cambia il tracciato, e non a ogni lettura.
+    private(set) var cephMeasures: [CephMeasure] = []
 
     var cephMeasuresOutOfRange: Int {
         cephMeasures.filter { $0.status == .below || $0.status == .above }.count
@@ -1207,9 +1218,16 @@ final class AppModel {
         cephTracing.place(landmark, side: cephSide, at: pointMM)
         recordUndo("Segna \(landmark.localizedName.lowercased())")
 
-        if landmark.isBilateral, cephSide == .right, !cephTracing.isComplete(landmark) {
-            cephSide = .left
-            lastActionMessage = "\(landmark.localizedName): adesso il lato sinistro."
+        // Su un repere bilaterale si resta finché non è completo, **da qualunque lato si sia
+        // cominciato**: chi ha segnato prima il sinistro vuole segnare il destro subito dopo, non
+        // ritrovarselo in fondo al giro. La condizione guarda che cosa manca, non da dove si è
+        // partiti.
+        if landmark.isBilateral, !cephTracing.isComplete(landmark) {
+            let missing: CephSide = cephTracing.sides(of: landmark).contains(.right) ? .left : .right
+            cephSide = missing
+            lastActionMessage =
+                "\(landmark.localizedName): adesso il lato "
+                + (missing == .left ? "sinistro." : "destro.")
             return
         }
 
@@ -1231,21 +1249,16 @@ final class AppModel {
         return nil
     }
 
-    /// Toglie il repere segnato più vicino al punto.
+    /// Toglie una singola segnatura, e la rimette in cima a quelle da segnare.
     ///
-    /// - Returns: `true` se ne ha tolto uno. Chi chiama lo usa per non interpretare lo stesso
-    ///   ⌥ clic anche come «segna qui».
-    @discardableResult
-    func removeCephLandmark(near pointMM: Vec3, toleranceMM: Double) -> Bool {
-        guard let hit = cephTracing.nearest(to: pointMM, withinMM: toleranceMM) else {
-            return false
-        }
-        cephTracing.remove(id: hit.id)
-        cephLandmarkToPlace = hit.landmark
-        cephSide = hit.side == .left ? .left : .right
-        recordUndo("Togli \(hit.landmark.localizedName.lowercased())")
-        lastActionMessage = "\(hit.displayName) tolto."
-        return true
+    /// Rimetterla in cima e non passare oltre: chi toglie un repere quasi sempre lo sta
+    /// correggendo, e il gesto successivo è segnarlo nel punto giusto.
+    func removeCephPoint(_ point: CephPoint) {
+        cephTracing.remove(id: point.id)
+        cephLandmarkToPlace = point.landmark
+        cephSide = point.side == .left ? .left : .right
+        recordUndo("Togli \(point.landmark.localizedName.lowercased())")
+        lastActionMessage = "\(point.displayName) tolto."
     }
 
     /// Toglie tutte le segnature di un repere.

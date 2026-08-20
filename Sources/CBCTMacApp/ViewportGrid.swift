@@ -454,10 +454,19 @@ struct ViewportContainer: View {
         // E ⌥ clic su un repere cefalometrico lo toglie, per la stessa ragione: nell'intero
         // programma ⌥ vuol dire togliere, e uno strumento che facesse eccezione costringerebbe
         // a ricordare dove vale la regola.
+        //
+        // La ricerca è in **pixel** e non in millimetri, come per la curva d'arcata: un repere a
+        // quindici millimetri dal piano è disegnato — sbiadito, ma lì — e con una tolleranza nello
+        // spazio un ⌥ clic proprio sopra di esso non lo troverebbe.
         if model.activeTool == .cephalometry, NSEvent.modifierFlags.contains(.option) {
-            model.removeCephLandmark(near: patient, toleranceMM: grabToleranceMM)
-            // Anche se non ha colpito niente: ⌥ non segna. Cancellare deve colpire un bersaglio,
-            // e un ⌥ clic a vuoto che posasse un repere sarebbe l'opposto di quel che si voleva.
+            if let plane = adjustedPlane {
+                let hit = CephOverlay.nearest(
+                    in: model.cephTracing, to: point, plane: plane,
+                    width: Int(pixelSize.width), height: Int(pixelSize.height))
+                if let hit { model.removeCephPoint(hit) }
+            }
+            // Si esce comunque: ⌥ non segna. Cancellare deve colpire un bersaglio, e un ⌥ clic a
+            // vuoto che posasse un repere sarebbe l'opposto di quel che si voleva.
             return
         }
 

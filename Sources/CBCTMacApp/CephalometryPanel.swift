@@ -235,9 +235,20 @@ struct CephalometryPanel: View {
 
     // MARK: Misure
 
+    /// Le misure raggruppate, a partire da quelle che il modello tiene già calcolate.
+    ///
+    /// Non `CephAnalysis.groupedMeasures(for:)`: quella le ricalcola tutte e ventisette, e qui si
+    /// è dentro il corpo di una vista, che viene rivalutato a ogni movimento del mirino.
+    private var groupedMeasures: [(group: CephMeasureGroup, measures: [CephMeasure])] {
+        CephMeasureGroup.allCases.compactMap { group in
+            let inGroup = model.cephMeasures.filter { $0.kind.group == group }
+            return inGroup.isEmpty ? nil : (group, inGroup)
+        }
+    }
+
     @ViewBuilder
     private var measuresSection: some View {
-        let grouped = CephAnalysis.groupedMeasures(for: model.cephTracing)
+        let grouped = groupedMeasures
 
         VStack(alignment: .leading, spacing: Metrics.spacing) {
             HStack {

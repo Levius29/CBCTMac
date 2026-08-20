@@ -998,7 +998,8 @@ struct ModuleAPIContractTests {
         _ = tracing.positionMM(of: .nasion)
         _ = tracing.placedLandmarks
         _ = tracing.isEmpty
-        if let hit = tracing.nearest(to: Vec3(0, -90, 30), withinMM: 3) {
+        // `CephOverlay.nearest` restituisce un `CephPoint`, che il modello poi toglie per id.
+        if let hit = tracing.points.first {
             _ = hit.displayName
             _ = hit.side
             tracing.remove(id: hit.id)

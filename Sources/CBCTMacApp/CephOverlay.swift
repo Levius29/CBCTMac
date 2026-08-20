@@ -30,7 +30,40 @@ struct CephOverlay: View {
     ///
     /// Venti millimetri: abbastanza da vedere un repere della fetta accanto mentre lo si cerca,
     /// poco abbastanza da non riempire un assiale di venticinque sigle che stanno altrove.
-    private static let visibilityMM: Double = 20
+    static let visibilityMM: Double = 20
+
+    /// Quanto vicino bisogna premere per colpire un repere, in pixel del riquadro.
+    static let grabRadiusPixels: Double = 9
+
+    /// Il repere disegnato più vicino a un punto del riquadro.
+    ///
+    /// # Perché in pixel e non in millimetri
+    ///
+    /// Perché quel che si colpisce dev'essere quel che si vede. Un repere a quindici millimetri
+    /// dal piano è **disegnato**, sbiadito ma visibile; cercandolo con una tolleranza in
+    /// millimetri nello spazio, un ⌥ clic proprio sopra di esso non lo troverebbe — e chi l'ha
+    /// fatto concluderebbe che il programma non risponde. La regola è la stessa della curva
+    /// d'arcata: si proietta e si misura sullo schermo.
+    static func nearest(
+        in tracing: CephTracing, to point: CGPoint, plane: MPRPlane, width: Int, height: Int
+    ) -> CephPoint? {
+        var best: CephPoint?
+        var bestDistance = Double.infinity
+        for candidate in tracing.points {
+            let depth = abs((candidate.positionMM - plane.centerMM).dot(plane.normalMM))
+            guard depth <= visibilityMM else { continue }
+            let projected = plane.pixelPosition(
+                ofPatient: candidate.positionMM, pixelWidth: width, pixelHeight: height)
+            let dx = projected.x - Double(point.x)
+            let dy = projected.y - Double(point.y)
+            let distance = (dx * dx + dy * dy).squareRoot()
+            if distance < bestDistance {
+                bestDistance = distance
+                best = candidate
+            }
+        }
+        return bestDistance <= grabRadiusPixels ? best : nil
+    }
 
     var body: some View {
         Canvas { context, size in

@@ -153,17 +153,8 @@ public struct CephTracing: Hashable, Sendable, Codable {
         points.removeAll { $0.id == id }
     }
 
-    /// Il repere segnato più vicino a un punto, entro una tolleranza.
-    public func nearest(to point: Vec3, withinMM tolerance: Double) -> CephPoint? {
-        var best: CephPoint?
-        var bestDistance = tolerance
-        for candidate in points {
-            let distance = candidate.positionMM.distance(to: point)
-            if distance <= bestDistance {
-                bestDistance = distance
-                best = candidate
-            }
-        }
-        return best
-    }
+    // Non c'è un «repere più vicino a un punto nello spazio», e non è una dimenticanza: la
+    // ricerca che serve è in pixel, sul riquadro, perché quel che si colpisce dev'essere quel
+    // che si vede — un repere a quindici millimetri dal piano è disegnato, e un test in
+    // millimetri non lo troverebbe. Vive in `CephOverlay.nearest`, dove c'è il piano.
 }

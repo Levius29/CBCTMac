@@ -405,17 +405,6 @@ struct CephAnalysisTests {
         for (a, b) in zip(before, after) { #expect(abs(a.value - b.value) < 1e-9) }
     }
 
-    @Test("Il repere più vicino si trova entro la tolleranza e non oltre")
-    func theNearestLandmarkRespectsTheTolerance() throws {
-        var tracing = CephTracing()
-        tracing.place(.nasion, at: Vec3(0, -93, 29.7))
-        tracing.place(.sella, at: Vec3(0, -19.4, 19.2))
-
-        let hit = tracing.nearest(to: Vec3(1, -94, 30), withinMM: 3)
-        #expect(hit?.landmark == .nasion)
-        #expect(tracing.nearest(to: Vec3(0, -60, 0), withinMM: 3) == nil)
-    }
-
     @Test("Il nome mostrato dice il lato solo quando il lato esiste")
     func displayNameMentionsTheSideOnlyWhenThereIsOne() {
         #expect(CephPoint(landmark: .nasion, positionMM: .init(0, 0, 0)).displayName == "N")

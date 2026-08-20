@@ -244,10 +244,11 @@ struct DiscExportTests {
         #expect(!text.contains("Rossi^Mario"))
     }
 
-    @Test("Un volume vuoto non produce una cartella a metà")
-    func anEmptyVolumeIsRefused() throws {
-        // `DICOMWriter` rifiuta un volume senza fette. L'esportazione deve propagare il rifiuto
-        // invece di lasciare in giro una cartella con dentro un indice che non indicizza niente.
+    @Test("Un volume di una fetta sola produce una cartella coerente")
+    func aSingleSliceVolumeStillProducesACoherentFolder() throws {
+        // Il caso degenere, che è quello in cui i conti fatti su «tutte le fette meno una» vanno
+        // a sbattere. Un volume più vuoto di così non si può costruire: `VolumeGeometry` non
+        // permette zero fette, quindi il limite inferiore vero è questo.
         let parent = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: parent) }
 
@@ -257,13 +258,20 @@ struct DiscExportTests {
             columnSpacingMM: 1, rowSpacingMM: 1, sliceSpacingMM: 1,
             orientation: orientation, originMM: Vec3(0, 0, 0))
         let volume = try Volume(geometry: geometry, samples: [Int16](repeating: 0, count: 16))
-        // Un volume di una fetta invece è legittimo e deve passare.
-        #expect(
-            try DiscExport.write(
-                volume: volume, identity: identity,
-                to: parent.appendingPathComponent("una"),
-                windowCenterGV: 0, windowWidthGV: 100
-            ).dicomFiles.count == 1)
+
+        let directory = parent.appendingPathComponent("una")
+        let result = try DiscExport.write(
+            volume: volume, identity: identity, to: directory,
+            windowCenterGV: 0, windowWidthGV: 100)
+
+        #expect(result.dicomFiles.count == 1)
+        // Una fetta, un'anteprima, e un indice che la nomina.
+        #expect(result.previewCount == 1)
+        let index = String(decoding: try Data(contentsOf: result.dicomdir), as: UTF8.self)
+        #expect(index.contains(try #require(result.dicomFiles.first).lastPathComponent))
+        // Il cursore della pagina ha un solo valore possibile, e non deve valere -1.
+        let page = try String(contentsOf: result.indexPage, encoding: .utf8)
+        #expect(page.contains("max=\"0\""))
     }
 
     // MARK: Lettura dei PNG prodotti

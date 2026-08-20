@@ -220,6 +220,11 @@ struct ProjectDocument: Codable, Sendable {
             model.recomputeStatistics(for: annotation)
         }
 
+        // La cronologia riparte da qui. Senza, il piano appena caricato non sarebbe nella
+        // cronologia — lo sarebbe quello di prima — e il primo ⌘Z dopo una modifica riporterebbe
+        // il modello a uno stato che non ha niente a che vedere con questo caso.
+        model.resetUndoBaseline()
+
         return warnings
     }
 }

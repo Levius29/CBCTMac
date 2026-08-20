@@ -28,13 +28,10 @@ import Foundation
 // implementatore.
 
 public enum DICOMWriteError: Error, Sendable, LocalizedError {
-    case emptyVolume
     case tooManySlices(Int)
 
     public var errorDescription: String? {
         switch self {
-        case .emptyVolume:
-            return "Il volume non ha fette da scrivere."
         case .tooManySlices(let count):
             return "Il volume ha \(count) fette: oltre il limite di sicurezza dell'esportazione."
         }
@@ -152,11 +149,14 @@ public enum DICOMWriter: Sendable {
         seriesInstanceUID: String? = nil
     ) throws -> SeriesWriteResult {
         let geometry = volume.geometry
-        guard geometry.sliceCount > 0, geometry.voxelCount > 0 else {
-            throw DICOMWriteError.emptyVolume
-        }
-        // Diecimila fette sono già dieci volte una CBCT dentale: oltre, quasi certamente è un
-        // errore di chi chiama, e riempire un disco di file è un modo scomodo di scoprirlo.
+        // Non si controlla che il volume abbia delle fette: `VolumeGeometry` non permette di
+        // costruirne uno senza, e `Volume` verifica che i campioni siano tanti quanti i voxel.
+        // Una guardia qui sarebbe una rete che non può prendere niente, e un caso d'errore
+        // pubblico che promette un guasto impossibile.
+        //
+        // Diecimila fette invece sono un limite vero: sono già dieci volte una CBCT dentale, e
+        // oltre quasi certamente è un errore di chi chiama — riempire un disco di file è un modo
+        // scomodo di scoprirlo.
         guard geometry.sliceCount <= 10_000 else {
             throw DICOMWriteError.tooManySlices(geometry.sliceCount)
         }
