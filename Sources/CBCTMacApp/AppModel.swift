@@ -6,6 +6,7 @@ import DentalKit
 import GuideKit
 import ImplantKit
 import MeasureKit
+import MediaKit
 import MeshKit
 import Metal
 import StudyKit
@@ -4083,6 +4084,91 @@ final class AppModel {
         }
     }
 
+
+    /// Vero mentre l'esportazione della cartella da consegnare sta scrivendo.
+    private(set) var isExportingDisc = false
+
+    /// Esporta una cartella completa da consegnare: dati, indice, anteprima e istruzioni.
+    ///
+    /// # Differenza dall'esportazione DICOM semplice
+    ///
+    /// Quella scrive i file. Questa scrive un **supporto**: aggiunge il DICOMDIR, che è l'indice
+    /// che ogni visore e ogni PACS cerca per primo, un'anteprima in HTML che si apre in un
+    /// browser senza installare niente, e un LEGGIMI che dice che cosa c'è e che cosa non si
+    /// deve misurare. È la cartella da mettere su una chiavetta e dare in mano a qualcuno.
+    ///
+    /// # Il visualizzatore che non c'è
+    ///
+    /// I programmi commerciali masterizzano anche un eseguibile Windows. Qui no: distribuire un
+    /// eseguibile altrui non è una cosa che questo programma possa fare, e scriverne uno
+    /// significherebbe scrivere un secondo visore per un sistema operativo su cui il primo non
+    /// gira. La pagina HTML fa la stessa cosa per chi ha soltanto bisogno di guardare, e lo dice
+    /// chiaramente a chi invece dovrebbe misurare.
+    func exportDiscFolder() {
+        guard let volume, !isExportingDisc else { return }
+
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Esporta qui"
+        panel.message = "Scegli dove creare la cartella da consegnare"
+        guard panel.runModal() == .OK, let parent = panel.url else { return }
+
+        let metadata = archivableExam
+        let identity = DICOMExportIdentity(
+            patientName: patient.name,
+            patientID: patient.patientID,
+            patientBirthDate: patient.birthDate,
+            patientSex: patient.sex,
+            studyInstanceUID: metadata.studyInstanceUID,
+            studyDate: metadata.studyDate,
+            studyTime: metadata.studyTime,
+            studyDescription: metadata.studyDescription,
+            seriesDescription: metadata.displayTitle)
+        let directory = DICOMWriter.availableDirectory(
+            named: identity.suggestedFolderName, in: parent)
+
+        // La finestra con cui si sta guardando, non una scelta a parte: l'anteprima deve
+        // somigliare a ciò che si vede nel programma, altrimenti chi la riceve crede di aver
+        // ricevuto un altro esame.
+        let center = windowLevel.level
+        let width = windowLevel.width
+
+        isExportingDisc = true
+        lastActionMessage = "Preparazione della cartella da consegnare…"
+
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                () -> Result<DiscExportResult, Error> in
+                do {
+                    return .success(
+                        try DiscExport.write(
+                            volume: volume, identity: identity, to: directory,
+                            windowCenterGV: center, windowWidthGV: width,
+                            applicationName: AppIcon.displayName))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            isExportingDisc = false
+            switch outcome {
+            case .success(let result):
+                lastActionMessage =
+                    "Cartella pronta: \(result.dicomFiles.count) fette DICOM, indice DICOMDIR "
+                    + "e anteprima di \(result.previewCount) immagini in "
+                    + "«\(directory.lastPathComponent)»."
+                NSWorkspace.shared.activateFileViewerSelecting([directory])
+            case .failure(let error):
+                lastActionMessage =
+                    "Cartella da consegnare non creata: \(error.localizedDescription)"
+                loadIssues.append(
+                    "Cartella da consegnare non creata: \(error.localizedDescription)")
+            }
+        }
+    }
 
     /// Se il volume aperto è il fantoccio sintetico di riferimento.
     ///

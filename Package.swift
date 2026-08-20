@@ -66,7 +66,7 @@ import PackageDescription
             dependencies: [
                 "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
                 "GuideKit", "SegmentKit", "ArtifactKit", "StudyKit", "ReportKit",
-                "ArchiveKit", "CephKit",
+                "ArchiveKit", "CephKit", "MediaKit",
             ]
         )
     ]
@@ -94,6 +94,7 @@ let libraryProducts: [Product] = [
     .library(name: "ArtifactKit", targets: ["ArtifactKit"]),
     .library(name: "StudyKit", targets: ["StudyKit"]),
     .library(name: "CephKit", targets: ["CephKit"]),
+    .library(name: "MediaKit", targets: ["MediaKit"]),
     .library(name: "ReportKit", targets: ["ReportKit"]),
 ]
 
@@ -132,6 +133,9 @@ let moduleTargets: [Target] = [
     // Cefalometria: reperi nello spazio, angoli sul piano sagittale mediano, profilo del viso.
     // Geometria pura, quindi si verifica per intero con `swift test`.
     .target(name: "CephKit", dependencies: ["DICOMCore"]),
+    // PNG in Swift puro e la cartella da consegnare. Niente AppKit, quindi si verifica tutto
+    // con `swift test` invece che guardando un'immagine a occhio.
+    .target(name: "MediaKit", dependencies: ["DICOMCore"]),
 ]
 
 let testTargets: [Target] = [
@@ -149,6 +153,7 @@ let testTargets: [Target] = [
         .testTarget(name: "ArchiveKitTests", dependencies: ["ArchiveKit", "DICOMCore"]),
     .testTarget(name: "StudyKitTests", dependencies: ["StudyKit", "DICOMCore"]),
     .testTarget(name: "CephKitTests", dependencies: ["CephKit", "DICOMCore"]),
+    .testTarget(name: "MediaKitTests", dependencies: ["MediaKit", "DICOMCore"]),
     .testTarget(
         name: "ReportKitTests",
         dependencies: ["ReportKit", "DICOMCore", "MeasureKit", "ImplantKit"]
@@ -167,7 +172,7 @@ let testTargets: [Target] = [
         name: "AppContractTests",
         dependencies: [
             "DICOMCore", "MeasureKit", "VolumeKit", "DentalKit", "ImplantKit", "MeshKit",
-            "StudyKit", "SegmentKit", "ArtifactKit", "CephKit",
+            "StudyKit", "SegmentKit", "ArtifactKit", "CephKit", "MediaKit",
         ]
     ),
 ]

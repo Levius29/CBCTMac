@@ -93,6 +93,21 @@ public enum DICOMTags: Sendable {
     public static let mediaStorageSOPInstanceUID = DICOMTag(group: 0x0002, element: 0x0003)
     public static let transferSyntaxUID = DICOMTag(group: 0x0002, element: 0x0010)
 
+    // Gruppo 0004: la directory di un file-set, cioè il DICOMDIR. Vedi `DICOMDIRWriter`.
+    public static let fileSetID = DICOMTag(group: 0x0004, element: 0x1130)
+    public static let offsetOfFirstRootRecord = DICOMTag(group: 0x0004, element: 0x1200)
+    public static let offsetOfLastRootRecord = DICOMTag(group: 0x0004, element: 0x1202)
+    public static let fileSetConsistencyFlag = DICOMTag(group: 0x0004, element: 0x1212)
+    public static let directoryRecordSequence = DICOMTag(group: 0x0004, element: 0x1220)
+    public static let offsetOfNextRecord = DICOMTag(group: 0x0004, element: 0x1400)
+    public static let recordInUseFlag = DICOMTag(group: 0x0004, element: 0x1410)
+    public static let offsetOfLowerLevelEntity = DICOMTag(group: 0x0004, element: 0x1420)
+    public static let directoryRecordType = DICOMTag(group: 0x0004, element: 0x1430)
+    public static let referencedFileID = DICOMTag(group: 0x0004, element: 0x1500)
+    public static let referencedSOPClassUIDInFile = DICOMTag(group: 0x0004, element: 0x1510)
+    public static let referencedSOPInstanceUIDInFile = DICOMTag(group: 0x0004, element: 0x1511)
+    public static let referencedTransferSyntaxUIDInFile = DICOMTag(group: 0x0004, element: 0x1512)
+
     public static let studyDate = DICOMTag(group: 0x0008, element: 0x0020)
     public static let studyTime = DICOMTag(group: 0x0008, element: 0x0030)
     public static let accessionNumber = DICOMTag(group: 0x0008, element: 0x0050)
@@ -123,6 +138,7 @@ public enum DICOMTags: Sendable {
 
     public static let studyInstanceUID = DICOMTag(group: 0x0020, element: 0x000D)
     public static let seriesInstanceUID = DICOMTag(group: 0x0020, element: 0x000E)
+    public static let studyID = DICOMTag(group: 0x0020, element: 0x0010)
     public static let seriesNumber = DICOMTag(group: 0x0020, element: 0x0011)
     public static let instanceNumber = DICOMTag(group: 0x0020, element: 0x0013)
     public static let imagePositionPatient = DICOMTag(group: 0x0020, element: 0x0032)

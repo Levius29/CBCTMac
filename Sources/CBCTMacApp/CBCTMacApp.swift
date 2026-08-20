@@ -143,6 +143,9 @@ struct CBCTMacApp: App {
                 Button("Esporta la cartella DICOM…") { model.exportDICOMFolder() }
                     .disabled(model.volume == nil || model.isExportingDICOM)
 
+                Button("Prepara la cartella da consegnare…") { model.exportDiscFolder() }
+                    .disabled(model.volume == nil || model.isExportingDisc)
+
                 Divider()
 
                 Button("Apri piano…") { openPlan() }

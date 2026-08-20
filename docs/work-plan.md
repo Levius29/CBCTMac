@@ -178,10 +178,20 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | J3 | Copia negli appunti | ✅ | 2 | J |
 | J4 | Istantanea di un riquadro | ✅ | 2 | J |
 | J5 | Esportazione della cartella DICOM | ✅ | 1 | J |
-| J6 | Esportazione su disco con visualizzatore | ❌ | 1 | — |
+| J6 | Esportazione su disco con visualizzatore | 🔶 | 1 | J |
 | J7 | Note del caso | ✅ | 1 | E |
 | J8 | Esportazione del modello 3D (STL) | ✅ | 2 | J |
 | J9 | Scheda «Rivedi»: rilettura del piano finito | ✅ | 1 | K |
+
+**J6, che cosa manca e perché.** La cartella da consegnare c'è: file DICOM, `DICOMDIR` — l'indice
+previsto dallo standard, quello che ogni visore e ogni PACS cerca per primo — un'anteprima
+sfogliabile in HTML che si apre in qualunque browser senza installare niente, e un LEGGIMI che
+dice che cosa c'è e che le anteprime non si misurano.
+
+Manca l'eseguibile. Nei programmi commerciali il disco porta un visore Windows: distribuire un
+eseguibile altrui non è una cosa che questo programma possa fare, e scriverne uno significherebbe
+scrivere un secondo visore per un sistema operativo su cui il primo non gira. La voce resta 🔶 e
+non ✅ perché la differenza è reale, non perché il pezzo che c'è sia incompleto.
 
 ### K — Comportamenti trasversali
 
@@ -210,7 +220,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | **G** | Disegno: piani nel raycaster, bordi slab, frecce — H2…H6, H9, F3, F4, F8 | me | D | ✅ **fatto**, tranne H6 (il ritaglio vive solo nella sua finestra) |
 | **H** | Viste SwiftUI — A1, A2, A4, A7, B12, B13, I3, I7, K2, K3, K6 | me | A, B, D, E | ✅ **fatto**, resta K3 |
 | **I** | Maniglie del mirino colorate — E5, H7 | me | — | ✅ **fatto** |
-| **J** | Esportazione e relazione — J1…J5, J8, D4, D5, B11 | Codex | E | da scrivere |
+| **J** | Esportazione e relazione — J1…J6, J8, D4, D5, B11 | me | E | ✅ **fatto**, J6 senza eseguibile |
 | **K** | Modi di lavoro e volumi multipli — A3, I6, J9, K4 | me | A | ✅ **fatto** |
 | **L** | Varianti di misura — B2, B3 | me | MeasureKit | ✅ **fatto** |
 | **M** | Oggetti protesici — B7, B8, B9, B10 | me | ImplantKit | ✅ **nucleo fatto** |

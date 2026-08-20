@@ -3,6 +3,7 @@ import CephKit
 import DICOMCore
 import DentalKit
 import Foundation
+import MediaKit
 import ImplantKit
 import MeasureKit
 import MeshKit
@@ -1051,5 +1052,37 @@ struct ModuleAPIContractTests {
         let restored = try JSONDecoder().decode(
             CephTracing.self, from: try JSONEncoder().encode(tracing))
         #expect(restored.points.count == tracing.points.count)
+    }
+
+    // MARK: AppModel: esportazione DICOM e cartella da consegnare
+
+    @Test("Le API di esportazione DICOM usate dai comandi del menu")
+    func dicomExportAPI() throws {
+        let volume = try makeVolume()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("contract-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // `AppModel.exportDICOMFolder`.
+        let identity = DICOMExportIdentity(
+            patientName: "Rossi^Mario", patientID: "PZ-1", studyInstanceUID: "1.2.3",
+            studyDate: "20240312", seriesDescription: "CBCT")
+        _ = identity.suggestedFolderName
+        let target = DICOMWriter.availableDirectory(
+            named: identity.suggestedFolderName, in: directory.deletingLastPathComponent())
+        defer { try? FileManager.default.removeItem(at: target) }
+        let files = try DICOMWriter.write(volume: volume, identity: identity, to: target)
+        #expect(files.count == volume.geometry.sliceCount)
+
+        // `AppModel.exportDiscFolder`.
+        let disc = directory.appendingPathComponent("consegna")
+        let result = try DiscExport.write(
+            volume: volume, identity: identity, to: disc,
+            windowCenterGV: 600, windowWidthGV: 2400, applicationName: "3DMED")
+        _ = result.directory
+        _ = result.indexPage
+        _ = result.dicomdir
+        #expect(result.dicomFiles.count == volume.geometry.sliceCount)
+        #expect(result.previewCount > 0)
     }
 }

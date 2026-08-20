@@ -113,6 +113,20 @@ public enum DICOMWriter: Sendable {
         return "2.25." + (decimal.isEmpty ? "0" : decimal)
     }
 
+    /// Che cosa è stato scritto: i file e gli identificatori che li nominano.
+    ///
+    /// Gli UID servono a chi deve costruire l'indice del supporto: un DICOMDIR rimanda a ogni
+    /// file per SOP Instance UID, e ricavarli rileggendo i file appena scritti sarebbe assurdo.
+    public struct SeriesWriteResult: Sendable {
+        public var files: [URL]
+        /// Un SOP Instance UID per file, nello stesso ordine.
+        public var sopInstanceUIDs: [String]
+        public var studyInstanceUID: String
+        public var seriesInstanceUID: String
+        public var sopClassUID: String
+        public var transferSyntaxUID: String
+    }
+
     /// Scrive il volume come una serie di file DICOM nella cartella indicata.
     ///
     /// - Returns: gli URL scritti, uno per fetta, nell'ordine delle fette.
@@ -123,6 +137,20 @@ public enum DICOMWriter: Sendable {
         to directory: URL,
         seriesInstanceUID: String? = nil
     ) throws -> [URL] {
+        try writeSeries(
+            volume: volume, identity: identity, to: directory,
+            seriesInstanceUID: seriesInstanceUID
+        ).files
+    }
+
+    /// Come `write`, ma restituisce anche gli identificatori generati.
+    @discardableResult
+    public static func writeSeries(
+        volume: Volume,
+        identity: DICOMExportIdentity,
+        to directory: URL,
+        seriesInstanceUID: String? = nil
+    ) throws -> SeriesWriteResult {
         let geometry = volume.geometry
         guard geometry.sliceCount > 0, geometry.voxelCount > 0 else {
             throw DICOMWriteError.emptyVolume
@@ -142,7 +170,9 @@ public enum DICOMWriter: Sendable {
         let sliceArea = geometry.columnCount * geometry.rowCount
 
         var written: [URL] = []
+        var sopUIDs: [String] = []
         written.reserveCapacity(geometry.sliceCount)
+        sopUIDs.reserveCapacity(geometry.sliceCount)
 
         for slice in 0..<geometry.sliceCount {
             let sop = newUID()
@@ -165,8 +195,12 @@ public enum DICOMWriter: Sendable {
                 String(format: "IM%05d.dcm", slice + 1))
             try data.write(to: url, options: .atomic)
             written.append(url)
+            sopUIDs.append(sop)
         }
-        return written
+        return SeriesWriteResult(
+            files: written, sopInstanceUIDs: sopUIDs, studyInstanceUID: study,
+            seriesInstanceUID: series, sopClassUID: ctImageStorage,
+            transferSyntaxUID: explicitVRLittleEndian)
     }
 
     // MARK: Composizione di un file
@@ -254,8 +288,13 @@ public enum DICOMWriter: Sendable {
     }
 
     // MARK: Codifica degli elementi
+    //
+    // Interni e non privati perché li usa anche `DICOMDIR`, che è un file DICOM come gli altri e
+    // si scrive con le stesse regole. Due copie delle stesse quattro funzioni vorrebbero dire
+    // correggere due volte ogni difetto di codifica — e il primo che si è trovato, la lunghezza
+    // a 32 bit dei VR lunghi, era proprio di quel genere.
 
-    private static func append(_ data: inout Data, _ tag: DICOMTag, _ vr: VR, text: String) {
+    static func append(_ data: inout Data, _ tag: DICOMTag, _ vr: VR, text: String) {
         var value = Array(text.utf8)
         // Ogni valore ha lunghezza pari. Gli UID si riempiono con uno zero, il resto con uno
         // spazio: è la regola DICOM, e un riempimento sbagliato lascia un carattere spurio in
@@ -265,13 +304,13 @@ public enum DICOMWriter: Sendable {
         data.append(contentsOf: value)
     }
 
-    private static func append(_ data: inout Data, _ tag: DICOMTag, _ vr: VR, uint16: UInt16) {
+    static func append(_ data: inout Data, _ tag: DICOMTag, _ vr: VR, uint16: UInt16) {
         appendHeader(&data, tag, vr, length: 2)
         data.append(UInt8(uint16 & 0xFF))
         data.append(UInt8((uint16 >> 8) & 0xFF))
     }
 
-    private static func append(_ data: inout Data, _ tag: DICOMTag, _ vr: VR, uint32: UInt32) {
+    static func append(_ data: inout Data, _ tag: DICOMTag, _ vr: VR, uint32: UInt32) {
         appendHeader(&data, tag, vr, length: 4)
         for shift in stride(from: 0, to: 32, by: 8) {
             data.append(UInt8((uint32 >> UInt32(shift)) & 0xFF))
@@ -294,7 +333,7 @@ public enum DICOMWriter: Sendable {
     /// I VR `OB`, `OW`, `OF`, `SQ`, `UT` e `UN` hanno una forma diversa: due byte riservati e
     /// una lunghezza a 32 bit invece che a 16. Senza la distinzione, un `PixelData` da più di
     /// 65 535 byte — cioè qualunque immagine vera — scriverebbe una lunghezza troncata.
-    private static func appendHeader(
+    static func appendHeader(
         _ data: inout Data, _ tag: DICOMTag, _ vr: VR, length: Int
     ) {
         data.append(UInt8(tag.group & 0xFF))
