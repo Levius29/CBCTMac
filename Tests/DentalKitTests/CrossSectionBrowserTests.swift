@@ -97,18 +97,25 @@ struct CrossSectionBrowserTests {
 
     // MARK: Ingrandimento
 
-    @Test("Ingrandire riduce quante sezioni ci stanno")
-    func zoomReducesTheVisibleCount() {
+    @Test("Ingrandire non cambia quante sezioni si vedono")
+    func zoomDoesNotChangeHowManySectionsAreShown() {
+        // Erano legati: `visibleCount / zoom`. Da fuori si vedeva come «le sezioni aumentano e
+        // diminuiscono a seconda di quanto ingrandisco», ed erano due decisioni diverse tenute
+        // da un numero solo. Quanta anatomia sta dentro una sezione è una domanda su un dente;
+        // quanti denti si vedono insieme è una domanda sull'arcata.
         var browser = makeBrowser(visibleCount: 12)
         #expect(browser.effectiveVisibleCount == 12)
 
-        browser.zoom = 2
-        #expect(browser.effectiveVisibleCount == 6)
-        browser.zoom = 4
-        #expect(browser.effectiveVisibleCount == 3)
-        // Non scende mai sotto una: con zero celle non si mostrerebbe nulla.
-        browser.zoom = 8
-        #expect(browser.effectiveVisibleCount >= 1)
+        for zoom in [2.0, 4.0, 8.0, 0.5] {
+            browser.zoom = zoom
+            #expect(browser.effectiveVisibleCount == 12, "a zoom \(zoom)")
+        }
+
+        // Quante se ne vedono si sceglie a parte, e quello sì che le cambia.
+        browser.visibleCount = 5
+        #expect(browser.effectiveVisibleCount == 5)
+        browser.visibleCount = 0
+        #expect(browser.effectiveVisibleCount == 1, "mai zero: non si mostrerebbe nulla")
     }
 
     @Test("Ingrandire restringe il campo, non stira l'immagine")

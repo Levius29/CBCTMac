@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import MetalKit
 
 // `MTKView` che inoltra gli eventi del mouse.
@@ -24,8 +25,22 @@ import MetalKit
 // | ⌥ + trascinamento sinistro | sposta l'immagine, **sempre** |
 // | ⇧ + trascinamento sinistro | ruota l'immagine nel piano |
 // | Trascinamento centrale | sposta l'immagine, sempre |
-// | Trascinamento destro | finestra e livello |
+// | **Due dita premute + su/giù** | ingrandisce e rimpicciolisce |
+// | **Tre dita premute + spostamento** | sposta l'immagine |
+// | Trascinamento destro (mouse) | finestra e livello |
+// | ⌃ + trascinamento (trackpad) | finestra e livello |
 // | Doppio clic | ingrandisce il riquadro |
+//
+// # Le dita si contano
+//
+// Sul trackpad il numero di dita appoggiate è un'informazione a sé, indipendente dal pulsante:
+// `touches(matching:in:)` lo dice per qualunque evento, purché la vista dichiari di accettare i
+// tocchi indiretti. È ciò che permette di distinguere un trascinamento destro **vero** — un mouse
+// a due tasti — da un clic a due dita sul trackpad, che macOS consegna come lo stesso evento.
+//
+// Da qui la regola: due dita premute ingrandiscono, e la finestra/livello resta al tasto destro
+// di un mouse vero e a ⌃ + trascinamento sul trackpad, che è ancora un evento destro ma con un
+// dito solo appoggiato. Nessuno dei due gesti ha perso il suo posto.
 //
 // Due scelte in questa mappa non sono arbitrarie e vale la pena dire perché.
 //
@@ -97,7 +112,32 @@ final class InteractiveMetalView: MTKView {
     /// rovesciato rispetto all'immagine, e ogni misura risulterebbe specchiata.
     override var isFlipped: Bool { true }
 
+    /// Quante dita sono appoggiate al trackpad, adesso.
+    ///
+    /// Zero con un mouse vero, che non ha tocchi da riferire: è precisamente la distinzione che
+    /// serve, perché un clic a due dita sul trackpad e la pressione del tasto destro di un mouse
+    /// arrivano come lo stesso evento.
+    private func touchCount(of event: NSEvent) -> Int {
+        event.touches(matching: .touching, in: self).count
+    }
+
+    /// Quanto spostamento verticale raddoppia — o dimezza — l'ingrandimento.
+    ///
+    /// Centocinquanta punti, cioè quattro o cinque centimetri di trackpad: abbastanza da poter
+    /// regolare con precisione, poco da attraversare l'intero campo di zoom in un gesto solo.
+    private static let zoomDragPointsPerFactorE: Double = 150
+
     override var acceptsFirstResponder: Bool { true }
+
+    /// Dichiara di volere i tocchi del trackpad.
+    ///
+    /// Senza questa riga `touches(matching:in:)` restituisce sempre l'insieme vuoto, e i gesti a
+    /// due e tre dita non esisterebbero — senza errori e senza avvisi, che è il modo peggiore in
+    /// cui una funzione può non esserci.
+    override var allowedTouchTypes: NSTouch.TouchTypeMask {
+        get { [.indirect] }
+        set { super.allowedTouchTypes = newValue }
+    }
 
     override func keyDown(with event: NSEvent) {
         // 53 è Esc. Il confronto sul codice e non sui caratteri: `charactersIgnoringModifiers`
@@ -207,6 +247,8 @@ final class InteractiveMetalView: MTKView {
         case tool
         case pan
         case rotate
+        /// Due dita premute: lo spostamento verticale ingrandisce e rimpicciolisce.
+        case zoom
     }
 
     private var dragMode: DragMode = .tool
@@ -371,13 +413,22 @@ final class InteractiveMetalView: MTKView {
             return
         }
 
+        // Le dita prima dei modificatori: chi appoggia tre dita e preme sta chiedendo di
+        // spostare l'immagine, qualunque tasto tenga premuto per altre ragioni.
         let flags = event.modifierFlags
-        if flags.contains(.shift) {
-            dragMode = .rotate
-        } else if flags.contains(.option) {
+        switch touchCount(of: event) {
+        case 3...:
             dragMode = .pan
-        } else {
-            dragMode = .tool
+        case 2:
+            dragMode = .zoom
+        default:
+            if flags.contains(.shift) {
+                dragMode = .rotate
+            } else if flags.contains(.option) {
+                dragMode = .pan
+            } else {
+                dragMode = .tool
+            }
         }
 
         pressLocation = pixelLocation(of: event)
@@ -411,6 +462,8 @@ final class InteractiveMetalView: MTKView {
             onPan?(pixelDelta(of: event))
         case .rotate:
             onRotate?(points)
+        case .zoom:
+            applyZoomDrag(pixelDelta(of: event))
         }
     }
 
@@ -430,10 +483,44 @@ final class InteractiveMetalView: MTKView {
     override func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         lastPixelLocation = pixelLocation(of: event)
+        // Serve anche come **perno** quando le dita sono due: si ingrandisce attorno al punto in
+        // cui si è premuto, non attorno al centro del riquadro, così quel che si stava guardando
+        // resta dov'è.
+        pressLocation = lastPixelLocation
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        pressLocation = nil
     }
 
     override func rightMouseDragged(with event: NSEvent) {
+        // Un clic a due dita sul trackpad arriva qui, identico alla pressione del tasto destro di
+        // un mouse. Le dita appoggiate distinguono i due casi, e sono l'unica cosa che può farlo.
+        if touchCount(of: event) >= 2 {
+            applyZoomDrag(pixelDelta(of: event))
+            return
+        }
         onWindowLevelDrag?(pixelDelta(of: event))
+    }
+
+    /// Trasforma uno spostamento verticale in un ingrandimento.
+    ///
+    /// Verso l'alto ingrandisce. È la convenzione di ogni programma che ha questo gesto, e
+    /// coincide con l'idea di «avvicinare»: si tira l'immagine verso di sé.
+    ///
+    /// L'esponenziale e non una somma: lo zoom è una grandezza moltiplicativa, e un incremento
+    /// fisso raddoppierebbe l'immagine in un centimetro partendo da 0,5× e la muoverebbe appena
+    /// partendo da 8×. Con l'esponenziale lo stesso spostamento vale lo stesso **rapporto**,
+    /// dovunque ci si trovi.
+    private func applyZoomDrag(_ delta: CGSize) {
+        guard let pressLocation else { return }
+        let scale = pixelsPerPoint.y
+        guard scale > 0 else { return }
+        // In pixel della texture l'asse cresce verso il basso: salendo, `height` è negativa.
+        let points = Double(delta.height) / Double(scale)
+        let factor = Foundation.exp(-points / Self.zoomDragPointsPerFactorE)
+        guard factor.isFinite, factor > 0 else { return }
+        onZoom?(factor, pressLocation)
     }
 
     // Tasto centrale: panoramica, sempre disponibile qualunque sia lo strumento attivo. È la via

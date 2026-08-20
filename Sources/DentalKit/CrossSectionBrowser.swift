@@ -116,12 +116,23 @@ public struct CrossSectionBrowser: Hashable, Sendable {
 
     // MARK: Finestra visibile
 
-    /// Quante sezioni entrano davvero, tenuto conto dell'ingrandimento.
+    /// Quante sezioni entrano nella striscia.
     ///
-    /// Ingrandire non allarga la striscia: riduce quante sezioni ci stanno. Il conto è quindi
-    /// `visibleCount / zoom`, con almeno una — sotto l'una non si mostrerebbe nulla.
+    /// # Due cose che erano una sola
+    ///
+    /// Era `visibleCount / zoom`: ingrandire riduceva **anche** il numero di sezioni mostrate. Da
+    /// fuori si vedeva così — «le sezioni trasversali aumentano e diminuiscono a seconda di
+    /// quanto ingrandisco» — ed erano due decisioni diverse legate a un numero solo.
+    ///
+    /// Sono indipendenti, e vanno tenute indipendenti: *quanta anatomia voglio vedere dentro
+    /// ogni sezione* è una domanda su un dente, *quanti denti voglio vedere insieme* è una
+    /// domanda sull'arcata. Chi ingrandisce per guardare una corticale non sta chiedendo di
+    /// perdere di vista gli altri denti.
+    ///
+    /// L'ingrandimento resta su `sectionExtentMM`, che è il suo posto. Quante sezioni si vedono
+    /// si sceglie a parte, con `visibleCount`.
     public var effectiveVisibleCount: Int {
-        max(1, Int((Double(visibleCount) / zoom).rounded()))
+        max(1, visibleCount)
     }
 
     /// Intervallo di indici mostrati, centrato sulla selezione e limitato agli estremi.
