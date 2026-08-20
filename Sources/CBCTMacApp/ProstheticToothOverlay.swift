@@ -57,21 +57,28 @@ struct ProstheticToothOverlay: View {
 
         var projected: [CGPoint] = []
         projected.reserveCapacity(8)
-        var nearest = Double.infinity
+        var lowestSigned = Double.infinity
+        var highestSigned = -Double.infinity
         for corner in corners {
             let position = plane.pixelPosition(
                 ofPatient: corner, pixelWidth: width, pixelHeight: height)
             projected.append(CGPoint(x: position.x, y: position.y))
-            nearest = min(nearest, abs(position.distanceMM))
+            lowestSigned = min(lowestSigned, position.distanceMM)
+            highestSigned = max(highestSigned, position.distanceMM)
         }
 
         // La corona sfuma quando il piano le passa **fuori**, non quando le passa lontano dal
         // centro: un molare è alto sette millimetri, e sfumare sulla distanza dal centro lo
         // farebbe sparire proprio scorrendo lungo la sua altezza, che è quando lo si guarda.
-        // `nearest` è la distanza del vertice più vicino: è zero finché il piano taglia la
-        // sagoma, e cresce solo una volta usciti.
-        let fadeOverMM = 4.0
-        let opacity = max(0.0, min(1.0, 1.0 - nearest / fadeOverMM))
+        //
+        // Le distanze si guardano **con il segno**, e non in valore assoluto: una scatola è
+        // convessa, quindi il piano la taglia esattamente quando i suoi otto vertici stanno da
+        // entrambe le parti. Con il valore assoluto un piano che passasse a metà altezza — nessun
+        // vertice vicino, tutti a tre o quattro millimetri — dava una distanza di tre millimetri
+        // su una sfumatura di quattro: sagoma disegnata al sei per cento di opacità, cioè
+        // invisibile, proprio nel taglio che la attraversa da parte a parte.
+        let nearest = PlaneProximity.distanceMM(from: lowestSigned, to: highestSigned)
+        let opacity = PlaneProximity.fadeOpacity(distanceMM: nearest, fadeOverMM: 4)
         guard opacity > 0.03 else { return }
 
         let hull = convexHull(of: projected)

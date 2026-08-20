@@ -389,7 +389,18 @@ struct ViewportContainer: View {
             // vista, cioè non sarebbe una misura.
             onClick: { point in
                 model.focusedSlot = slot
-                guard model.activeTool == .occlusalPlane else { return }
+                guard model.activeTool == .occlusalPlane else {
+                    // Un'uscita muta era già di per sé il difetto: chi prende l'impianto, clicca
+                    // sul volume e non vede niente conclude che lo strumento è rotto, non che
+                    // quella vista non è il posto giusto. Costa una riga dirlo.
+                    if model.activeTool != .navigate {
+                        model.lastActionMessage =
+                            "\(model.activeTool.localizedName): nel riquadro 3D un clic non ha "
+                            + "una profondità: il raggio attraversa mezzo cranio. Usa "
+                            + "l'assiale, la coronale, la sagittale o una sezione."
+                    }
+                    return
+                }
                 model.placeOcclusalPointFrom3D(atPixel: point, pixelSize: pixelSize)
             },
             onDrawableSize: { pixelSize = $0 }

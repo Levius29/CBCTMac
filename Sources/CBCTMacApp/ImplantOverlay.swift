@@ -9,9 +9,12 @@ import VolumeKit
 // Come le annotazioni, sono elementi di interfaccia disegnati in SwiftUI sopra la texture, non
 // dentro lo shader: si modificano senza ricompilare Metal e il testo resta nitido.
 //
-// Il criterio di visibilità è la distanza dal piano. Un impianto che sta dieci millimetri più
-// in là non si nasconde di colpo — sfuma — perché sparire di netto renderebbe difficile
-// ritrovarlo, mentre mostrarlo pieno farebbe credere che intersechi la slice corrente.
+// Il criterio di visibilità è **quanto il corpo dista dal piano**, non quanto ne distano i suoi
+// estremi: zero finché il piano lo attraversa, e solo da lì in poi la distanza dell'estremo più
+// vicino. La regola sta in `PlaneProximity`, dove si può provare; qui c'era, sbagliata, e nessun
+// test poteva raggiungerla. Un impianto che sta dieci millimetri più in là non si nasconde di
+// colpo — sfuma — perché sparire di netto renderebbe difficile ritrovarlo, mentre mostrarlo
+// pieno farebbe credere che intersechi la slice corrente.
 
 struct ImplantOverlay: View {
 
@@ -69,27 +72,84 @@ struct ImplantOverlay: View {
         let profile = implant.model.profile
         guard profile.count >= 2 else { return }
 
-        // Distanza media dal piano, per l'opacità.
         let platformProjection = plane.pixelPosition(
             ofPatient: implant.platformMM, pixelWidth: width, pixelHeight: height)
         let apexProjection = plane.pixelPosition(
             ofPatient: implant.apexMM, pixelWidth: width, pixelHeight: height)
-        let meanDistance =
-            (abs(platformProjection.distanceMM) + abs(apexProjection.distanceMM)) / 2
 
-        // Oltre metà diametro dal piano l'impianto non lo interseca più: si sfuma su un raggio
-        // in modo che resti riconoscibile senza sembrare presente nella slice.
-        let fadeOverMM = implant.model.diameterMM
-        let opacity = max(0.0, min(1.0, 1.0 - meanDistance / max(fadeOverMM, 0.001)))
+        // # Quanto dista l'impianto dal piano, e perché non è la media dei due estremi
+        //
+        // Era la media, e rendeva invisibile il caso più comune di tutti. Si posa un impianto
+        // cliccando sull'assiale: la piattaforma finisce **sul** piano, distanza zero, e l'apice
+        // dieci millimetri sotto. La media faceva cinque, contro una sfumatura di un diametro —
+        // quattro virgola uno — quindi opacità negativa e `guard` che scartava il disegno.
+        // L'impianto c'era, era nell'elenco, ed era invisibile in tutte e tre le viste: da qui
+        // l'impressione che il clic non facesse niente.
+        //
+        // La grandezza giusta è la **distanza minima del corpo dal piano**: zero finché il piano
+        // lo attraversa, e solo dopo la distanza dell'estremo più vicino. È lo stesso criterio
+        // dei denti — sfumare quando il piano passa fuori dall'oggetto, non lontano dal suo
+        // centro.
+        let platformDistance = platformProjection.distanceMM
+        let apexDistance = apexProjection.distanceMM
+        let nearestDistanceMM = PlaneProximity.distanceMM(
+            from: platformDistance, to: apexDistance)
+
+        // Quota lungo l'asse, dalla piattaforma, in cui l'impianto incontra il piano. Quando non
+        // lo incontra è l'estremo più vicino: è lì che si guarda la sezione appena prima che
+        // sparisca.
+        let lengthMM = implant.model.lengthMM
+        let crossingZMM =
+            lengthMM
+            * PlaneProximity.crossingFraction(from: platformDistance, to: apexDistance)
+
+        // Oltre un diametro dal corpo l'impianto è lontano dalla slice: si sfuma invece di
+        // sparire di netto, così resta ritrovabile senza sembrare presente nel taglio.
+        let opacity = PlaneProximity.fadeOpacity(
+            distanceMM: nearestDistanceMM, fadeOverMM: implant.model.diameterMM)
         guard opacity > 0.03 else { return }
 
+        // Il colore segue il livello di sicurezza: un impianto troppo vicino al nervo si
+        // riconosce senza dover leggere l'ispettore.
+        let level = model.safetyReports[implant.id]?.worstLevel
+        let strokeColor: Color =
+            switch level {
+            case .danger: Palette.danger
+            case .caution: Palette.caution
+            default: Color(hexString: implant.colorHex) ?? Palette.textPrimary
+            }
+
+        let scale = pointsPerMM(plane, width: width)
+
+        // # Silhouette o sezione, secondo come l'impianto sta rispetto al piano
+        //
+        // Un impianto **disteso** nel piano si disegna come sagoma: due lati a ±raggio lungo la
+        // perpendicolare all'asse proiettato. È il caso della coronale e della sagittale per un
+        // impianto verticale, ed è la figura che si riconosce in radiologia.
+        //
+        // Un impianto che invece **buca** il piano quasi perpendicolarmente non ha sagoma: la
+        // proiezione dell'asse è un punto, e i due lati collassano su una scheggia larga zero.
+        // Il disegno corretto in quel caso è la **sezione**, cioè il cerchio del raggio che
+        // l'impianto ha a quella quota — che è ciò che si vede in un assiale, ed è la figura su
+        // cui si giudica quanto osso resta fra l'impianto e le corticali.
+        //
+        // La soglia non è un angolo scelto a mano: è la lunghezza proiettata contro il diametro.
+        // Quando la sagoma è più corta che larga, non è più una sagoma.
+        let inPlaneLengthMM = PlaneProximity.inPlaneLengthMM(
+            lengthMM: lengthMM, tilt: implant.axis.dot(plane.normalMM))
+
+        if inPlaneLengthMM < implant.model.diameterMM {
+            drawImplantSection(
+                implant, in: &context, plane: plane, width: width, height: height,
+                atZ: crossingZMM, scale: scale, color: strokeColor, opacity: opacity,
+                isSelected: isSelected)
+            return
+        }
+
         // Silhouette: per ogni quota del profilo, due punti a ±raggio lungo la perpendicolare
-        // all'asse proiettato. È la sagoma che si vede in radiologia, ed è corretta finché
-        // l'asse non punta verso l'osservatore — nel qual caso la sagoma degenera comunque in
-        // un cerchio e la sfumatura la rende poco visibile.
+        // all'asse proiettato. È la sagoma che si vede in radiologia.
         let axisInPlane = projectedAxisDirection(implant, plane: plane)
         let perpendicular = CGPoint(x: -axisInPlane.y, y: axisInPlane.x)
-        let scale = pointsPerMM(plane, width: width)
 
         var leftSide: [CGPoint] = []
         var rightSide: [CGPoint] = []
@@ -117,16 +177,6 @@ struct ImplantOverlay: View {
         for point in rightSide.reversed() { outline.addLine(to: point) }
         outline.closeSubpath()
 
-        // Il colore segue il livello di sicurezza: un impianto troppo vicino al nervo si
-        // riconosce senza dover leggere l'ispettore.
-        let level = model.safetyReports[implant.id]?.worstLevel
-        let strokeColor: Color =
-            switch level {
-            case .danger: Palette.danger
-            case .caution: Palette.caution
-            default: Color(hexString: implant.colorHex) ?? Palette.textPrimary
-            }
-
         context.fill(outline, with: .color(strokeColor.opacity(0.18 * opacity)))
         context.stroke(
             outline, with: .color(strokeColor.opacity(0.95 * opacity)),
@@ -146,12 +196,62 @@ struct ImplantOverlay: View {
             style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
 
         guard isSelected else { return }
-        let label = String(
+        drawLabel(
+            sizeLabel(implant), at: CGPoint(x: platformProjection.x, y: platformProjection.y),
+            in: &context, color: strokeColor, opacity: opacity)
+    }
+
+    /// La sezione dell'impianto sul piano: il cerchio del raggio che ha a quella quota.
+    ///
+    /// Con il centro segnato, perché è il centro che si allinea al dente e alla cresta, e un
+    /// cerchio vuoto non dice dove sia il suo.
+    private func drawImplantSection(
+        _ implant: ImplantPlacement,
+        in context: inout GraphicsContext,
+        plane: MPRPlane,
+        width: Int,
+        height: Int,
+        atZ zMM: Double,
+        scale: Double,
+        color: Color,
+        opacity: Double,
+        isSelected: Bool
+    ) {
+        let centre = implant.axisPoint(atZ: zMM)
+        let projected = plane.pixelPosition(
+            ofPatient: centre, pixelWidth: width, pixelHeight: height)
+        let radius = CGFloat(implant.model.radius(atZ: zMM) * scale)
+        guard radius > 0.5 else { return }
+
+        let origin = CGPoint(x: projected.x, y: projected.y)
+        let circle = Path(
+            ellipseIn: CGRect(
+                x: origin.x - radius, y: origin.y - radius,
+                width: radius * 2, height: radius * 2))
+
+        context.fill(circle, with: .color(color.opacity(0.18 * opacity)))
+        context.stroke(
+            circle, with: .color(color.opacity(0.95 * opacity)),
+            lineWidth: isSelected ? 2 : 1.4)
+
+        var centreMark = Path()
+        centreMark.move(to: CGPoint(x: origin.x - 3, y: origin.y))
+        centreMark.addLine(to: CGPoint(x: origin.x + 3, y: origin.y))
+        centreMark.move(to: CGPoint(x: origin.x, y: origin.y - 3))
+        centreMark.addLine(to: CGPoint(x: origin.x, y: origin.y + 3))
+        context.stroke(centreMark, with: .color(color.opacity(0.9 * opacity)), lineWidth: 1)
+
+        guard isSelected else { return }
+        drawLabel(
+            sizeLabel(implant), at: CGPoint(x: origin.x, y: origin.y - radius),
+            in: &context, color: color, opacity: opacity)
+    }
+
+    /// Diametro e lunghezza, con la virgola decimale italiana.
+    private func sizeLabel(_ implant: ImplantPlacement) -> String {
+        String(
             format: "Ø%.1f × %.0f", implant.model.diameterMM, implant.model.lengthMM
         ).replacingOccurrences(of: ".", with: ",")
-        drawLabel(
-            label, at: CGPoint(x: platformProjection.x, y: platformProjection.y),
-            in: &context, color: strokeColor, opacity: opacity)
     }
 
     /// La barra come tubo proiettato: una polilinea spessa quanto il suo diametro.
@@ -178,7 +278,8 @@ struct ImplantOverlay: View {
             let point = CGPoint(x: projected.x, y: projected.y)
             if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
             // Sfuma come un impianto: oltre il raggio dal piano la barra non lo interseca più.
-            let fade = max(1 - abs(projected.distanceMM) / max(bar.diameterMM, 0.001), 0)
+            let fade = PlaneProximity.fadeOpacity(
+                distanceMM: abs(projected.distanceMM), fadeOverMM: bar.diameterMM)
             opacity = min(opacity, fade)
         }
         guard opacity > 0.03 else { return }

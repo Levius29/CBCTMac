@@ -73,6 +73,7 @@ struct ShortcutsSheet: View {
             ("⇧ Trascina ↔", "Inclina il taglio: ruota gli altri due piani"),
             ("⇧ Trascina ↕", "Raddrizza l'immagine nel suo piano"),
             ("Due dita premute ↕", "Ingrandisce salendo, rimpicciolisce scendendo"),
+            ("⌘ Trascina ↕", "Lo stesso, col mouse"),
             ("Tre dita premute", "Sposta l'immagine"),
             ("Tasto destro", "Finestra e livello, col mouse"),
             ("⌃ Trascina", "Finestra e livello, sul trackpad"),

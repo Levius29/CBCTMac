@@ -26,6 +26,7 @@ import MetalKit
 // | ⇧ + trascinamento sinistro | ruota l'immagine nel piano |
 // | Trascinamento centrale | sposta l'immagine, sempre |
 // | **Due dita premute + su/giù** | ingrandisce e rimpicciolisce |
+// | **⌘ + trascinamento ↕** | lo stesso, per chi ha un mouse |
 // | **Tre dita premute + spostamento** | sposta l'immagine |
 // | Trascinamento destro (mouse) | finestra e livello |
 // | ⌃ + trascinamento (trackpad) | finestra e livello |
@@ -112,15 +113,6 @@ final class InteractiveMetalView: MTKView {
     /// rovesciato rispetto all'immagine, e ogni misura risulterebbe specchiata.
     override var isFlipped: Bool { true }
 
-    /// Quante dita sono appoggiate al trackpad, adesso.
-    ///
-    /// Zero con un mouse vero, che non ha tocchi da riferire: è precisamente la distinzione che
-    /// serve, perché un clic a due dita sul trackpad e la pressione del tasto destro di un mouse
-    /// arrivano come lo stesso evento.
-    private func touchCount(of event: NSEvent) -> Int {
-        event.touches(matching: .touching, in: self).count
-    }
-
     /// Quanto spostamento verticale raddoppia — o dimezza — l'ingrandimento.
     ///
     /// Centocinquanta punti, cioè quattro o cinque centimetri di trackpad: abbastanza da poter
@@ -129,14 +121,51 @@ final class InteractiveMetalView: MTKView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    /// Dichiara di volere i tocchi del trackpad.
+    // MARK: Le dita sul trackpad
+
+    /// Quante dita sono appoggiate al trackpad, adesso.
     ///
-    /// Senza questa riga `touches(matching:in:)` restituisce sempre l'insieme vuoto, e i gesti a
-    /// due e tre dita non esisterebbero — senza errori e senza avvisi, che è il modo peggiore in
-    /// cui una funzione può non esserci.
-    override var allowedTouchTypes: NSTouch.TouchTypeMask {
-        get { [.indirect] }
-        set { super.allowedTouchTypes = newValue }
+    /// # Perché è uno stato e non una domanda all'evento
+    ///
+    /// Il primo tentativo chiedeva `touches(matching:in:)` all'evento del mouse. Non funziona:
+    /// un `mouseDown` non porta con sé i tocchi, e la risposta è sempre zero — senza errori e
+    /// senza avvisi, che è il modo peggiore in cui una funzione può non esserci. AppKit i tocchi
+    /// indiretti li consegna nei suoi richiami dedicati, `touchesBegan` e compagni, e l'unica
+    /// strada che regge è tenerne il conto lì e leggerlo quando serve.
+    ///
+    /// Vale anche per `allowedTouchTypes`: sovrascriverne il getter non basta, perché AppKit
+    /// guarda il valore impostato. Va **scritto**, e si scrive appena la vista entra in una
+    /// finestra.
+    private var touchingFingers = 0
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Senza questa riga non arriva un solo tocco, e i gesti a due e tre dita non esistono.
+        allowedTouchTypes = [.indirect]
+    }
+
+    override func touchesBegan(with event: NSEvent) {
+        updateTouchCount(event)
+        super.touchesBegan(with: event)
+    }
+
+    override func touchesMoved(with event: NSEvent) {
+        updateTouchCount(event)
+        super.touchesMoved(with: event)
+    }
+
+    override func touchesEnded(with event: NSEvent) {
+        updateTouchCount(event)
+        super.touchesEnded(with: event)
+    }
+
+    override func touchesCancelled(with event: NSEvent) {
+        updateTouchCount(event)
+        super.touchesCancelled(with: event)
+    }
+
+    private func updateTouchCount(_ event: NSEvent) {
+        touchingFingers = event.touches(matching: .touching, in: self).count
     }
 
     override func keyDown(with event: NSEvent) {
@@ -253,9 +282,7 @@ final class InteractiveMetalView: MTKView {
 
     private var dragMode: DragMode = .tool
     private var pressLocation: CGPoint?
-    /// Spostamento accumulato **in punti**, non in pixel: la soglia del clic è una grandezza
-    /// percepita dal dito, non dipendente dalla densità del display.
-    private var accumulatedMovement: CGFloat = 0
+    /// Vero quando il gesto si è spostato abbastanza da non poter più essere un clic.
     private var exceededClickSlop = false
 
     /// Oltre questo spostamento il gesto è un trascinamento e non produrrà un clic.
@@ -416,13 +443,18 @@ final class InteractiveMetalView: MTKView {
         // Le dita prima dei modificatori: chi appoggia tre dita e preme sta chiedendo di
         // spostare l'immagine, qualunque tasto tenga premuto per altre ragioni.
         let flags = event.modifierFlags
-        switch touchCount(of: event) {
+        switch touchingFingers {
         case 3...:
             dragMode = .pan
         case 2:
             dragMode = .zoom
         default:
-            if flags.contains(.shift) {
+            if flags.contains(.command) {
+                // ⌘ e trascinamento verticale: la stessa cosa delle due dita, per chi ha un
+                // mouse — e una rete di sicurezza se il trackpad non consegnasse i tocchi.
+                // Coerente col resto: ⌘ e rotella ingrandiscono già.
+                dragMode = .zoom
+            } else if flags.contains(.shift) {
                 dragMode = .rotate
             } else if flags.contains(.option) {
                 dragMode = .pan
@@ -433,7 +465,6 @@ final class InteractiveMetalView: MTKView {
 
         pressLocation = pixelLocation(of: event)
         lastPixelLocation = pressLocation
-        accumulatedMovement = 0
         exceededClickSlop = false
 
         // `onDragBegan` significa «sta cominciando un gesto **dello strumento**», ed è lì che chi
@@ -447,14 +478,24 @@ final class InteractiveMetalView: MTKView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard pressLocation != nil else { return }
+        guard let pressLocation else { return }
+
+        // La distanza dal punto di **pressione**, misurata dalle posizioni.
+        //
+        // Prima si sommavano i valori assoluti di `deltaX` e `deltaY` a ogni evento, cioè la
+        // lunghezza del **percorso**. Su un trackpad un dito appoggiato non sta mai fermo — il
+        // polpastrello si deforma sotto la pressione e l'evento riporta frazioni di punto in
+        // continuazione — quindi il percorso superava i tre punti in mezzo secondo anche senza
+        // che il dito si spostasse di un capello. Il gesto passava per trascinamento e il clic
+        // non usciva: premere per posare un impianto o un repere non faceva niente, e più
+        // lentamente si mirava meno funzionava.
+        //
+        // Dalle posizioni e non dai delta, per la stessa ragione per cui `pixelDelta` è scritta
+        // così: due convenzioni per la stessa grandezza prima o poi discordano, e in questo file
+        // era già successo con il segno della verticale.
+        updateClickSlop(current: pixelLocation(of: event), press: pressLocation)
 
         let points = pointDelta(of: event)
-        accumulatedMovement += abs(points.width) + abs(points.height)
-        if accumulatedMovement > Self.clickSlopPoints {
-            exceededClickSlop = true
-        }
-
         switch dragMode {
         case .tool:
             onDrag?(pixelLocation(of: event), pixelDelta(of: event))
@@ -464,6 +505,21 @@ final class InteractiveMetalView: MTKView {
             onRotate?(points)
         case .zoom:
             applyZoomDrag(pixelDelta(of: event))
+        }
+    }
+
+    /// Decide se il gesto si è spostato abbastanza da non essere più un clic.
+    ///
+    /// Una volta superata la soglia resta superata: un trascinamento che torna al punto di
+    /// partenza è stato comunque un trascinamento, e chiuderlo come un clic poserebbe qualcosa
+    /// dove si era soltanto passati.
+    private func updateClickSlop(current: CGPoint, press: CGPoint) {
+        guard !exceededClickSlop else { return }
+        let scale = pixelsPerPoint
+        let dx = Double(current.x - press.x) / Double(max(scale.x, 0.0001))
+        let dy = Double(current.y - press.y) / Double(max(scale.y, 0.0001))
+        if (dx * dx + dy * dy).squareRoot() > Double(Self.clickSlopPoints) {
+            exceededClickSlop = true
         }
     }
 
@@ -496,7 +552,7 @@ final class InteractiveMetalView: MTKView {
     override func rightMouseDragged(with event: NSEvent) {
         // Un clic a due dita sul trackpad arriva qui, identico alla pressione del tasto destro di
         // un mouse. Le dita appoggiate distinguono i due casi, e sono l'unica cosa che può farlo.
-        if touchCount(of: event) >= 2 {
+        if touchingFingers >= 2 {
             applyZoomDrag(pixelDelta(of: event))
             return
         }

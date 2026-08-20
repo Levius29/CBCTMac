@@ -2049,9 +2049,21 @@ final class AppModel {
             label: "Impianto \(implants.count + 1)")
         implants.append(placement)
         selectedImplantID = placement.id
+        // Le altre due viste vanno **sull'impianto**, non dove stavano. Un impianto posato
+        // sull'assiale sta fuori dai piani coronale e sagittale correnti — di quanto, lo decide
+        // dove si è cliccato — e restare fermi significa mostrare tre viste in cui l'oggetto
+        // appena creato non compare in nessuna. Portarcele sopra è anche il primo passo del
+        // lavoro che segue: si guarda la sezione per correggere inclinazione e profondità.
+        moveCrosshair(to: pointMM)
         recomputeSafety()
         syncRegistry()
         recordUndo("Aggiungi impianto")
+        // Detto, non solo fatto. Un impianto posato al primo clic su un volume dove non ce n'è
+        // nessun altro è una sagoma sottile in mezzo all'osso: chi non la vede subito non ha modo
+        // di sapere se il clic è arrivato, e riprova — e si ritrova due impianti sovrapposti.
+        lastActionMessage =
+            "\(placement.label) posato: \(placement.model.localizedName). "
+            + "Trascinalo dal corpo per spostarlo, dagli estremi per inclinarlo."
     }
 
     /// Cambia un impianto per identificatore, e registra un passo annullabile.
@@ -2093,14 +2105,26 @@ final class AppModel {
     /// centro sul clic affonderebbe il dente di mezza corona dentro l'osso, che è l'errore che
     /// rende inutile la sagoma.
     func addProstheticTooth(at pointMM: Vec3) {
+        // Un `guard … else { return }` muto stava qui, ed è la forma peggiore di difetto: il
+        // numero non valido non arriva da un file ma da un menu, quindi non succede quasi mai —
+        // e quando succede il programma non fa niente e non dice niente. Chi clicca conclude che
+        // lo strumento è rotto.
         guard var tooth = ProstheticTooth.standard(forToothNumber: pendingToothNumber) else {
+            lastActionMessage =
+                "\(pendingToothNumber) non è un numero FDI: i denti permanenti vanno da 11 a 18, "
+                + "21-28, 31-38, 41-48. Scegline uno dal menu dell'ispettore."
             return
         }
         tooth.positionMM = pointMM + tooth.axisMM * (tooth.heightMM * 0.5)
         teeth.append(tooth)
         selectedToothID = tooth.id
+        // Come per l'impianto: le viste seguono ciò che si è appena posato.
+        moveCrosshair(to: pointMM)
         syncRegistry()
         recordUndo("Posa dente")
+        lastActionMessage =
+            "Dente \(tooth.toothNumber) posato: il clic è la superficie masticante. "
+            + "Trascinalo dal corpo per spostarlo."
     }
 
     func updateTooth(id: UUID, _ transform: (inout ProstheticTooth) -> Void) {
