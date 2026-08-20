@@ -160,10 +160,35 @@ private struct ObjectRow: View {
     @State private var isRenaming = false
     @State private var draftNote = ""
     @State private var draftName = ""
+    @State private var isManuallyExpanded = false
 
+    /// Se l'oggetto è **quello selezionato**, per il tipo che ha.
+    ///
+    /// Guardava solo impianti e misure, e non c'era modo di accorgersene: un dente protesico
+    /// selezionato risultava non selezionato, quindi i suoi tre passi — larghezza, altezza,
+    /// spessore — non comparivano mai in questo elenco.
     private var isSelected: Bool {
-        model.selectedImplantID == object.id || model.selectedAnnotationID == object.id
+        switch object.kind {
+        case .implant: return model.selectedImplantID == object.id
+        case .prostheticTooth: return model.selectedToothID == object.id
+        case .prostheticBar: return model.selectedBarID == object.id
+        case .annotation: return model.selectedAnnotationID == object.id
+        case .nerveCanal, .archCurve, .mesh, .guideDesign: return false
+        }
     }
+
+    /// Se la riga mostra i suoi dettagli: parametri, anteprima della curva, nota.
+    ///
+    /// # Perché non basta «selezionato»
+    ///
+    /// Perché non tutti i tipi si selezionano. Un canale nervoso e una curva d'arcata non hanno
+    /// un identificatore di selezione, e legando i dettagli alla selezione la loro **nota** non
+    /// si sarebbe potuta scrivere da nessuna parte — un campo che attraversa il formato del
+    /// piano per non contenere mai niente, che è il difetto per cui la nota era stata aggiunta.
+    ///
+    /// Selezionare apre lo stesso, perché su un impianto i due numeri che si toccano di continuo
+    /// devono essere lì appena lo si prende, senza un clic in più.
+    private var isExpanded: Bool { isManuallyExpanded || isSelected }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -172,7 +197,7 @@ private struct ObjectRow: View {
             // toccano di continuo mentre si pianifica, e mandare l'occhio a cercarli in un
             // pannello dall'altra parte della finestra a ogni ritocco è il genere di attrito che
             // non si nota una volta e pesa dopo venti.
-            if isSelected, object.kind == .implant,
+            if isExpanded, object.kind == .implant,
                 let implant = model.implants.first(where: { $0.id == object.id })
             {
                 implantParameters(implant)
@@ -386,7 +411,22 @@ private struct ObjectRow: View {
 
     private var row: some View {
         HStack(spacing: 6) {
-            // L'occhio per primo, a sinistra: è l'azione più frequente dell'elenco, e sta dove
+            // La freccetta apre la riga. Serve ai tipi che non si selezionano — un canale, una
+            // curva — perché anche loro hanno una nota da scrivere, e serve a tenere aperta una
+            // riga mentre se ne guarda un'altra.
+            Button {
+                isManuallyExpanded.toggle()
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: 10)
+                    .foregroundStyle(Palette.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help(isExpanded ? "Chiudi i dettagli" : "Mostra i dettagli")
+
+            // L'occhio poi: è l'azione più frequente dell'elenco, e sta dove
             // l'occhio arriva per primo scorrendo una colonna.
             Button {
                 model.setObjectVisible(!object.isVisible, id: object.id)
@@ -432,11 +472,10 @@ private struct ObjectRow: View {
             isSelected ? Palette.accent.opacity(0.16) : Palette.chromeElevated,
             in: .rect(cornerRadius: 4))
         .contentShape(.rect)
-        // Un clic seleziona, due portano le viste sull'oggetto. È la coppia attesa ovunque, e
-        // separa «voglio vederne i parametri» da «voglio andarci sopra».
-        .onTapGesture(count: 2) { model.centreOnObject(id: object.id) }
+        // Un clic seleziona **e** porta le viste sull'oggetto: `centreOnObject` fa tutt'e due.
+        // C'erano due gesti, uno per il clic e uno per il doppio, e chiamavano la stessa
+        // funzione: il commento prometteva una distinzione che il codice non faceva.
         .onTapGesture { model.centreOnObject(id: object.id) }
-        .overlay(alignment: .bottom) { Color.clear.frame(height: 0) }
         .contextMenu {
             Button("Porta al centro") { model.centreOnObject(id: object.id) }
             Button("Rinomina…") {
@@ -577,8 +616,12 @@ struct ArchCurveThumbnail: View {
 
             // Proiezione sul piano assiale: la curva è per costruzione una funzione di x e y, e
             // la componente z non aggiunge niente a una vista dall'alto.
-            var minimum = CGPoint(x: .greatestFiniteMagnitude, y: .greatestFiniteMagnitude)
-            var maximum = CGPoint(x: -.greatestFiniteMagnitude, y: -.greatestFiniteMagnitude)
+            // `CGFloat.` scritto per esteso: su macOS `CGFloat` è `Double`, e il nome da solo
+            // lascia al compilatore due candidati fra cui non può scegliere.
+            var minimum = CGPoint(
+                x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude)
+            var maximum = CGPoint(
+                x: -CGFloat.greatestFiniteMagnitude, y: -CGFloat.greatestFiniteMagnitude)
             for sample in samples {
                 minimum.x = min(minimum.x, sample.positionMM.x)
                 minimum.y = min(minimum.y, sample.positionMM.y)

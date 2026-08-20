@@ -380,7 +380,9 @@ struct PanoramicWorkspace: View {
         guard model.activeTool == .navigate || model.activeTool == .implant
             || model.activeTool == .prostheticTooth
         else { return }
-        model.beginObjectDrag(at: patient, toleranceMM: panoramicGrabToleranceMM)
+        // Il risultato dice se ha afferrato qualcosa, e qui non serve: se non afferra niente il
+        // trascinamento non fa nulla, che è il comportamento voluto.
+        _ = model.beginObjectDrag(at: patient, toleranceMM: panoramicGrabToleranceMM)
     }
 
     /// Il punto Patient sotto una frazione del riquadro panoramico.
@@ -1053,7 +1055,7 @@ struct CrossSectionCell: View {
                             || model.activeTool == .prostheticTooth,
                         let patient = patientPoint(at: point)
                     else { return }
-                    model.beginObjectDrag(at: patient, toleranceMM: grabToleranceMM)
+                    _ = model.beginObjectDrag(at: patient, toleranceMM: grabToleranceMM)
                 },
                 onDragEnded: {
                     model.endHandleDrag()
