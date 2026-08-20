@@ -1,4 +1,5 @@
 import AppKit
+import CephKit
 import DICOMCore
 import DentalKit
 import MeasureKit
@@ -585,7 +586,17 @@ struct PanoramicWorkspace: View {
                     // dichiarare un piano di riferimento che non esiste farebbe sparire la misura
                     // dalle viste dove invece dovrebbe comparire. Vedi il commento in
                     // `PanoramicLayout.patientPoint` su che cosa significa un punto preso qui.
-                    if model.activeTool != .navigate, let patient {
+                    if model.activeTool == .cephalometry {
+                        // Un repere cefalometrico preso qui non sarebbe un punto: la panorex è
+                        // una superficie ricostruita, e la profondità di un clic è quella
+                        // dell'arcata, non quella del punto. Nasion e sella stanno a centimetri
+                        // da lì, e ne uscirebbero coordinate plausibili e sbagliate — che sulle
+                        // altre viste non si vedrebbero nemmeno, perché cadono altrove.
+                        model.lastActionMessage =
+                            "I reperi cefalometrici non si segnano sulla panorex: è una "
+                            + "superficie ricostruita, e la profondità del clic è quella "
+                            + "dell'arcata. Usa le viste ortogonali o una sezione."
+                    } else if model.activeTool != .navigate, let patient {
                         model.applyToolClick(at: patient, anchor: nil)
                     }
                 },
@@ -940,6 +951,20 @@ struct CrossSectionCell: View {
         // la sezione trasversale — è lì che si vede se il nodo sta nel canale o mezzo millimetro
         // fuori — e finora lì si potevano solo aggiungere nodi, mai togliere quello sbagliato.
         if NSEvent.modifierFlags.contains(.option) {
+            // Con la cefalometria in mano ⌥ toglie un repere, non un nodo del nervo: la regola è
+            // «⌥ toglie ciò che lo strumento in mano posa», la stessa dei riquadri ortogonali.
+            if model.activeTool == .cephalometry {
+                let plane = zoomedPlane.matchingAspect(
+                    pixelWidth: Int(max(pixelSize.width, 1)),
+                    pixelHeight: Int(max(pixelSize.height, 1)))
+                if let hit = CephOverlay.nearest(
+                    in: model.cephTracing, to: point, plane: plane,
+                    width: Int(max(pixelSize.width, 1)), height: Int(max(pixelSize.height, 1)))
+                {
+                    model.removeCephPoint(hit)
+                }
+                return
+            }
             model.removeNerveNode(near: patient, toleranceMM: grabToleranceMM)
             return
         }
@@ -1058,6 +1083,29 @@ struct CrossSectionCell: View {
                 ImplantOverlay(model: model, plane: zoomedPlane)
 
                 ProstheticToothOverlay(model: model, plane: zoomedPlane)
+
+                // Le quattro sovraimpressioni dei riquadri ortogonali che qui non hanno senso.
+                // Scritte, non taciute: fra un'omissione voluta e una dimenticata non c'è
+                // differenza nel codice, e le altre tre volte era una dimenticanza.
+                //
+                // sovraimpressione-non-richiesta: ArchCurveOverlay — la sezione è perpendicolare
+                //   alla curva d'arcata, che la attraversa in un punto solo: disegnarla darebbe
+                //   un puntino senza informazione.
+                // sovraimpressione-non-richiesta: CrosshairOverlay — il mirino è l'incrocio dei
+                //   tre piani ortogonali, e questo non è uno di essi. Quale sezione si sta
+                //   guardando lo dice già la striscia.
+                // sovraimpressione-non-richiesta: LabelOverlay — una sezione è larga pochi
+                //   centimetri e un'etichetta la coprirebbe. Gli oggetti si distinguono per
+                //   colore, che è lo stesso dell'elenco.
+                // sovraimpressione-non-richiesta: Volume3DOverlay — disegna sul riquadro 3D, che
+                //   qui non c'è.
+
+                // I reperi cefalometrici. La sezione trasversale è un piano vero, quindi un
+                // repere segnato qui è un punto vero — e il clic era **già** collegato: senza
+                // questa riga si poteva segnare un repere che non compariva da nessuna parte.
+                if model.activeTool == .cephalometry || !model.cephTracing.isEmpty {
+                    CephOverlay(model: model, plane: zoomedPlane)
+                }
 
                 // Il contorno della scansione sulla sezione selezionata: è dove si vede se
                 // segue lo smalto, e la sezione è il piano su cui si decide un impianto.
