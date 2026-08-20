@@ -2291,7 +2291,12 @@ final class AppModel {
         }
         guard library.addDerived(volume, named: name, from: parent, operation: operation) != nil
         else { return }
-        adopt(volume: volume)
+        // `preservingPlan: true`, come per il passaggio fra due volumi già nella raccolta: un
+        // ritaglio, un ricampionamento o una riduzione delle strie sono **lo stesso paziente**,
+        // e le coordinate sono le stesse. Senza, ridurre le strie da metallo cancellava misure,
+        // impianti, denti, nervi e curve — proprio nel momento in cui servono, perché il motivo
+        // per cui si riducono le strie è guardare meglio ciò che si è già pianificato.
+        adopt(volume: volume, preservingPlan: true)
     }
 
     /// Torna su un volume già presente nella raccolta.
@@ -2455,6 +2460,18 @@ final class AppModel {
                 recomputeStatistics(for: annotation)
             }
             recomputeSafety()
+
+            // La segmentazione invece **non** sopravvive, e non è un'incoerenza: una maschera è
+            // un insieme di voxel di *quel* volume, non una figura in millimetri. La stessa
+            // soglia su un volume con le strie ridotte dà un'altra maschera, e mostrare la
+            // vecchia sopra i voxel nuovi inviterebbe a leggerla come se fosse la loro. Le
+            // soglie restano impostate, quindi rifarla è un clic.
+            if segmentationMask != nil || segmentationMesh != nil {
+                clearSegmentation()
+                segmentationMessage =
+                    "La segmentazione è stata tolta: apparteneva all'altro volume. "
+                    + "Le soglie sono rimaste, rifarla è un clic."
+            }
             return
         }
 
@@ -2478,6 +2495,36 @@ final class AppModel {
         selectedImplantID = nil
         selectedToothID = nil
         registry = PlanObjectRegistry()
+        selectedBarID = nil
+        selectedArchPointIndex = nil
+        tracingNerveID = nil
+        profileSamples = [:]
+
+        // Tutto ciò che è **ricavato dai voxel di quel volume** se ne va con esso.
+        //
+        // Restava. La scansione intraorale di un paziente si vedeva sulle immagini di un altro,
+        // col suo contorno disegnato sulle sezioni come se fosse la sua dentatura; la
+        // segmentazione pure; e la dima costruita per un caso restava disponibile
+        // all'esportazione dentro un altro. Nessuna di queste cose dà un errore: danno una
+        // sovrapposizione plausibile, che è il modo peggiore di sbagliarsi.
+        //
+        // Qui e non chiamando `removeScan()`: quella scrive anche nell'archivio, e in questo
+        // momento `archivedExamID` indica ancora l'esame **precedente** — cancellerebbe la
+        // scansione dal caso da cui si sta uscendo.
+        scan = nil
+        scanTransform = .identity
+        scanRegistration = nil
+        scanLandmarks = []
+        scanContours = [:]
+        selectedSectionContour = []
+        guideResult = nil
+        segmentationMask = nil
+        segmentationMesh = nil
+        segmentationContours = [:]
+        segmentationSectionContour = []
+        segmentationStatistics = nil
+        segmentationMessage = nil
+
         // La cronologia riparte: annullare fin dentro il caso precedente non ha senso, e su dati
         // clinici sarebbe pericoloso — riporterebbe nell'immagine di questo paziente gli impianti
         // pianificati per un altro.
