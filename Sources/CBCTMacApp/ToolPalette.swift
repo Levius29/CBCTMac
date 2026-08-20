@@ -144,6 +144,9 @@ struct ToolPalette: View {
         }
         // Il dente **prima** dell'impianto, e non è un dettaglio d'ordine: la palette
         // suggerisce la sequenza, e la sequenza corretta è protesi prima, impianto sotto.
+        // Il taglio libero accanto all'arcata: sono i due modi di dire «guarda lungo questo»,
+        // uno per l'intera arcata e uno per una struttura sola.
+        result.append(ToolEntry(tool: .freePlane))
         result.append(ToolEntry(tool: .prostheticTooth))
         result.append(ToolEntry(tool: .implant))
         result.append(ToolEntry(tool: .nerve))

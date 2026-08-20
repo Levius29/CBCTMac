@@ -46,6 +46,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
     case nerve
     /// Disegno della curva d'arcata, punto per punto, sulla vista assiale.
     case archCurve
+    /// Taglio arbitrario: si traccia una linea e la sezione si allinea a essa.
+    case freePlane
 
     var localizedName: String {
         switch self {
@@ -61,6 +63,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .prostheticTooth: return "Dente protesico"
         case .nerve: return "Traccia nervo"
         case .archCurve: return "Disegna arcata"
+        case .freePlane: return "Taglio libero"
         }
     }
 
@@ -81,6 +84,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
             return "Scegli il numero e fai clic sull'occlusale: la corona si posa lì."
         case .nerve: return "Fai clic lungo il canale, un nodo per volta."
         case .archCurve: return "Fai clic sull'assiale per posare i punti. ⌥ clic per togliere."
+        case .freePlane:
+            return "Traccia una linea lungo ciò che vuoi vedere in sezione: il taglio si allinea."
         }
     }
 
@@ -100,6 +105,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .prostheticTooth: return "c"
         case .nerve: return "v"
         case .archCurve: return "a"
+        case .freePlane: return "l"
         }
     }
 
@@ -117,6 +123,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .prostheticTooth: return "mouth"
         case .nerve: return "point.topleft.down.curvedto.point.bottomright.up"
         case .archCurve: return "scribble.variable"
+        case .freePlane: return "line.diagonal"
         }
     }
 
@@ -2514,6 +2521,8 @@ final class AppModel {
         switch activeTool {
         case .navigate, .archCurve:
             return .singlePoint
+        case .freePlane:
+            return .twoPoints
         case .distance:
             return toolVariant == "polyline" || toolVariant == "perimeter"
                 ? .openPolyline : .twoPoints
@@ -3072,6 +3081,62 @@ final class AppModel {
     /// I pazienti filtrati dalla casella di ricerca.
     var filteredArchivedPatients: [ArchivedPatient] {
         archive.search(archiveSearchText, in: archivedPatients)
+    }
+
+    // MARK: - Taglio libero
+
+    /// Allinea un riquadro al segmento tracciato.
+    ///
+    /// # Quale riquadro cambia
+    ///
+    /// Quello la cui inquadratura somiglia già di più al taglio nuovo, **escluso quello su cui
+    /// si è disegnato**. Sostituire la vista che si sta usando la farebbe sparire proprio mentre
+    /// serve da riferimento; cambiare la più simile fra le altre disturba meno, perché quel
+    /// riquadro si sposta di poco e gli altri due restano l'orientamento.
+    ///
+    /// Il mirino si porta a metà del segmento: è il punto che si stava indicando, e lasciarlo
+    /// dov'era farebbe comparire il taglio nuovo su una fetta che non c'entra.
+    func applyFreePlane(fromMM: Vec3, toMM: Vec3, anchor: ToolAnchor?) {
+        guard let anchor else {
+            lastActionMessage =
+                "Il taglio libero si traccia su una vista piatta: la panorex è una superficie "
+                + "curva e non ha una normale sola."
+            return
+        }
+
+        let source = FreePlane.closest(to: anchor.normalMM, among: planes)
+        guard
+            let target = FreePlane.closest(
+                to: (toMM - fromMM).cross(anchor.normalMM),
+                among: planes,
+                excluding: source.map { [$0] } ?? [])
+        else { return }
+
+        let reference = planes[target] ?? planes[focusedSlot]
+        guard
+            let plane = FreePlane.plane(
+                fromMM: fromMM, toMM: toMM, sourceNormalMM: anchor.normalMM,
+                widthMM: reference?.widthMM ?? 60, heightMM: reference?.heightMM ?? 60)
+        else {
+            lastActionMessage =
+                "Segmento troppo corto per definire un taglio: tracciane uno di almeno un "
+                + "millimetro lungo la struttura da vedere."
+            return
+        }
+
+        var aligned = plane
+        aligned.slabThicknessMM = reference?.slabThicknessMM ?? 0
+        aligned.projection = reference?.projection ?? .average
+        planes[target] = aligned
+        focusedSlot = target
+        // Il mirino **dopo** il piano: il suo osservatore riallinea ogni riquadro alla propria
+        // normale, e il taglio appena posato deve sopravvivere a quel passaggio — sopravvive,
+        // perché `syncPlanesToCrosshair` corregge solo la componente lungo la normale e non
+        // l'orientamento.
+        crosshairMM = aligned.centerMM
+        lastActionMessage =
+            "Taglio allineato sul riquadro \(target.localizedName). Le maniglie del mirino lo "
+            + "ruotano ancora, se serve rifinirlo."
     }
 
     // MARK: - Istantanee
@@ -3768,6 +3833,10 @@ final class AppModel {
             // clic senza movimento lascia un tracciato di due punti coincidenti, cioè un oggetto
             // lungo zero millimetri che compare nell'elenco e non si vede da nessuna parte.
             break
+
+        case .freePlane:
+            guard let points = toolSession.add(pointMM, anchor: anchor) else { return }
+            applyFreePlane(fromMM: points[0], toMM: points[1], anchor: anchor)
 
         case .prostheticTooth:
             toolSession.cancel()
