@@ -212,7 +212,13 @@ final class AppModel {
     /// Posizione del mirino, in millimetri Patient. È lo stato condiviso da cui ogni riquadro
     /// deriva la propria slice.
     var crosshairMM: Vec3 = .zero {
-        didSet { syncPlanesToCrosshair() }
+        didSet {
+            guard crosshairMM != oldValue else { return }
+            syncPlanesToCrosshair()
+            // Spostare il mirino accende le linee: è il momento in cui servono piene, ed è
+            // l'unico in cui si guarda dove sono finite. Vedi `flashCutLines`.
+            flashCutLines()
+        }
     }
 
     /// Preset della finestra di densità, quelli che governano le **viste 2D**.
@@ -2681,6 +2687,82 @@ final class AppModel {
         // clinici sarebbe pericoloso — riporterebbe nell'immagine di questo paziente gli impianti
         // pianificati per un altro.
         undoHistory.reset(to: planSnapshot)
+    }
+
+    // MARK: - Linee di taglio
+    //
+    // Le tracce del mirino attraversano l'immagine da parte a parte, ed è precisamente ciò che le
+    // rende utili e ciò che le rende invadenti: giudicando una corticale o la nitidezza di un
+    // contorno, una riga colorata sopra il punto che si sta guardando è rumore.
+    //
+    // La regola sta in `CutLineVisibility`, in StudyKit, e non qui: vale in cinque posti — le
+    // tracce sui tre riquadri e le cornici dei piani dentro il 3D — e cinque copie della stessa
+    // condizione divergono alla prima modifica.
+
+    /// Quanto dura la piena opacità dopo uno spostamento istantaneo del mirino.
+    ///
+    /// Un clic non ha una durata, quindi non può avere un «mentre»: senza questo, spostando il
+    /// mirino con un clic le linee resterebbero sbiadite proprio nell'istante in cui si sta
+    /// guardando dove sono finite.
+    static let cutLineFlashSeconds: Double = 1.2
+
+    /// Se le linee di taglio si disegnano. Il pulsante nella barra le toglie di mezzo.
+    var areCutLinesVisible = true {
+        didSet { if !areCutLinesVisible { isCutLineFlashing = false } }
+    }
+
+    /// Vero mentre una linea del mirino è **afferrata**.
+    private(set) var isDraggingCutLines = false
+    /// Vero per un momento dopo uno spostamento che non ha durata, come un clic.
+    private(set) var isCutLineFlashing = false
+
+    private var cutLineFlashDeadline: Date?
+
+    var cutLineVisibility: CutLineVisibility {
+        CutLineVisibility(
+            isVisible: areCutLinesVisible,
+            isPointing: isDraggingCutLines || isCutLineFlashing)
+    }
+
+    func setCutLinesVisible(_ visible: Bool) {
+        areCutLinesVisible = visible
+        lastActionMessage =
+            visible
+            ? "Linee di taglio mostrate."
+            : "Linee di taglio nascoste. ⇧⌘L per rimetterle."
+    }
+
+    func toggleCutLines() { setCutLinesVisible(!areCutLinesVisible) }
+
+    /// Il trascinamento di una linea è cominciato o finito.
+    func setDraggingCutLines(_ dragging: Bool) {
+        guard isDraggingCutLines != dragging else { return }
+        isDraggingCutLines = dragging
+        // Lasciando la presa le linee non si spengono di colpo: il lampo che segue dà il tempo
+        // di vedere dove si è finiti.
+        if !dragging { flashCutLines() }
+    }
+
+    /// Porta le linee a piena opacità per un momento, poi le lascia tornare giù.
+    ///
+    /// Un cronometro solo, e non uno per movimento: durante un trascinamento questo metodo viene
+    /// chiamato a ogni fotogramma, e far partire un'attesa ogni volta significherebbe sessanta
+    /// attese al secondo. La scadenza si sposta, il cronometro resta quello.
+    func flashCutLines() {
+        guard areCutLinesVisible else { return }
+        cutLineFlashDeadline = Date().addingTimeInterval(Self.cutLineFlashSeconds)
+        guard !isCutLineFlashing else { return }
+
+        isCutLineFlashing = true
+        Task { [weak self] in
+            while true {
+                guard let self, let deadline = self.cutLineFlashDeadline else { return }
+                let remaining = deadline.timeIntervalSinceNow
+                if remaining <= 0 { break }
+                try? await Task.sleep(for: .seconds(remaining))
+            }
+            self?.isCutLineFlashing = false
+        }
     }
 
     // MARK: Piani

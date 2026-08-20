@@ -206,6 +206,12 @@ struct CBCTMacApp: App {
                 Divider()
                 Button("Adatta alla finestra") { model.resetPlanes() }
                     .keyboardShortcut("0", modifiers: .command)
+
+                Button(
+                    model.areCutLinesVisible
+                        ? "Nascondi le linee di taglio" : "Mostra le linee di taglio"
+                ) { model.toggleCutLines() }
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
             }
 
             CommandMenu("Strumenti") {

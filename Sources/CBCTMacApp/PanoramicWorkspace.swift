@@ -366,6 +366,9 @@ struct PanoramicWorkspace: View {
                 // significati sullo stesso oggetto, distinti da dove lo si afferra: sono le due
                 // libertà di una sezione trasversale, e tenerle insieme rende il gesto immediato.
                 cutLineDrag = y < cutHandleFraction ? .angle : .position
+                // Afferrata la linea, torna piena: si sta scegliendo dove tagliare, ed è il
+                // momento in cui serve vederla bene. Stessa regola delle tracce del mirino.
+                model.setDraggingCutLines(true)
                 return
             }
         }
@@ -611,6 +614,7 @@ struct PanoramicWorkspace: View {
                 onDragBegan: beginPanoramicDrag,
                 onDragEnded: {
                     cutLineDrag = nil
+                    model.setDraggingCutLines(false)
                     model.endHandleDrag()
                     model.endObjectDrag()
                 },

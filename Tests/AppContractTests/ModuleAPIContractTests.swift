@@ -1148,4 +1148,24 @@ struct ModuleAPIContractTests {
         ])
         #expect(!collinear.validate().isEmpty)
     }
+
+    // MARK: AppModel: le linee di taglio
+
+    @Test("La regola di visibilità usata da tutte le sovraimpressioni")
+    func cutLineVisibilityAPI() {
+        // `AppModel.cutLineVisibility`, letta da `CrosshairOverlay`, `Volume3DOverlay` e
+        // `CrossSectionCutLine`. Una regola sola in tre posti: se divergesse, una vista
+        // resterebbe piena mentre le altre sbiadiscono.
+        let resting = CutLineVisibility(isVisible: true, isPointing: false)
+        let pointing = CutLineVisibility(isVisible: true, isPointing: true)
+        let hidden = CutLineVisibility(isVisible: false, isPointing: true)
+
+        #expect(resting.opacity == CutLineVisibility.restingOpacity)
+        #expect(pointing.opacity == 1)
+        #expect(hidden.opacity == 0)
+        #expect(resting.drawsAnything)
+        #expect(!hidden.drawsAnything)
+        // Il valore predefinito è «visibili e a riposo»: aprendo un esame le linee ci sono.
+        #expect(CutLineVisibility().opacity == CutLineVisibility.restingOpacity)
+    }
 }

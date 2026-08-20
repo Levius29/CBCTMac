@@ -34,10 +34,11 @@ struct CrosshairOverlay: View {
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
-            let items = traces(in: size)
+            let visibility = model.cutLineVisibility
+            let items = visibility.drawsAnything ? traces(in: size) : []
 
             Canvas { context, _ in
-                for item in items { draw(item, in: &context) }
+                for item in items { draw(item, in: &context, opacity: visibility.opacity) }
             }
             // Solo disegno. I gesti passano dal percorso eventi di `InteractiveMetalView`, in
             // `ViewportGrid`: vedi lì il commento sul perché un `DragGesture` sopra un `MTKView`
@@ -75,20 +76,28 @@ struct CrosshairOverlay: View {
 
     // MARK: Disegno
 
-    private func draw(_ item: TraceItem, in context: inout GraphicsContext) {
+    /// - Parameter opacity: quanto si vedono adesso. Vedi `CutLineVisibility`: sbiadite mentre si
+    ///   guarda, piene mentre si punta.
+    private func draw(_ item: TraceItem, in context: inout GraphicsContext, opacity: Double) {
         let trace = item.trace
         let color = item.represented.accentColor
 
         context.stroke(
-            Self.brokenLine(of: trace), with: .color(color.opacity(0.85)), lineWidth: 1)
+            Self.brokenLine(of: trace), with: .color(color.opacity(0.85 * opacity)), lineWidth: 1)
 
+        // Le maniglie seguono la stessa opacità delle linee, e non una loro.
+        //
+        // Sbiadite si afferrano lo stesso — la tolleranza di presa non cambia — e appena si
+        // preme il gesto le riporta piene. Tenerle accese sopra linee sbiadite darebbe sei
+        // pallini luminosi in un'immagine che si stava sgombrando proprio da quelli.
         for handle in [trace.startHandle, trace.endHandle].compactMap({ $0 }) {
             let radius: CGFloat = 5
             let rect = CGRect(
                 x: handle.x - radius, y: handle.y - radius,
                 width: radius * 2, height: radius * 2)
-            context.fill(Path(ellipseIn: rect), with: .color(color))
-            context.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.9)), lineWidth: 1)
+            context.fill(Path(ellipseIn: rect), with: .color(color.opacity(opacity)))
+            context.stroke(
+                Path(ellipseIn: rect), with: .color(.white.opacity(0.9 * opacity)), lineWidth: 1)
         }
     }
 

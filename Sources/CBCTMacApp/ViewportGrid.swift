@@ -326,6 +326,7 @@ struct ViewportContainer: View {
                     if archDragIndex != nil { model.rebuildCrossSections() }
                     crosshairDrag = nil
                     archDragIndex = nil
+                    model.setDraggingCutLines(false)
                 },
                 onCancel: { model.cancelToolSession() },
                 onDrawableSize: { pixelSize = $0 }
@@ -704,6 +705,9 @@ struct ViewportContainer: View {
         crosshairDrag = CrosshairDrag(
             represented: best.0, grip: best.1, lastPoint: point,
             isIndependent: NSEvent.modifierFlags.contains(.option))
+        // Afferrata una linea, tutte tornano piene: si sta puntando, e una traccia al venti per
+        // cento non si segue. Vale anche per le altre viste, dove si guarda dove si sta finendo.
+        model.setDraggingCutLines(true)
     }
 
     /// Applica il trascinamento a una linea del mirino. Restituisce falso se non c'è presa.

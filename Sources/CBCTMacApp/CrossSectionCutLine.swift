@@ -13,6 +13,14 @@ import SwiftUI
 // L'alternativa — un cursore per la posizione e un campo per l'angolo, da qualche parte in un
 // pannello — separa due grandezze che si scelgono guardando la stessa immagine, e obbliga a
 // spostare lo sguardo avanti e indietro fra il comando e il suo effetto.
+//
+// # Perché sparisce col pulsante delle linee di taglio
+//
+// Perché è una linea di taglio: nasconderla di là e lasciarla di qua vorrebbe dire che il
+// pulsante nasconde metà di quel che promette. E non toglie nulla di ciò che si può fare —
+// la sezione si sceglie anche facendo clic sul panorex o con la rotella, e il taglio si inclina
+// anche con ⇧ trascinamento sulla sezione stessa, che è il posto in cui l'inclinazione si vede.
+// Quale sezione sia selezionata continua a dirlo la striscia, col bordo acceso e l'etichetta.
 
 struct CrossSectionCutLine: View {
 
@@ -24,7 +32,8 @@ struct CrossSectionCutLine: View {
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
-            if let x = lineX(in: size) {
+            let visibility = model.cutLineVisibility
+            if visibility.drawsAnything, let x = lineX(in: size) {
                 ZStack(alignment: .topLeading) {
                     // La linea, inclinata dell'angolo di taglio. L'inclinazione a schermo è la
                     // stessa che il taglio ha nell'anatomia, quindi si vede cosa si otterrà prima
@@ -35,7 +44,7 @@ struct CrossSectionCutLine: View {
                         path.move(to: CGPoint(x: x - offset, y: 0))
                         path.addLine(to: CGPoint(x: x + offset, y: size.height))
                     }
-                    .stroke(Palette.accent.opacity(0.9), lineWidth: 1.5)
+                    .stroke(Palette.accent.opacity(0.9 * visibility.opacity), lineWidth: 1.5)
 
                     // Maniglia di rotazione in cima, dove non copre l'anatomia che si sta
                     // guardando: la cresta e gli apici stanno in mezzo, non al bordo.
@@ -43,12 +52,13 @@ struct CrossSectionCutLine: View {
                         .fill(Palette.accent)
                         .overlay(Circle().stroke(.white, lineWidth: 1.5))
                         .frame(width: 11, height: 11)
+                        .opacity(visibility.opacity)
                         .position(
                             x: x - CGFloat(Foundation.tan(model.crossSectionAngleOffset))
                                 * size.height / 2,
                             y: size.height * handleFraction)
 
-                    positionLabel(at: x, in: size)
+                    positionLabel(at: x, in: size).opacity(visibility.opacity)
                 }
             }
         }

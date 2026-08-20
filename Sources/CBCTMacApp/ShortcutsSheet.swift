@@ -141,6 +141,7 @@ struct ShortcutsSheet: View {
             ("⇧⌘G", "Costruisci la dima chirurgica"),
             ("⇧⌘P", "Esporta la relazione del piano"),
             ("⇧⌘O", "Apri un piano salvato"),
+            ("⇧⌘L", "Nascondi o rimetti le linee di taglio"),
             ("⌫", "Cancella la misura selezionata"),
             ("Esc", "Annulla la misura che stai posando"),
         ]

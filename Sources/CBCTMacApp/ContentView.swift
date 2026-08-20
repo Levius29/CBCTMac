@@ -195,6 +195,25 @@ struct ContentView: View {
             .help("Apri una cartella con uno studio DICOM")
         }
 
+        // Le linee di taglio si tolgono di mezzo da qui, con un clic.
+        //
+        // Nella barra e non fra i pulsanti d'angolo di un riquadro: è una decisione che vale per
+        // **tutte** le viste insieme — nasconderle solo in una lascerebbe le altre a dire che il
+        // mirino sta altrove, che è peggio di non averle tolte.
+        ToolbarItem {
+            Button { model.toggleCutLines() } label: {
+                Label(
+                    model.areCutLinesVisible
+                        ? "Nascondi le linee di taglio" : "Mostra le linee di taglio",
+                    systemImage: model.areCutLinesVisible ? "scope" : "circle.dotted")
+            }
+            .help(
+                model.areCutLinesVisible
+                    ? "Nascondi le linee del mirino in tutte le viste (⇧⌘L)"
+                    : "Rimetti le linee del mirino (⇧⌘L)")
+            .disabled(model.volume == nil)
+        }
+
         ToolbarItem {
             Menu {
                 ForEach(ViewportLayout.allCases, id: \.self) { layout in

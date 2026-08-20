@@ -109,6 +109,13 @@ struct Volume3DOverlay: View {
     private func drawPlanes(
         _ context: inout GraphicsContext, geometry: VolumeGeometry, projector: ScreenProjector
     ) {
+        // Le cornici dei piani sono le linee di taglio viste da qui: seguono la stessa regola
+        // delle tracce sui riquadri, perché sono la stessa informazione. Nasconderle di là e
+        // lasciarle di qua vorrebbe dire che il pulsante nasconde metà di quel che promette.
+        let visibility = model.cutLineVisibility
+        guard visibility.drawsAnything else { return }
+        let fade = visibility.opacity
+
         for slot in ViewportSlot.allCases {
             guard slot.anatomicalPlane != nil, let plane = model.planes[slot] else { continue }
             let segments = PlaneFrameGeometry.outline(
@@ -132,7 +139,7 @@ struct Volume3DOverlay: View {
                     }
                 }
                 context.stroke(
-                    faces, with: .color(color.opacity(0.30)),
+                    faces, with: .color(color.opacity(0.30 * fade)),
                     style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
             }
             var front = Path()
@@ -145,15 +152,15 @@ struct Volume3DOverlay: View {
                 }
             }
             context.stroke(
-                back, with: .color(color.opacity(0.35)),
+                back, with: .color(color.opacity(0.35 * fade)),
                 style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
-            context.stroke(front, with: .color(color.opacity(0.95)), lineWidth: 1.5)
+            context.stroke(front, with: .color(color.opacity(0.95 * fade)), lineWidth: 1.5)
 
             // Una velatura appena percettibile dentro la cornice del riquadro attivo, per
             // distinguerlo dagli altri due senza aggiungere un'altra linea a un disegno che di
             // linee ne ha già molte.
             if slot == model.focusedSlot, let filled = filledPolygon(from: segments) {
-                context.fill(filled, with: .color(color.opacity(0.07)))
+                context.fill(filled, with: .color(color.opacity(0.07 * fade)))
             }
         }
     }
