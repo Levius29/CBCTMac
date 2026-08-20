@@ -155,6 +155,7 @@ public struct PatientArchive: Sendable {
     public static let planName = "piano.cbctplan"
     public static let examName = "esame.json"
     public static let scanName = "scansione.stl"
+    public static let snapshotsFolderName = "istantanee"
 
     public let rootURL: URL
 
@@ -327,6 +328,56 @@ public struct PatientArchive: Sendable {
         try save(index)
         try? JSONEncoder.archive.encode(index.entries[position]).write(
             to: folder.appendingPathComponent(Self.examName), options: .atomic)
+    }
+
+    /// La cartella delle istantanee di un esame.
+    public func snapshotsDirectory(for id: UUID) -> URL {
+        directory(for: id).appendingPathComponent(Self.snapshotsFolderName)
+    }
+
+    /// Aggiunge un'istantanea a un esame archiviato.
+    ///
+    /// Un file per istantanea, col proprio identificatore come nome. Non un unico archivio di
+    /// immagini: cancellarne una diventerebbe riscrivere tutte le altre, e un'istantanea si
+    /// cancella spesso — se ne prendono cinque e se ne tengono due.
+    public func addSnapshot(_ png: Data, id snapshotID: UUID, for examID: UUID) throws {
+        let index = try loadIndex()
+        guard index.entries.contains(where: { $0.id == examID }) else {
+            throw ArchiveError.entryNotFound(examID)
+        }
+        let folder = snapshotsDirectory(for: examID)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try png.write(
+            to: folder.appendingPathComponent(snapshotID.uuidString + ".png"), options: .atomic)
+    }
+
+    /// I byte di un'istantanea, se c'è.
+    public func loadSnapshot(_ snapshotID: UUID, for examID: UUID) -> Data? {
+        try? Data(
+            contentsOf: snapshotsDirectory(for: examID)
+                .appendingPathComponent(snapshotID.uuidString + ".png"))
+    }
+
+    /// Toglie un'istantanea. Silenzioso se non c'è: cancellare ciò che non esiste è già fatto.
+    public func removeSnapshot(_ snapshotID: UUID, for examID: UUID) {
+        try? FileManager.default.removeItem(
+            at: snapshotsDirectory(for: examID)
+                .appendingPathComponent(snapshotID.uuidString + ".png"))
+    }
+
+    /// Gli identificatori delle istantanee presenti sul disco per un esame.
+    ///
+    /// Dal **disco** e non da un elenco conservato: le due cose divergerebbero appena una
+    /// scrittura si interrompe, e i file sono la verità. Ordinati per nome, che con degli UUID
+    /// non significa niente — l'ordine che conta lo tiene il piano, che è dove l'utente le ha
+    /// messe in fila.
+    public func snapshotIdentifiers(for examID: UUID) -> [UUID] {
+        let folder = snapshotsDirectory(for: examID)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names.compactMap { name in
+            guard name.hasSuffix(".png") else { return nil }
+            return UUID(uuidString: String(name.dropLast(4)))
+        }.sorted { $0.uuidString < $1.uuidString }
     }
 
     /// La scansione salvata con l'esame, se c'è.

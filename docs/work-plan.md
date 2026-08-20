@@ -47,7 +47,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | A3 | Cinque **modi di lavoro** a schede, non layout: ortogonale, curvo, personalizzato, obliquo, relazione | ✅ | 3 | K |
 | A4 | Pannelli laterali richiudibili con memoria dello stato | ✅ | 2 | H |
 | A5 | Pannello contestuale che cambia col tipo di oggetto attivo | ✅ | 3 | E, H |
-| A6 | Galleria delle istantanee salvate | ❌ | 1 | J |
+| A6 | Galleria delle istantanee salvate | ✅ | 1 | J |
 | A7 | Menu applicazione con impostazioni | ✅ | 1 | H |
 
 ### B — Palette degli strumenti

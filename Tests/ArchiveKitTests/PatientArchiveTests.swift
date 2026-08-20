@@ -459,4 +459,69 @@ struct PatientArchiveTests {
             try archive.setScan(Data("solid".utf8), for: UUID())
         }
     }
+
+    // MARK: Istantanee
+
+    @Test("Le istantanee stanno una per file, e si tolgono senza toccare le altre")
+    func snapshotsAreIndependentFiles() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let entry = try archive.store(
+            volume: try tinyVolume(), patient: PatientIdentity(patientID: "P1"), exam: exam())
+
+        let first = UUID()
+        let second = UUID()
+        try archive.addSnapshot(Data("uno".utf8), id: first, for: entry.id)
+        try archive.addSnapshot(Data("due".utf8), id: second, for: entry.id)
+
+        #expect(Set(archive.snapshotIdentifiers(for: entry.id)) == [first, second])
+        #expect(archive.loadSnapshot(first, for: entry.id) == Data("uno".utf8))
+
+        // Toglierne una non tocca l'altra: se stessero in un unico archivio, cancellarne una
+        // vorrebbe dire riscrivere tutte, e un'istantanea si cancella spesso.
+        archive.removeSnapshot(first, for: entry.id)
+        #expect(archive.loadSnapshot(first, for: entry.id) == nil)
+        #expect(archive.loadSnapshot(second, for: entry.id) == Data("due".utf8))
+        #expect(archive.snapshotIdentifiers(for: entry.id) == [second])
+    }
+
+    @Test("Un'istantanea per un esame che non c'è è un errore, non una cartella orfana")
+    func snapshotForMissingExamThrows() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let ghost = UUID()
+        #expect(throws: ArchiveError.self) {
+            try archive.addSnapshot(Data("x".utf8), id: UUID(), for: ghost)
+        }
+        #expect(!FileManager.default.fileExists(atPath: archive.snapshotsDirectory(for: ghost).path))
+    }
+
+    @Test("Cancellare l'esame porta via anche le sue istantanee")
+    func removingExamRemovesSnapshots() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let entry = try archive.store(
+            volume: try tinyVolume(), patient: PatientIdentity(patientID: "P1"), exam: exam())
+        let shot = UUID()
+        try archive.addSnapshot(Data("uno".utf8), id: shot, for: entry.id)
+
+        try archive.remove(id: entry.id)
+        #expect(archive.loadSnapshot(shot, for: entry.id) == nil)
+        #expect(archive.snapshotIdentifiers(for: entry.id).isEmpty)
+    }
+
+    @Test("Togliere un'istantanea che non c'è non è un errore")
+    func removingMissingSnapshotIsSilent() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+        let entry = try archive.store(
+            volume: try tinyVolume(), patient: PatientIdentity(patientID: "P1"), exam: exam())
+        // Cancellare ciò che non esiste è già fatto: sollevare un errore obbligherebbe ogni
+        // chiamante a gestirlo per nulla.
+        archive.removeSnapshot(UUID(), for: entry.id)
+        #expect(archive.snapshotIdentifiers(for: entry.id).isEmpty)
+    }
 }

@@ -2114,6 +2114,8 @@ final class AppModel {
         annotations = []
         implants = []
         teeth = []
+        snapshots = []
+        snapshotImages = [:]
         nerveCanals = []
         roiStatistics = [:]
         selectedAnnotationID = nil
@@ -3030,6 +3032,126 @@ final class AppModel {
         archive.search(archiveSearchText, in: archivedPatients)
     }
 
+    // MARK: - Istantanee
+
+    // # A che cosa serve una galleria, se c'è già l'esportazione
+    //
+    // L'esportazione produce un file e finisce lì: per confrontare due inquadrature bisogna
+    // salvarne due e aprirle fuori dal programma. Una galleria le tiene **dentro il caso**, con
+    // il piano e con l'esame, e la relazione le usa al posto di quelle automatiche — così le
+    // immagini del documento sono quelle scelte guardando, non quelle che capitavano quando si
+    // è premuto esporta.
+
+    /// Un'inquadratura salvata.
+    struct Snapshot: Hashable, Sendable, Codable, Identifiable {
+        var id: UUID
+        var title: String
+        var caption: String
+        var takenAt: Date
+
+        init(id: UUID = UUID(), title: String, caption: String, takenAt: Date = Date()) {
+            self.id = id
+            self.title = title
+            self.caption = caption
+            self.takenAt = takenAt
+        }
+    }
+
+    /// Le istantanee del caso, nell'ordine in cui sono state prese.
+    ///
+    /// Qui i **titoli**, nell'archivio i pixel: un elenco di descrizioni pesa nulla e sta nel
+    /// piano, mentre qualche megabyte di PNG no. È la stessa divisione della scansione.
+    private(set) var snapshots: [Snapshot] = []
+    /// I pixel tenuti in memoria per disegnare le anteprime, per identificatore.
+    private(set) var snapshotImages: [UUID: Data] = [:]
+
+    /// Prende un'istantanea del riquadro attivo.
+    ///
+    /// Del riquadro **attivo** e non di tutti: si scatta guardando, e ciò che si sta guardando è
+    /// uno. Un comando che ne salvasse quattro riempirebbe la galleria di inquadrature che
+    /// nessuno ha scelto, ed è precisamente ciò che rende inutile una galleria.
+    func captureSnapshot() {
+        guard volume != nil else { return }
+        let slot = focusedSlot
+        let side = 900
+
+        var title = slot.localizedName
+        var plane: MPRPlane?
+        if let focused = planes[slot], slot.anatomicalPlane != nil {
+            plane = focused.matchingAspect(pixelWidth: side, pixelHeight: side)
+        } else if let section = crossSectionBrowser.selectedSection {
+            // Sul 3D e sulla panorex non c'è un piano da renderizzare fuori schermo: si prende
+            // la sezione selezionata, che è il piano su cui si stava lavorando. Dirlo nel titolo
+            // evita che sembri un difetto.
+            plane = section.plane.matchingAspect(pixelWidth: side, pixelHeight: side)
+            title = "Sezione trasversale " + section.label
+        }
+
+        guard let plane,
+            let data = try? ImageExport.pngData(
+                plane: plane, model: self, pixelWidth: side, pixelHeight: side)
+        else {
+            lastActionMessage = "Istantanea non riuscita: questo riquadro non ha un piano da "
+                + "renderizzare fuori schermo."
+            return
+        }
+
+        let snapshot = Snapshot(title: title, caption: crosshairCaption)
+        snapshots.append(snapshot)
+        snapshotImages[snapshot.id] = data
+        lastActionMessage = "Istantanea «\(title)» aggiunta alla galleria."
+        Task { await storeSnapshotInArchive(snapshot.id, data: data) }
+    }
+
+    func renameSnapshot(_ title: String, id: UUID) {
+        guard let index = snapshots.firstIndex(where: { $0.id == id }) else { return }
+        snapshots[index].title = title
+        scheduleArchivedPlanSave()
+    }
+
+    func removeSnapshot(id: UUID) {
+        snapshots.removeAll { $0.id == id }
+        snapshotImages.removeValue(forKey: id)
+        if let examID = archivedExamID {
+            let store = archive
+            Task.detached(priority: .utility) { store.removeSnapshot(id, for: examID) }
+        }
+        scheduleArchivedPlanSave()
+    }
+
+    /// Riporta i titoli letti dal piano, e ne recupera i pixel dall'archivio.
+    ///
+    /// Un titolo senza pixel si scarta: sarebbe una riga in galleria che non mostra niente, e
+    /// capita quando un piano viene aperto fuori dall'archivio in cui le immagini stanno.
+    func adoptSnapshots(_ restored: [Snapshot]) {
+        guard let examID = archivedExamID else {
+            snapshots = []
+            snapshotImages = [:]
+            return
+        }
+        let store = archive
+        var kept: [Snapshot] = []
+        var images: [UUID: Data] = [:]
+        for snapshot in restored {
+            guard let data = store.loadSnapshot(snapshot.id, for: examID) else { continue }
+            kept.append(snapshot)
+            images[snapshot.id] = data
+        }
+        snapshots = kept
+        snapshotImages = images
+    }
+
+    private func storeSnapshotInArchive(_ id: UUID, data: Data) async {
+        guard let examID = archivedExamID else { return }
+        let store = archive
+        let error = await Task.detached(priority: .utility) { () -> String? in
+            do { try store.addSnapshot(data, id: id, for: examID); return nil }
+            catch { return error.localizedDescription }
+        }.value
+        if let error { archiveMessage = "Istantanea non salvata: \(error)" }
+        scheduleArchivedPlanSave()
+    }
+
     // MARK: - Segmentazione
 
     // # Perché la segmentazione compare come contorno e non come voxel colorati
@@ -3335,6 +3457,17 @@ final class AppModel {
     /// sarebbe sproporzionato.
     private func renderReportImages() -> [ReportImage] {
         guard volume != nil else { return [] }
+
+        // Le istantanee scelte vincono su quelle automatiche: se qualcuno si è preso la briga di
+        // inquadrare e scattare, quelle sono le immagini che vuole nel documento. Le automatiche
+        // restano per chi non ne ha prese, così la relazione non esce mai senza figure.
+        if !snapshots.isEmpty {
+            return snapshots.compactMap { snapshot in
+                guard let data = snapshotImages[snapshot.id] else { return nil }
+                return ReportImage(
+                    title: snapshot.title, caption: snapshot.caption, pngData: data)
+            }
+        }
         // 900 px di lato: si stampa nitido su mezza pagina A4 e il file resta sotto il paio di
         // megabyte per immagine. A 1800 il documento diventa difficile da mandare per posta.
         let side = 900

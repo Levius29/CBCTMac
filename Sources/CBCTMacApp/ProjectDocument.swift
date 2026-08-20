@@ -46,6 +46,13 @@ struct ProjectDocument: Codable, Sendable {
     /// una superficie da qualche megabyte. Riaprendo un caso dall'archivio le due parti si
     /// ritrovano; aprendo un `.cbctplan` da solo si ritrova il piano senza la scansione, che è
     /// esattamente ciò che quel formato promette.
+    /// I titoli delle istantanee, non i pixel.
+    ///
+    /// Come per la scansione: qui l'elenco leggero, nell'archivio le immagini. Un piano aperto
+    /// fuori dall'archivio in cui stanno ritrova i titoli e non le figure, e la galleria scarta
+    /// le righe senza immagine invece di mostrarne di vuote.
+    var snapshots: [AppModel.Snapshot]?
+
     var scanTransform: Transform3D?
     /// Scarto quadratico medio della registrazione, per non doverla rifare solo per sapere
     /// quanto valeva.
@@ -83,6 +90,7 @@ struct ProjectDocument: Codable, Sendable {
         self.implants = model.implants
         self.nerveCanals = model.nerveCanals
         self.teeth = model.teeth
+        self.snapshots = model.snapshots
         self.scanTransform = model.scan == nil ? nil : model.scanTransform
         self.scanRegistrationRMSMM = model.scanRegistration?.surfaceRMSMM
         self.archControlPointsMM = model.archCurve.controlPointsMM.map { [$0.x, $0.y, $0.z] }
@@ -157,6 +165,7 @@ struct ProjectDocument: Codable, Sendable {
         model.implants = implants
         model.nerveCanals = nerveCanals
         model.teeth = teeth ?? []
+        model.adoptSnapshots(snapshots ?? [])
         if let scanTransform { model.adoptScanTransform(scanTransform) }
 
         let points = archControlPointsMM.compactMap { values -> Vec3? in

@@ -57,6 +57,17 @@ struct LeftColumn: View {
                     ObjectListPanel(model: model)
                 }
 
+                if model.hasOpenStudy {
+                    SidePanel(
+                        title: "Istantanee", systemImage: "photo.on.rectangle",
+                        storageKey: "istantanee",
+                        initiallyExpanded: false,
+                        badge: model.snapshots.isEmpty ? nil : "\(model.snapshots.count)"
+                    ) {
+                        SnapshotGallery(model: model)
+                    }
+                }
+
                 SidePanel(
                     title: "Esporta", systemImage: "square.and.arrow.up",
                     storageKey: "export", initiallyExpanded: false
