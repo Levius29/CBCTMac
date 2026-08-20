@@ -82,6 +82,31 @@ struct SegmentationSheet: View {
         VStack(alignment: .leading, spacing: Metrics.spacing) {
             SectionHeader("FINESTRA DI DENSITÀ (\(unitSymbol))")
 
+            // I preset prima dei numeri: nessuno conosce a memoria la soglia dello smalto, e
+            // partire da un valore plausibile e correggerlo è molto più rapido che cercarlo
+            // sull'istogramma da zero.
+            LabeledControl("Preset") {
+                Menu(currentPreset?.name ?? "Personalizzato") {
+                    ForEach(ThresholdPreset.all) { preset in
+                        Button(preset.name) {
+                            model.segmentationLowerGV = preset.lowerGV
+                            model.segmentationUpperGV = preset.upperGV
+                            // Le vie aeree hanno bisogno del componente più grande più di ogni
+                            // altra cosa: senza, prendono l'aria attorno alla testa.
+                            if preset.id == "aeree" { model.segmentationKeepsLargest = true }
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+
+            if let caveat = currentPreset?.caveat {
+                Text(caveat)
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             LabeledControl("Da") {
                 TextField("", value: $model.segmentationLowerGV, format: .number)
                     .textFieldStyle(.roundedBorder)
@@ -176,6 +201,18 @@ struct SegmentationSheet: View {
             Text(value.replacingOccurrences(of: ".", with: ","))
                 .font(Typography.numericSmall)
                 .foregroundStyle(Palette.textPrimary)
+        }
+    }
+
+    /// Il preset che corrisponde alla finestra corrente, se ce n'è uno.
+    ///
+    /// Confrontato sui valori e non ricordato in una variabile: spostando una soglia a mano il
+    /// menu deve tornare a dire «Personalizzato», e uno stato separato prima o poi direbbe
+    /// «Osso» su una finestra che osso non è più.
+    private var currentPreset: ThresholdPreset? {
+        ThresholdPreset.all.first {
+            abs($0.lowerGV - model.segmentationLowerGV) < 0.5
+                && abs($0.upperGV - model.segmentationUpperGV) < 0.5
         }
     }
 

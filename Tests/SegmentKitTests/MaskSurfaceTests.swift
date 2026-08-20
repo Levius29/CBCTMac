@@ -124,3 +124,55 @@ struct MaskSurfaceTests {
         #expect(mesh != nil || !MaskSurface.isEmpty(mask, label: 1))
     }
 }
+
+// MARK: - I preset di soglia
+
+@Suite("Preset di soglia")
+struct ThresholdPresetTests {
+
+    @Test("Ogni preset ha una finestra sensata e un caveat scritto")
+    func presetsAreWellFormed() {
+        #expect(!ThresholdPreset.all.isEmpty)
+        for preset in ThresholdPreset.all {
+            #expect(preset.lowerGV < preset.upperGV, "\(preset.name): finestra rovesciata")
+            #expect(!preset.name.isEmpty)
+            // Il caveat non è decorazione: dice che cosa il preset prende per sbaglio, ed è la
+            // sola cosa che impedisce di leggere «Osso» come «solo osso».
+            #expect(preset.caveat.count > 30, "\(preset.name): caveat troppo corto per dire nulla")
+        }
+    }
+
+    @Test("Gli identificatori sono unici, altrimenti il menu ne perderebbe uno")
+    func identifiersAreUnique() {
+        let identifiers = ThresholdPreset.all.map(\.id)
+        #expect(Set(identifiers).count == identifiers.count)
+        let names = ThresholdPreset.all.map(\.name)
+        #expect(Set(names).count == names.count)
+    }
+
+    @Test("Le finestre sono ordinate per densità crescente, come l'anatomia")
+    func presetsCoverTheRangeInOrder() throws {
+        // Aria, tessuti molli, osso, denti, metallo: è la scala su cui si legge una CBCT, e i
+        // preset devono starci sopra senza salti assurdi.
+        func preset(_ id: String) throws -> ThresholdPreset {
+            try #require(ThresholdPreset.all.first { $0.id == id })
+        }
+        let air = try preset("aeree")
+        let soft = try preset("molli")
+        let bone = try preset("osso")
+        let teeth = try preset("denti")
+        let metal = try preset("metallo")
+
+        #expect(air.upperGV <= soft.lowerGV, "aria e tessuti molli non devono sovrapporsi")
+        #expect(soft.upperGV < bone.lowerGV)
+        #expect(bone.lowerGV < teeth.lowerGV)
+        #expect(teeth.lowerGV < metal.lowerGV)
+    }
+
+    @Test("Il preset del metallo arriva al massimo rappresentabile")
+    func metalReachesTheTop() throws {
+        let metal = try #require(ThresholdPreset.all.first { $0.id == "metallo" })
+        // Un tetto più basso taglierebbe via proprio i voxel più densi, che sono il metallo.
+        #expect(metal.upperGV >= Double(Int16.max))
+    }
+}

@@ -2,6 +2,79 @@ import Foundation
 import DICOMCore
 
 /// Segmentazione per intervalli di densità, convertiti una volta nei valori grezzi del volume.
+/// Finestre di densità di partenza per la segmentazione.
+///
+/// # Sono punti di partenza, non valori
+///
+/// Su una CBCT i valori grigi **non** sono unità Hounsfield: dipendono dall'apparecchio, dal
+/// campo di vista e dalla posizione nel volume. Le soglie qui sotto sono quelle che funzionano
+/// sulla maggior parte delle macchine dentali, e vanno spostate guardando l'istogramma di
+/// *questo* volume — che è il motivo per cui sono preset e non costanti nascoste nel codice.
+///
+/// Vale il Contratto 4: nessuno di questi numeri è confrontabile con la letteratura in HU.
+public struct ThresholdPreset: Hashable, Sendable, Identifiable {
+
+    public let id: String
+    public let name: String
+    public let lowerGV: Double
+    public let upperGV: Double
+    /// Che cosa ci si aspetta di prendere, e che cosa si prende per sbaglio.
+    public let caveat: String
+
+    public init(id: String, name: String, lowerGV: Double, upperGV: Double, caveat: String) {
+        self.id = id
+        self.name = name
+        self.lowerGV = lowerGV
+        self.upperGV = upperGV
+        self.caveat = caveat
+    }
+
+    public static let all: [ThresholdPreset] = [
+        ThresholdPreset(
+            id: "osso",
+            name: "Osso",
+            lowerGV: 1000,
+            upperGV: 3500,
+            caveat: "Prende anche denti, colonna e otturazioni: tutto ciò che è abbastanza denso."),
+        ThresholdPreset(
+            id: "corticale",
+            name: "Osso corticale",
+            lowerGV: 1300,
+            upperGV: 2200,
+            caveat: "Solo il guscio esterno. Su osso di scarsa qualità la corticale è sottile e "
+                + "la maschera si spezza: è un'informazione, non un difetto."),
+        ThresholdPreset(
+            id: "denti",
+            name: "Denti e smalto",
+            lowerGV: 2000,
+            upperGV: 4000,
+            caveat: "Lo smalto è la struttura più densa. Le corone metalliche stanno sopra a "
+                + "questa finestra e restano fuori; le otturazioni in amalgama no."),
+        ThresholdPreset(
+            id: "molli",
+            name: "Tessuti molli e gengiva",
+            lowerGV: -300,
+            upperGV: 400,
+            caveat: "Gengiva, labbro e lingua hanno densità simili e non si distinguono per "
+                + "soglia: quel che esce è il profilo dei tessuti molli, non la gengiva da sola. "
+                + "Serve a vedere dove appoggia una protesi, non a modellarla."),
+        ThresholdPreset(
+            id: "aeree",
+            name: "Vie aeree",
+            lowerGV: -1024,
+            upperGV: -400,
+            caveat: "L'aria dentro e fuori il paziente è la stessa: tieni il componente più "
+                + "grande, o prenderai anche lo spazio attorno alla testa."),
+        ThresholdPreset(
+            id: "metallo",
+            name: "Metallo",
+            lowerGV: 3000,
+            upperGV: 32767,
+            caveat: "Corone, perni e otturazioni. Utile per vedere da dove nascono le strie "
+                + "prima di ridurle."),
+    ]
+}
+
 public enum ThresholdSegmentation: Sendable {
     /// Etichetta i voxel la cui densità cade nell'intervallo, eventualmente solo dentro una maschera.
     public static func segment(

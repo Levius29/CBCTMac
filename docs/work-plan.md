@@ -60,7 +60,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | B4 | Strumento arcata | ✅ | 3 | — |
 | B5 | Strumento canale mandibolare | ✅ | 2 | — |
 | B6 | Strumento impianto | ✅ | 3 | — |
-| B7 | Strumento tessuto gengivale | ❌ | 1 | M |
+| B7 | Strumento tessuto gengivale | 🔶 | 1 | M |
 | B8 | Strumento barra protesica | ✅ | 1 | M |
 | B9 | Strumento dente protesico | ✅ | 2 | M |
 | B10 | Profilo del viso / cefalometria | ❌ | 1 | M |
