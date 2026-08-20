@@ -265,6 +265,21 @@ struct InspectorPanel: View {
         ("Inferiore destro (4×)", Array(41...48)),
     ]
 
+    /// Lo spazio protesico più stretto, con la soglia che lo rende leggibile.
+    ///
+    /// Dieci millimetri è la cifra comunemente citata per una protesi avvitata su barra —
+    /// struttura, resina e dente — ed è **orientativa**: dipende dal materiale, dal tipo di
+    /// protesi e dal caso. Il programma segnala, non decide.
+    private func spaceNote(_ millimetresValue: Double, tooth: Int) -> String {
+        let value = String(format: "%.1f", millimetresValue)
+            .replacingOccurrences(of: ".", with: ",")
+        if millimetresValue < 10 {
+            return "Spazio protesico più stretto: \(value) mm sul \(tooth). Sotto i dieci "
+                + "millimetri circa la protesi si assottiglia: valuta di affondare gli impianti."
+        }
+        return "Spazio protesico più stretto: \(value) mm sul \(tooth)."
+    }
+
     private static func millimetres(_ value: Double) -> String {
         String(format: "%.1f mm", value).replacingOccurrences(of: ".", with: ",")
     }
@@ -369,6 +384,56 @@ struct InspectorPanel: View {
                     .font(Typography.label)
                     .foregroundStyle(Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider().overlay(Palette.separator)
+            SectionHeader("BARRA PROTESICA")
+
+            if let bar = model.selectedBar {
+                LabeledControl("Diametro") {
+                    SteppedValue(
+                        label: "", value: bar.diameterMM, step: 0.5, format: "%.1f"
+                    ) { newValue in
+                        model.updateBar(id: bar.id) { $0.diameterMM = max(newValue, 0.5) }
+                    }
+                }
+                LabeledControl("Sopra le teste") {
+                    SteppedValue(
+                        label: "", value: bar.offsetMM, step: 0.5, format: "%.1f"
+                    ) { newValue in
+                        model.updateBar(id: bar.id) { $0.offsetMM = newValue }
+                    }
+                }
+
+                let spaces = model.prostheticSpace(for: bar)
+                if let tightest = spaces.first {
+                    // Lo spazio **minimo**, non la media: la protesi si rompe dove è più
+                    // sottile, e una media che nascondesse un punto da sei millimetri
+                    // direbbe che va tutto bene proprio dove non va.
+                    Text(spaceNote(tightest.spaceMM, tooth: tightest.tooth.toothNumber))
+                        .font(Typography.label)
+                        .foregroundStyle(tightest.spaceMM < 10 ? Palette.warning : Palette.safe)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if model.teeth.isEmpty {
+                    Text("Posa i denti protesici per sapere quanto spazio resta sopra la barra.")
+                        .font(Typography.label)
+                        .foregroundStyle(Palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button(role: .destructive) {
+                    model.removeBar(id: bar.id)
+                } label: {
+                    Label("Elimina barra", systemImage: "trash").frame(maxWidth: .infinity)
+                }
+            } else {
+                Button {
+                    model.addProstheticBar()
+                } label: {
+                    Label("Unisci gli impianti con una barra", systemImage: "link")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(model.implants.filter(\.isVisible).count < 2)
             }
 
             Divider().overlay(Palette.separator)

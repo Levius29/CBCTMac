@@ -105,13 +105,14 @@ struct ObjectListPanel: View {
     }
 
     private var shownKinds: [PlanObjectKind] {
-        [.implant, .prostheticTooth, .nerveCanal, .annotation, .archCurve]
+        [.implant, .prostheticTooth, .prostheticBar, .nerveCanal, .annotation, .archCurve]
     }
 
     private func icon(for kind: PlanObjectKind) -> String {
         switch kind {
         case .implant: return "screwdriver"
         case .prostheticTooth: return "mouth"
+        case .prostheticBar: return "minus.rectangle"
         case .nerveCanal: return "point.topleft.down.curvedto.point.bottomright.up"
         case .archCurve: return "waveform.path"
         case .annotation: return "ruler"
@@ -124,6 +125,7 @@ struct ObjectListPanel: View {
         switch kind {
         case .implant: return "Impianti"
         case .prostheticTooth: return "Denti protesici"
+        case .prostheticBar: return "Barre"
         case .nerveCanal: return "Canali nervosi"
         case .archCurve: return "Curve d'arcata"
         case .annotation: return "Misure e note"
@@ -137,6 +139,8 @@ struct ObjectListPanel: View {
         case .implant: return "Nessun impianto. Prendi lo strumento impianto e fai clic sulla cresta."
         case .prostheticTooth:
             return "Nessun dente. Posa prima il dente dove lo vuole la protesi, poi l'impianto sotto."
+        case .prostheticBar:
+            return "Nessuna barra. Servono almeno due impianti; la barra li unisce nell'ordine dell'arcata."
         case .nerveCanal: return "Nessun canale tracciato."
         case .archCurve: return "Nessuna curva. Prendi lo strumento arcata e posa i punti sull'assiale."
         case .annotation: return "Nessuna misura."

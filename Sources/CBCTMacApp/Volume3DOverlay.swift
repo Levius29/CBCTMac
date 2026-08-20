@@ -65,6 +65,7 @@ struct Volume3DOverlay: View {
                 drawArchBand(&context, projector: projector)
                 drawPlanes(&context, geometry: volume.geometry, projector: projector)
                 drawCurrentSection(&context, geometry: volume.geometry, projector: projector)
+                drawBars(&context, projector: projector)
                 drawImplants(&context, projector: projector)
                 drawTeeth(&context, projector: projector)
                 // Le etichette per ultime, sopra ogni disegno: sono ciò che si legge, e una
@@ -233,6 +234,19 @@ struct Volume3DOverlay: View {
                 mesh, in: &context, projector: projector,
                 colour: implantColor(implant),
                 isSelected: implant.id == model.selectedImplantID)
+        }
+    }
+
+    /// Le barre, come i tubi che sono.
+    private func drawBars(_ context: inout GraphicsContext, projector: ScreenProjector) {
+        for bar in model.bars where bar.isVisible {
+            let mesh = ProstheticBarBuilder.surface(
+                of: bar, implants: model.implants, segments: Self.solidSegments)
+            guard !mesh.triangles.isEmpty else { continue }
+            draw(
+                mesh, in: &context, projector: projector,
+                colour: Color(hexString: bar.colorHex) ?? Palette.textPrimary,
+                isSelected: bar.id == model.selectedBarID)
         }
     }
 

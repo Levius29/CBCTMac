@@ -38,6 +38,9 @@ struct ProjectDocument: Codable, Sendable {
     /// lavoro di chi lo usava già. Con un opzionale la chiave assente decodifica a `nil` senza
     /// che serva alzare `formatVersion`, che resta riservato ai cambiamenti *incompatibili*.
     var teeth: [ProstheticTooth]?
+    /// Le barre protesiche. Opzionale per la stessa ragione dei denti: i piani salvati prima
+    /// non hanno la chiave, e rifiutarli per una funzione aggiunta dopo perderebbe il lavoro.
+    var bars: [ProstheticBar]?
 
     /// Dove sta la scansione intraorale rispetto al volume, dopo la registrazione.
     ///
@@ -90,6 +93,7 @@ struct ProjectDocument: Codable, Sendable {
         self.implants = model.implants
         self.nerveCanals = model.nerveCanals
         self.teeth = model.teeth
+        self.bars = model.bars
         self.snapshots = model.snapshots
         self.scanTransform = model.scan == nil ? nil : model.scanTransform
         self.scanRegistrationRMSMM = model.scanRegistration?.surfaceRMSMM
@@ -165,6 +169,7 @@ struct ProjectDocument: Codable, Sendable {
         model.implants = implants
         model.nerveCanals = nerveCanals
         model.teeth = teeth ?? []
+        model.bars = bars ?? []
         model.adoptSnapshots(snapshots ?? [])
         if let scanTransform { model.adoptScanTransform(scanTransform) }
 

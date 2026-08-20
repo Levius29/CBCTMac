@@ -32,6 +32,11 @@ struct ImplantOverlay: View {
             for canal in model.nerveCanals where canal.isVisible {
                 drawNerve(canal, in: &context, plane: plane, width: width, height: height)
             }
+            // La barra sotto gli impianti: passa sopra le piattaforme e li tocca, e disegnata
+            // sopra coprirebbe proprio le teste che si sta cercando di allineare.
+            for bar in model.bars where bar.isVisible {
+                drawBar(bar, in: &context, plane: plane, width: width, height: height)
+            }
             for implant in model.implants where implant.isVisible {
                 drawImplant(
                     implant, in: &context, plane: plane, width: width, height: height,
@@ -147,6 +152,42 @@ struct ImplantOverlay: View {
         drawLabel(
             label, at: CGPoint(x: platformProjection.x, y: platformProjection.y),
             in: &context, color: strokeColor, opacity: opacity)
+    }
+
+    /// La barra come tubo proiettato: una polilinea spessa quanto il suo diametro.
+    ///
+    /// Con il diametro vero e non con una linea sottile, per la stessa ragione del canale sulla
+    /// panorex: la domanda è quanto spazio resta sopra, e una linea di un pixel farebbe sembrare
+    /// spazio ciò che è raggio della barra.
+    private func drawBar(
+        _ bar: ProstheticBar,
+        in context: inout GraphicsContext,
+        plane: MPRPlane,
+        width: Int,
+        height: Int
+    ) {
+        let nodes = bar.nodesMM(in: model.implants)
+        guard nodes.count >= 2 else { return }
+        let scale = pointsPerMM(plane, width: width)
+
+        var path = Path()
+        var opacity = 1.0
+        for (index, node) in nodes.enumerated() {
+            let projected = plane.pixelPosition(
+                ofPatient: node, pixelWidth: width, pixelHeight: height)
+            let point = CGPoint(x: projected.x, y: projected.y)
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            // Sfuma come un impianto: oltre il raggio dal piano la barra non lo interseca più.
+            let fade = max(1 - abs(projected.distanceMM) / max(bar.diameterMM, 0.001), 0)
+            opacity = min(opacity, fade)
+        }
+        guard opacity > 0.03 else { return }
+
+        let colour = Color(hexString: bar.colorHex) ?? Palette.textPrimary
+        context.stroke(
+            path, with: .color(colour.opacity(0.9 * opacity)),
+            style: StrokeStyle(
+                lineWidth: max(bar.diameterMM * scale, 1.5), lineCap: .round, lineJoin: .round))
     }
 
     /// Direzione dell'asse proiettata sul piano, normalizzata in coordinate pixel.

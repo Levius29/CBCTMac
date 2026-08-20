@@ -801,6 +801,16 @@ final class AppModel {
                 updated.register(info)
             }
         }
+        for bar in bars {
+            live.insert(bar.id)
+            if updated[bar.id] == nil {
+                var info = PlanObjectInfo(
+                    id: bar.id, kind: .prostheticBar, name: bar.label,
+                    order: updated.objects(of: .prostheticBar).count)
+                info.colorHex = bar.colorHex.replacingOccurrences(of: "#", with: "")
+                updated.register(info)
+            }
+        }
         for tooth in teeth {
             live.insert(tooth.id)
             if updated[tooth.id] == nil {
@@ -871,6 +881,9 @@ final class AppModel {
         if let index = teeth.firstIndex(where: { $0.id == id }) {
             teeth[index].isVisible = visible
         }
+        if let index = bars.firstIndex(where: { $0.id == id }) {
+            bars[index].isVisible = visible
+        }
         if id == Self.segmentationObjectID {
             isSegmentationVisible = visible
         }
@@ -894,6 +907,9 @@ final class AppModel {
         if let index = teeth.firstIndex(where: { $0.id == id }) {
             teeth[index].colorHex = hex.hasPrefix("#") ? hex : "#" + hex
         }
+        if let index = bars.firstIndex(where: { $0.id == id }) {
+            bars[index].colorHex = hex.hasPrefix("#") ? hex : "#" + hex
+        }
         recordUndo("Cambia colore")
     }
 
@@ -904,6 +920,9 @@ final class AppModel {
         }
         if let index = teeth.firstIndex(where: { $0.id == id }) {
             teeth[index].label = name
+        }
+        if let index = bars.firstIndex(where: { $0.id == id }) {
+            bars[index].label = name
         }
         recordUndo("Rinomina")
     }
@@ -957,10 +976,12 @@ final class AppModel {
         }
         implants.removeAll { $0.id == id }
         teeth.removeAll { $0.id == id }
+        bars.removeAll { $0.id == id }
         nerveCanals.removeAll { $0.id == id }
         annotations.removeAll { $0.id == id }
         if selectedImplantID == id { selectedImplantID = nil }
         if selectedToothID == id { selectedToothID = nil }
+        if selectedBarID == id { selectedBarID = nil }
         if selectedAnnotationID == id { selectedAnnotationID = nil }
         registry.remove(id: id)
         recomputeSafety()
@@ -973,6 +994,7 @@ final class AppModel {
         guard !doomed.isEmpty else { return }
         implants.removeAll { doomed.contains($0.id) }
         teeth.removeAll { doomed.contains($0.id) }
+        bars.removeAll { doomed.contains($0.id) }
         nerveCanals.removeAll { doomed.contains($0.id) }
         annotations.removeAll { doomed.contains($0.id) }
         if let id = selectedToothID, doomed.contains(id) { selectedToothID = nil }
@@ -1046,12 +1068,14 @@ final class AppModel {
         var annotations: [Annotation]
         var implants: [ImplantPlacement]
         var teeth: [ProstheticTooth]
+        var bars: [ProstheticBar]
         var nerveCanals: [NerveCanal]
         var archCurves: [DentalArch: ArchCurve]
     }
 
     private var undoHistory = UndoHistory<PlanSnapshot>(initial: PlanSnapshot(
-        annotations: [], implants: [], teeth: [], nerveCanals: [], archCurves: [:]))
+        annotations: [], implants: [], teeth: [], bars: [], nerveCanals: [],
+        archCurves: [:]))
 
     /// Vero mentre si sta applicando un annulla: le mutazioni che ne derivano non vanno
     /// registrate, altrimenti annullare creerebbe un passo nuovo e «ripeti» non tornerebbe mai.
@@ -1064,7 +1088,7 @@ final class AppModel {
 
     private var planSnapshot: PlanSnapshot {
         PlanSnapshot(
-            annotations: annotations, implants: implants, teeth: teeth,
+            annotations: annotations, implants: implants, teeth: teeth, bars: bars,
             nerveCanals: nerveCanals, archCurves: archCurves)
     }
 
@@ -1097,6 +1121,7 @@ final class AppModel {
         annotations = snapshot.annotations
         implants = snapshot.implants
         teeth = snapshot.teeth
+        bars = snapshot.bars
         nerveCanals = snapshot.nerveCanals
         archCurves = snapshot.archCurves
         isRestoring = false
@@ -1128,6 +1153,94 @@ final class AppModel {
     /// Numero FDI del prossimo dente posato. Si sceglie prima del clic, come il modello implantare.
     var pendingToothNumber: Int = 46
     var prostheticThresholds: ProstheticThresholds = .standard
+
+    // MARK: Barre protesiche
+
+    var bars: [ProstheticBar] = []
+    var selectedBarID: UUID?
+
+    var selectedBar: ProstheticBar? {
+        guard let id = selectedBarID else { return nil }
+        return bars.first { $0.id == id }
+    }
+
+    /// Unisce gli impianti visibili con una barra.
+    ///
+    /// Nell'ordine dell'**arcata**, non in quello di posa: nessuno posa gli impianti da destra a
+    /// sinistra, si comincia dal sito più delicato, e una barra che seguisse quell'ordine
+    /// andrebbe avanti e indietro. Senza una curva tracciata si ripiega sull'ordine dato, che è
+    /// l'unico disponibile — e il messaggio lo dice, perché il risultato si vedrà storto.
+    func addProstheticBar() {
+        let visible = implants.filter(\.isVisible)
+        guard visible.count >= 2 else {
+            lastActionMessage = "Servono almeno due impianti visibili per unirli con una barra."
+            return
+        }
+
+        let path = archCurve.isUsable ? archCurve.resampled(count: 120).map(\.positionMM) : []
+        let ordered = ProstheticBarBuilder.ordered(visible, alongMM: path)
+        let bar = ProstheticBar(implantIDs: ordered.map(\.id), label: "Barra \(bars.count + 1)")
+        bars.append(bar)
+        selectedBarID = bar.id
+        syncRegistry()
+        recordUndo("Aggiungi barra")
+
+        lastActionMessage = path.isEmpty
+            ? "Barra su \(ordered.count) impianti, nell'ordine in cui sono stati posati: senza "
+                + "curva d'arcata non c'è un ordine anatomico da seguire."
+            : String(
+                format: "Barra su %d impianti, %.1f mm lungo l'arcata.",
+                ordered.count, bar.lengthMM(in: implants)
+            ).replacingOccurrences(of: ".", with: ",")
+    }
+
+    func updateBar(id: UUID, _ transform: (inout ProstheticBar) -> Void) {
+        guard let index = bars.firstIndex(where: { $0.id == id }) else { return }
+        transform(&bars[index])
+        recordContinuousUndo("Modifica barra")
+    }
+
+    func removeBar(id: UUID) {
+        bars.removeAll { $0.id == id }
+        if selectedBarID == id { selectedBarID = nil }
+        syncRegistry()
+        recordUndo("Cancella barra")
+    }
+
+    /// Lo spazio fra la barra e la corona che le sta sopra, per ogni dente.
+    ///
+    /// # Perché è il numero che decide una riabilitazione
+    ///
+    /// Perché fra la barra e i denti antagonisti deve starci la protesi: la struttura, la resina
+    /// e il dente. Sotto i dieci millimetri circa la protesi si assottiglia fino a rompersi, e
+    /// la soluzione è affondare gli impianti — cioè una decisione che si prende **prima** di
+    /// operare, e solo se qualcuno ha misurato lo spazio.
+    ///
+    /// Si misura dal punto della barra più vicino all'occlusale del dente, che è dove la protesi
+    /// è più sottile.
+    func prostheticSpace(for bar: ProstheticBar) -> [(tooth: ProstheticTooth, spaceMM: Double)] {
+        let nodes = bar.nodesMM(in: implants)
+        guard nodes.count >= 2 else { return [] }
+
+        var result: [(ProstheticTooth, Double)] = []
+        for tooth in teeth {
+            let occlusal = tooth.occlusalCentreMM
+            var nearest = Double.infinity
+            for index in 1..<nodes.count {
+                let a = nodes[index - 1]
+                let b = nodes[index]
+                let segment = b - a
+                let length = segment.length
+                guard length > 1e-9 else { continue }
+                let t = Swift.min(
+                    Swift.max((occlusal - a).dot(segment) / (length * length), 0), 1)
+                nearest = Swift.min(nearest, (a + segment * t).distance(to: occlusal))
+            }
+            guard nearest.isFinite else { continue }
+            result.append((tooth, nearest))
+        }
+        return result.sorted { $0.1 < $1.1 }
+    }
 
     var selectedTooth: ProstheticTooth? {
         guard let id = selectedToothID else { return nil }
@@ -2163,6 +2276,7 @@ final class AppModel {
         annotations = []
         implants = []
         teeth = []
+        bars = []
         snapshots = []
         snapshotImages = [:]
         nerveCanals = []
@@ -3642,9 +3756,13 @@ final class AppModel {
                 of: tooth, mesialDirectionMM: mesialDirection(for: tooth))
             if !mesh.triangles.isEmpty { meshes.append(mesh) }
         }
+        for bar in bars where bar.isVisible {
+            let mesh = ProstheticBarBuilder.surface(of: bar, implants: implants)
+            if !mesh.triangles.isEmpty { meshes.append(mesh) }
+        }
 
         guard !meshes.isEmpty else {
-            lastActionMessage = "Niente da esportare: nessun impianto e nessun dente visibile."
+            lastActionMessage = "Niente da esportare: nessun impianto, dente o barra visibile."
             return
         }
 
