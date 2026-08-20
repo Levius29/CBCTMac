@@ -3379,6 +3379,55 @@ final class AppModel {
         ).replacingOccurrences(of: ".", with: ",")
     }
 
+    /// Esporta impianti e denti come un solo STL.
+    ///
+    /// # A che cosa serve una superficie che a schermo non si vede
+    ///
+    /// A uscire dal programma. Il profilo basta a disegnare una silhouette, e infatti è ciò che
+    /// i riquadri usano; non basta a niente altro. Un profilo non si manda a un laboratorio, non
+    /// si apre in un programma di modellazione, non si sottrae da un corpo dima e non si stampa.
+    /// Tutte quelle cose parlano una lingua sola — triangoli — e `ImplantMesh` è la traduzione.
+    ///
+    /// In un file solo perché è un **piano**, non una raccolta di pezzi: chi lo apre vuole
+    /// vedere gli impianti dove stanno l'uno rispetto all'altro, che è l'informazione per cui
+    /// li ha pianificati.
+    func exportPlanGeometry() {
+        var meshes: [Mesh] = []
+        for implant in implants where implant.isVisible {
+            let mesh = ImplantMesh.surface(of: implant)
+            if !mesh.triangles.isEmpty { meshes.append(mesh) }
+        }
+        for tooth in teeth where tooth.isVisible {
+            let mesh = ImplantMesh.surface(
+                of: tooth, mesialDirectionMM: mesialDirection(for: tooth))
+            if !mesh.triangles.isEmpty { meshes.append(mesh) }
+        }
+
+        guard !meshes.isEmpty else {
+            lastActionMessage = "Niente da esportare: nessun impianto e nessun dente visibile."
+            return
+        }
+
+        let merged = MeshMerge.combined(meshes, name: "Piano")
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "piano.stl"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try MeshIO.exportSTLBinary(merged).write(to: url, options: .atomic)
+            let error = ImplantMesh.radialErrorMM(
+                radiusMM: implants.map(\.model.platformDiameterMM).max().map { $0 / 2 } ?? 0,
+                segments: ImplantMesh.defaultSegments)
+            lastActionMessage = String(
+                format: "Esportati %d oggetti, %d triangoli. Il cilindro è approssimato da un "
+                    + "poligono a %d lati: scarto massimo %.3f mm.",
+                meshes.count, merged.triangles.count, ImplantMesh.defaultSegments, error
+            ).replacingOccurrences(of: ".", with: ",")
+        } catch {
+            lastActionMessage = "Esportazione non riuscita: \(error.localizedDescription)"
+        }
+    }
+
     /// Esporta la dima in STL.
     func exportGuide() {
         guard let result = guideResult else { return }

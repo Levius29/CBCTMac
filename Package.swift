@@ -114,7 +114,7 @@ let moduleTargets: [Target] = [
     ),
     // Nervo alveolare, impianti e analisi di sicurezza. Nessuna dipendenza da Metal:
     // è tutta geometria, e si verifica per intero con `swift test`.
-    .target(name: "ImplantKit", dependencies: ["DICOMCore"]),
+    .target(name: "ImplantKit", dependencies: ["DICOMCore", "MeshKit"]),
     .target(name: "GuideKit", dependencies: ["DICOMCore", "MeshKit", "ImplantKit"]),
     .target(name: "SegmentKit", dependencies: ["DICOMCore", "MeshKit"]),
         .target(name: "ArchiveKit", dependencies: ["DICOMCore"]),
@@ -136,7 +136,7 @@ let testTargets: [Target] = [
     .testTarget(name: "MeshKitTests", dependencies: ["MeshKit", "DICOMCore"]),
     .testTarget(name: "VolumeKitTests", dependencies: ["VolumeKit", "DICOMCore"]),
     .testTarget(name: "DentalKitTests", dependencies: ["DentalKit", "DICOMCore", "VolumeKit"]),
-    .testTarget(name: "ImplantKitTests", dependencies: ["ImplantKit", "DICOMCore"]),
+    .testTarget(name: "ImplantKitTests", dependencies: ["ImplantKit", "DICOMCore", "MeshKit"]),
     .testTarget(
         name: "GuideKitTests",
         dependencies: ["GuideKit", "DICOMCore", "MeshKit", "ImplantKit"]

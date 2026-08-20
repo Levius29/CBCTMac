@@ -1,6 +1,7 @@
 import DICOMCore
 import DentalKit
 import ImplantKit
+import MeshKit
 import StudyKit
 import SwiftUI
 import VolumeKit
@@ -209,61 +210,104 @@ struct Volume3DOverlay: View {
 
     // MARK: Gli impianti
 
-    /// Ogni impianto come la sua silhouette, seguendo il profilo.
+    /// Ogni impianto come un solido ombreggiato.
     ///
-    /// Non è un cilindro reso: è la sagoma vista da dove sta la camera, che per un corpo di
-    /// rivoluzione si ottiene proiettando ogni quota del profilo a ±raggio lungo la
-    /// perpendicolare comune all'asse e alla direzione di vista. Costa una dozzina di punti
-    /// invece di una mesh, ed è **esatta** — non un'approssimazione a basso costo.
+    /// # Perché una mesh e non più la silhouette
     ///
-    /// Con il profilo e non col solo diametro nominale: da quando testa e apice sono due
-    /// parametri distinti, un rettangolo mostrerebbe cilindrico un impianto conico, cioè
-    /// nasconderebbe proprio la misura che si è appena regolata.
+    /// La silhouette dice dove sta l'impianto e non come è girato: da qualunque direzione la si
+    /// guardi ha lo stesso aspetto, e in una vista che ruota è proprio l'orientamento la cosa
+    /// che si sta cercando di capire. Con i triangoli veri l'ombreggiatura racconta la
+    /// rastremazione, e girando la scena l'impianto gira con essa.
+    ///
+    /// I triangoli si disegnano ordinati per profondità, dal più lontano al più vicino — il
+    /// pittore, non un buffer di profondità, che in una `Canvas` non c'è. Su un corpo convesso
+    /// come questo il risultato è esatto: due triangoli non si compenetrano mai, quindi
+    /// l'ordine per profondità del baricentro è l'ordine giusto. Su due impianti che si
+    /// incrociassero non lo sarebbe, e si vedrebbe — ma due impianti che si incrociano sono già
+    /// un errore che l'analisi di sicurezza segnala.
     private func drawImplants(_ context: inout GraphicsContext, projector: ScreenProjector) {
         for implant in model.implants where implant.isVisible {
-            guard let axis = implant.axis.normalized else { continue }
-            let profile = implant.model.profile
-            guard profile.count >= 2 else { continue }
-
-            // La direzione che a schermo attraversa l'impianto: perpendicolare sia all'asse sia
-            // alla direzione di vista. Con l'impianto visto **di punta** i due sono paralleli e
-            // il prodotto vettoriale degenera: allora la sagoma è un cerchio, non una silhouette,
-            // e disegnarne una storta sarebbe peggio che non disegnare nulla.
-            guard let side = axis.cross(model.camera.forward).normalized else {
-                let centre = projector.project(implant.platformMM)
-                let scale = screenScale(projector: projector, at: implant.platformMM)
-                let r = implant.model.platformDiameterMM * 0.5 * scale
-                context.stroke(
-                    Path(
-                        ellipseIn: CGRect(
-                            x: centre.x - r, y: centre.y - r, width: r * 2, height: r * 2)),
-                    with: .color(implantColor(implant)), lineWidth: 1.5)
-                continue
-            }
-
-            var left: [CGPoint] = []
-            var right: [CGPoint] = []
-            for level in profile {
-                let centre = implant.platformMM + axis * level.zMM
-                let offset = side * level.radiusMM
-                let a = projector.project(centre + offset)
-                let b = projector.project(centre - offset)
-                left.append(CGPoint(x: a.x, y: a.y))
-                right.append(CGPoint(x: b.x, y: b.y))
-            }
-
-            var outline = Path()
-            outline.move(to: left[0])
-            for point in left.dropFirst() { outline.addLine(to: point) }
-            for point in right.reversed() { outline.addLine(to: point) }
-            outline.closeSubpath()
-
-            let colour = implantColor(implant)
-            context.fill(outline, with: .color(colour.opacity(0.16)))
-            context.stroke(
-                outline, with: .color(colour),
-                lineWidth: implant.id == model.selectedImplantID ? 2 : 1.5)
+            let mesh = ImplantMesh.surface(of: implant, segments: Self.solidSegments)
+            guard !mesh.triangles.isEmpty else { continue }
+            draw(
+                mesh, in: &context, projector: projector,
+                colour: implantColor(implant),
+                isSelected: implant.id == model.selectedImplantID)
         }
+    }
+
+    /// Lati con cui si approssima il cilindro **a schermo**.
+    ///
+    /// Meno dei trentadue dell'esportazione: a schermo un impianto occupa qualche decina di
+    /// pixel, e sedici lati sono già indistinguibili da un cerchio. Il numero che conta per la
+    /// stampa resta quello di `ImplantMesh.defaultSegments`, e sono due cose diverse — qui
+    /// governa la fluidità, là la fedeltà del pezzo.
+    private static let solidSegments = 16
+
+    /// Disegna una mesh col pittore e un'illuminazione diffusa.
+    private func draw(
+        _ mesh: Mesh,
+        in context: inout GraphicsContext,
+        projector: ScreenProjector,
+        colour: Color,
+        isSelected: Bool
+    ) {
+        // La luce viene da dietro l'osservatore, leggermente in alto a sinistra: è la
+        // convenzione con cui il cervello legge una forma come convessa invece che concava.
+        let light = (model.camera.forward * -1 + model.camera.right * -0.35
+            + model.camera.down * -0.5).normalized ?? Vec3(0, 0, 1)
+
+        struct Face {
+            var path: Path
+            var depth: Double
+            var shade: Double
+        }
+
+        var faces: [Face] = []
+        faces.reserveCapacity(mesh.triangles.count)
+
+        for triangle in mesh.triangles {
+            let a = mesh.verticesMM[triangle.a]
+            let b = mesh.verticesMM[triangle.b]
+            let c = mesh.verticesMM[triangle.c]
+            guard let normal = (b - a).cross(c - a).normalized else { continue }
+
+            // Le facce che guardano via dall'osservatore stanno dietro il solido e sono coperte:
+            // scartarle dimezza il lavoro e toglie i bordi scuri che comparirebbero sui lati.
+            let facing = normal.dot(model.camera.forward)
+            guard facing < 0 else { continue }
+
+            let pa = projector.project(a)
+            let pb = projector.project(b)
+            let pc = projector.project(c)
+
+            var path = Path()
+            path.move(to: CGPoint(x: pa.x, y: pa.y))
+            path.addLine(to: CGPoint(x: pb.x, y: pb.y))
+            path.addLine(to: CGPoint(x: pc.x, y: pc.y))
+            path.closeSubpath()
+
+            // Lambert, con un fondo ambientale che impedisce alle facce di bordo di diventare
+            // nere: su fondo nero una faccia nera è un buco nell'oggetto.
+            let lambert = Swift.max(normal.dot(light), 0)
+            faces.append(
+                Face(
+                    path: path,
+                    depth: (pa.depthMM + pb.depthMM + pc.depthMM) / 3,
+                    shade: 0.35 + 0.65 * lambert))
+        }
+
+        // Dal più lontano al più vicino.
+        faces.sort { $0.depth > $1.depth }
+        for face in faces {
+            context.fill(face.path, with: .color(colour.opacity(face.shade)))
+        }
+
+        guard isSelected, let outline = faces.last?.path else { return }
+        // Il selezionato si distingue con un contorno sulla faccia più vicina: un alone
+        // attorno all'intera silhouette richiederebbe l'inviluppo, e a questa scala non
+        // aggiungerebbe niente.
+        context.stroke(outline, with: .color(colour), lineWidth: 1.5)
     }
 
     /// Le etichette degli oggetti nel 3D.

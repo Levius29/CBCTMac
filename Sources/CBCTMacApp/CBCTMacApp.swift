@@ -114,6 +114,9 @@ struct CBCTMacApp: App {
 
                 Divider()
 
+                Button("Esporta impianti e denti in STL…") { model.exportPlanGeometry() }
+                    .disabled(model.implants.isEmpty && model.teeth.isEmpty)
+
                 Button("Esporta la relazione…") { model.exportReport() }
                     .keyboardShortcut("p", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)

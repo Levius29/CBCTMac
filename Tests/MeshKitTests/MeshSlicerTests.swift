@@ -216,3 +216,56 @@ struct MeshSlicerTests {
         #expect(loops[0].count == 9)
     }
 }
+
+// MARK: - Fusione
+
+@Suite("Fusione di mesh")
+struct MeshMergeTests {
+
+    private func triangle(at offset: Vec3) -> Mesh {
+        Mesh(
+            verticesMM: [offset, offset + Vec3(1, 0, 0), offset + Vec3(0, 1, 0)],
+            triangles: [Triangle(a: 0, b: 1, c: 2)],
+            name: "t")
+    }
+
+    @Test("I triangoli si rinumerano e restano sui propri vertici")
+    func indicesAreRebased() throws {
+        let merged = MeshMerge.combined(
+            [triangle(at: .zero), triangle(at: Vec3(10, 0, 0))], name: "Piano")
+
+        #expect(merged.verticesMM.count == 6)
+        #expect(merged.triangles.count == 2)
+        #expect(merged.name == "Piano")
+
+        // Il secondo triangolo punta ai vertici 3, 4, 5 — non ai primi tre. Senza il
+        // rinumeramento sarebbero due copie dello stesso triangolo nello stesso posto.
+        #expect(merged.triangles[1] == Triangle(a: 3, b: 4, c: 5))
+        #expect(merged.verticesMM[3].x == 10)
+    }
+
+    @Test("Un indice fuori intervallo si scarta invece di puntare a un altro oggetto")
+    func brokenTrianglesAreDropped() {
+        let broken = Mesh(
+            verticesMM: [.zero, Vec3(1, 0, 0), Vec3(0, 1, 0)],
+            triangles: [Triangle(a: 0, b: 1, c: 2), Triangle(a: 0, b: 1, c: 9)],
+            name: "rotta")
+        let merged = MeshMerge.combined([broken, triangle(at: Vec3(10, 0, 0))], name: "Piano")
+
+        // Sommando lo scostamento, l'indice 9 sarebbe diventato un indice valido dentro il
+        // secondo oggetto: un triangolo che attraversa la scena, senza nessun errore.
+        #expect(merged.triangles.count == 2)
+        #expect(merged.triangles.allSatisfy {
+            $0.a < merged.verticesMM.count && $0.b < merged.verticesMM.count
+                && $0.c < merged.verticesMM.count
+        })
+    }
+
+    @Test("Un elenco vuoto dà una mesh vuota, non un errore")
+    func emptyListIsEmptyMesh() {
+        let merged = MeshMerge.combined([], name: "Vuoto")
+        #expect(merged.verticesMM.isEmpty)
+        #expect(merged.triangles.isEmpty)
+        #expect(merged.name == "Vuoto")
+    }
+}

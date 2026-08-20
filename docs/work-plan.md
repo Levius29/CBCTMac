@@ -42,7 +42,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 
 | # | Voce | Stato | Peso | Lotto |
 |---|---|---|---|---|
-| A1 | Nome del paziente al centro della barra del titolo | ❌ | 2 | N |
+| A1 | Nome del paziente al centro della barra del titolo | ✅ | 2 | N |
 | A2 | Versione del programma visibile | ✅ | 1 | H |
 | A3 | Cinque **modi di lavoro** a schede, non layout: ortogonale, curvo, personalizzato, obliquo, relazione | ✅ | 3 | K |
 | A4 | Pannelli laterali richiudibili con memoria dello stato | ✅ | 2 | H |
