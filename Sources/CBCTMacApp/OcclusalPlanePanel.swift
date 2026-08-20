@@ -1,4 +1,5 @@
 import DICOMCore
+import SegmentKit
 import SwiftUI
 
 // Raddrizzare il volume sul piano occlusale.
@@ -126,6 +127,14 @@ struct OcclusalPlanePanel: View {
         }
     }
 
+    /// I passi offerti: quello del volume, poi i più grossolani.
+    private var spacingOptions: [Double] {
+        guard let geometry = model.volume?.geometry else {
+            return VolumeResampler.spacingPresetsMM
+        }
+        return VolumeResampler.spacingOptionsMM(for: geometry)
+    }
+
     @ViewBuilder
     private var verdict: some View {
         VStack(alignment: .leading, spacing: Metrics.spacing) {
@@ -163,14 +172,30 @@ struct OcclusalPlanePanel: View {
             HStack {
                 Text("Passo").font(Typography.label).foregroundStyle(Palette.textSecondary)
                 Picker("", selection: $model.reorientSpacingMM) {
-                    ForEach([0.15, 0.2, 0.25, 0.3, 0.4, 0.5], id: \.self) { value in
-                        Text(InspectorPanel.spacingText(value)).tag(value)
+                    // Il passo del volume in cima, marcato: è il valore predefinito, ed è l'unico
+                    // che non butta via risoluzione.
+                    ForEach(Array(spacingOptions.enumerated()), id: \.element) { index, value in
+                        Text(
+                            index == 0
+                                ? "\(InspectorPanel.spacingText(value)) — originale"
+                                : InspectorPanel.spacingText(value)
+                        ).tag(value)
                     }
                 }
                 .labelsHidden()
                 .fixedSize()
                 Spacer()
             }
+
+            Label(
+                "Raddrizzare **ricostruisce** il volume su una griglia ruotata, quindi un po' di "
+                    + "nitidezza si perde comunque: è il prezzo dell'operazione, non un difetto. "
+                    + "Un passo più grossolano dell'originale ne toglie dell'altra.",
+                systemImage: "exclamationmark.circle"
+            )
+            .font(Typography.label)
+            .foregroundStyle(Palette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
 
             Label(
                 "Il volume raddrizzato è un volume nuovo, in un riferimento nuovo. Misure, "

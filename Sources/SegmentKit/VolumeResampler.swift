@@ -51,6 +51,26 @@ public enum VolumeResampler: Sendable {
         0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 1.0,
     ]
 
+    /// I passi da offrire per un volume, col **suo** in cima.
+    ///
+    /// # Perché non bastano i preset
+    ///
+    /// Perché il passo di un volume vero non è quasi mai uno di quei nove: arriva dal DICOM come
+    /// `0.2000000029802322`, e un elenco che non lo contiene costringe a sceglierne un altro —
+    /// cioè a ricampionare quando si voleva soltanto ritagliare. Chi lo faceva vedeva
+    /// un'immagine più molle e non aveva modo di collegarla al menu che aveva sfiorato.
+    ///
+    /// I preset più fini del volume restano fuori: chiedere un passo più fine dell'originale non
+    /// aggiunge un'informazione che non c'è, moltiplica i voxel e sfoca — è l'unica scelta del
+    /// menu che non può mai giovare.
+    public static func spacingOptionsMM(for geometry: VolumeGeometry) -> [Double] {
+        let native = Swift.min(
+            geometry.columnSpacingMM,
+            Swift.min(geometry.rowSpacingMM, geometry.sliceSpacingMM))
+        let coarser = spacingPresetsMM.filter { $0 > native + sameSpacingToleranceMM }
+        return [native] + coarser
+    }
+
     /// Produce un nuovo volume isotropo, eventualmente limitato a un riquadro Patient.
     public static func resampled(
         _ volume: Volume,
@@ -63,6 +83,25 @@ public enum VolumeResampler: Sendable {
             for: request.regionMM,
             geometry: volume.geometry
         )
+        // Un ritaglio puro si **copia**, non si ricampiona.
+        //
+        // # Il guasto che questo toglie di mezzo
+        //
+        // Ritagliando allo stesso passo del volume, la griglia nuova nasceva sfalsata di una
+        // frazione di voxel rispetto a quella vecchia — la regione la si sceglie in millimetri,
+        // non sui bordi dei voxel — e ogni valore diventava la media trilineare di otto vicini.
+        // Un ritaglio, che non dovrebbe toccare un solo numero, restituiva un volume sfocato su
+        // tutta la sua estensione. Chi lo notava lo descriveva come «ha perso risoluzione», ed
+        // era esattamente così: un filtro passa-basso applicato per sbaglio.
+        if let crop = try cropLayout(
+            bounds: bounds,
+            sourceGeometry: volume.geometry,
+            spacingMM: request.spacingMM,
+            maximumVoxelCount: request.maximumVoxelCount
+        ) {
+            return try cropped(volume, to: crop)
+        }
+
         let layout = try outputLayout(
             bounds: bounds,
             sourceGeometry: volume.geometry,
@@ -159,6 +198,110 @@ public enum VolumeResampler: Sendable {
               maximum.z > minimum.z
         else { throw ResampleError.emptyRegion }
         return VoxelResampleBounds(minimum: minimum, maximum: maximum)
+    }
+
+    // MARK: Ritaglio senza perdita
+
+    /// Quanto due passi possono differire e valere ancora «lo stesso passo».
+    ///
+    /// Un micron. Non di più: lo scarto si accumula voxel dopo voxel, e su ottocento fette un
+    /// millesimo di millimetro di differenza sposterebbe l'ultima di quasi un millimetro — cioè
+    /// copierebbe i valori di un piano diverso da quello che dichiara. Non di meno: i passi
+    /// arrivano dal DICOM come decimali in virgola mobile, e pretendere l'uguaglianza esatta
+    /// farebbe fallire il riconoscimento su ogni volume vero.
+    static let sameSpacingToleranceMM: Double = 1e-6
+
+    /// La disposizione di un ritaglio puro, se la richiesta è tale.
+    ///
+    /// Lo è quando il passo chiesto coincide con quello del volume su **tutti e tre** gli assi.
+    /// Su un volume anisotropo il passo isotropo richiesto ne pareggia al più due, e allora è un
+    /// ricampionamento vero: interpolare è quel che si deve fare, e questa strada non si prende.
+    private static func cropLayout(
+        bounds: VoxelResampleBounds,
+        sourceGeometry: VolumeGeometry,
+        spacingMM: Double,
+        maximumVoxelCount: Int
+    ) throws -> CropLayout? {
+        let tolerance = sameSpacingToleranceMM
+        guard abs(spacingMM - sourceGeometry.columnSpacingMM) <= tolerance,
+            abs(spacingMM - sourceGeometry.rowSpacingMM) <= tolerance,
+            abs(spacingMM - sourceGeometry.sliceSpacingMM) <= tolerance
+        else { return nil }
+
+        // Il primo voxel **intero** dentro la regione, per ciascun asse. Il margine di un
+        // milionesimo assorbe l'errore di una divisione: senza, una coordinata che vale
+        // esattamente 12 potrebbe arrivare come 12,0000000001 e far cominciare il ritaglio una
+        // fetta più in là.
+        func first(_ value: Double, count: Int) -> Int {
+            Swift.max(0, Swift.min(count - 1, Int(ceil(value - 1e-6))))
+        }
+        func last(_ value: Double, count: Int) -> Int {
+            Swift.max(0, Swift.min(count - 1, Int(floor(value + 1e-6))))
+        }
+
+        let i0 = first(bounds.minimum.x, count: sourceGeometry.columnCount)
+        let j0 = first(bounds.minimum.y, count: sourceGeometry.rowCount)
+        let k0 = first(bounds.minimum.z, count: sourceGeometry.sliceCount)
+        let i1 = last(bounds.maximum.x, count: sourceGeometry.columnCount)
+        let j1 = last(bounds.maximum.y, count: sourceGeometry.rowCount)
+        let k1 = last(bounds.maximum.z, count: sourceGeometry.sliceCount)
+
+        guard i1 >= i0, j1 >= j0, k1 >= k0 else { throw ResampleError.emptyRegion }
+
+        let columns = i1 - i0 + 1
+        let rows = j1 - j0 + 1
+        let slices = k1 - k0 + 1
+        guard let voxelCount = checkedProduct(columns, rows, slices),
+            voxelCount <= maximumVoxelCount
+        else {
+            throw ResampleError.tooManyVoxels(
+                requested: checkedProduct(columns, rows, slices) ?? Int.max,
+                limit: maximumVoxelCount)
+        }
+
+        return CropLayout(
+            origin: (i0, j0, k0), columns: columns, rows: rows, slices: slices)
+    }
+
+    /// Copia i campioni della regione, uno per uno e senza toccarne il valore.
+    private static func cropped(_ volume: Volume, to crop: CropLayout) throws -> Volume {
+        let source = volume.geometry
+        let (i0, j0, k0) = crop.origin
+
+        let geometry = try VolumeGeometry(
+            columnCount: crop.columns,
+            rowCount: crop.rows,
+            sliceCount: crop.slices,
+            columnSpacingMM: source.columnSpacingMM,
+            rowSpacingMM: source.rowSpacingMM,
+            sliceSpacingMM: source.sliceSpacingMM,
+            orientation: source.orientation,
+            // L'origine è il centro di un voxel **sorgente**, non un punto calcolato in
+            // millimetri: è ciò che rende il ritaglio esatto anche su uno studio ruotato.
+            originMM: source.patientPoint(i: i0, j: j0, k: k0)
+        )
+
+        var samples = [Int16]()
+        samples.reserveCapacity(crop.columns * crop.rows * crop.slices)
+        let sourcePlane = source.columnCount * source.rowCount
+        for k in 0..<crop.slices {
+            let sliceBase = (k0 + k) * sourcePlane
+            for j in 0..<crop.rows {
+                // Una riga per volta: sono valori contigui in memoria, e copiarli in blocco è
+                // l'unica cosa che rende un ritaglio più svelto di un ricampionamento invece che
+                // altrettanto lento.
+                let start = sliceBase + (j0 + j) * source.columnCount + i0
+                samples.append(contentsOf: volume.samples[start..<(start + crop.columns)])
+            }
+        }
+
+        return try Volume(
+            geometry: geometry,
+            samples: samples,
+            rescaleSlope: volume.rescaleSlope,
+            rescaleIntercept: volume.rescaleIntercept,
+            densityUnit: volume.densityUnit
+        )
     }
 
     private static func outputLayout(
@@ -373,6 +516,14 @@ public enum VolumeResampler: Sendable {
 private struct VoxelResampleBounds: Sendable {
     let minimum: Vec3
     let maximum: Vec3
+}
+
+private struct CropLayout: Sendable {
+    /// Indici del primo voxel sorgente compreso nel ritaglio.
+    let origin: (Int, Int, Int)
+    let columns: Int
+    let rows: Int
+    let slices: Int
 }
 
 private struct ResampleLayout: Sendable {

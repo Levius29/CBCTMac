@@ -56,6 +56,30 @@ public enum ArchDetection: Sendable {
     /// Punti campionati minimi perché la fetta sia dentro il volume.
     public static let minimumSampledPoints = 400
 
+    /// Quanti settori vuoti di fila servono perché l'apertura della U sia un'apertura.
+    ///
+    /// # Il difetto che questo numero toglie di mezzo
+    ///
+    /// Bastava **un** settore vuoto. Su una fetta vera i settori sono quasi tutti pieni — c'è
+    /// osso tutto intorno al baricentro — e un buco accidentale di cinque gradi veniva preso per
+    /// l'apertura dell'arcata: la curva partiva da un lato del buco e girava per trecentocinquanta
+    /// gradi attorno al baricentro, cioè faceva un anello attorno alla testa. È la «curva senza
+    /// logica» che si vedeva premendo «proponi».
+    ///
+    /// # Perché otto e non dieci
+    ///
+    /// Otto settori su settantadue sono quaranta gradi. Dieci sembravano più prudenti e non lo
+    /// erano: i settori si contano **dal baricentro dell'osso**, non dal centro dell'arcata, e il
+    /// baricentro sta dalla parte opposta all'apertura. Da lì l'apertura si vede più stretta di
+    /// quel che è — un'apertura di cinquantasette gradi ne sottende quarantanove — e dieci
+    /// settori rifiutavano archi perfettamente buoni.
+    ///
+    /// Quaranta gradi restano larghissimi rispetto a quel che c'era prima, cioè **un** settore:
+    /// bastavano cinque gradi di buco casuale nel rumore perché la figura passasse per un'arcata,
+    /// e la curva partiva da un lato del buco girando per trecentocinquanta gradi attorno al
+    /// baricentro — un anello attorno alla testa, che è la «curva senza logica» che si vedeva.
+    public static let minimumOpeningSectors = 8
+
     /// Soglia di Otsu: il valore che massimizza la varianza fra le due classi.
     ///
     /// Un percentile fisso sarebbe più corto da scrivere ed è quello che avevo scritto per primo:
@@ -163,13 +187,27 @@ public enum ArchDetection: Sendable {
             return nil
         }
 
+        // Solo la **componente connessa più grande**, e qui sta la correzione che conta.
+        //
+        // Su una fetta assiale vera l'osso oltre soglia non è soltanto l'arcata: c'è la colonna
+        // cervicale dietro, spesso i rami o i processi stiloidei, a volte lo ioide. Tutto questo
+        // entrava nel conto, e due cose andavano storte insieme. Il baricentro veniva tirato
+        // all'indietro, verso la colonna, quindi i raggi non partivano più dall'interno della U;
+        // e i settori risultavano pieni tutto intorno, quindi l'apertura dell'arcata spariva.
+        // Il risultato era una curva che girava attorno alla testa invece di seguire l'arcata.
+        //
+        // La mandibola, o il mascellare, sono la macchia più grande della fetta e non toccano né
+        // la colonna né i rami: tenere la sola componente maggiore le isola senza dover sapere
+        // che cosa siano.
+        let bone = largestComponent(
+            densities: densities, columns: columns, rows: rows, threshold: threshold)
         var boneX: [Double] = []
         var boneY: [Double] = []
-        for j in 0..<rows {
-            for i in 0..<columns where densities[j * columns + i] >= threshold {
-                boneX.append(lower.x + Double(i) * step)
-                boneY.append(lower.y + Double(j) * step)
-            }
+        boneX.reserveCapacity(bone.count)
+        boneY.reserveCapacity(bone.count)
+        for index in bone {
+            boneX.append(lower.x + Double(index % columns) * step)
+            boneY.append(lower.y + Double(index / columns) * step)
         }
         let required = max(minimumBonePoints, Int(Double(columns * rows) * minimumBoneFraction))
         guard boneX.count >= required else { return nil }
@@ -220,20 +258,37 @@ public enum ArchDetection: Sendable {
 
         // Senza apertura la figura circonda il baricentro: è un anello, non un'arcata. Capita su
         // una fetta presa all'altezza dei condili, dove il cranio si chiude tutto intorno.
-        guard bestGapLength > 0 else { return nil }
+        //
+        // «Senza» vuol dire meno di cinquanta gradi, non zero: vedi `minimumOpeningSectors`.
+        guard bestGapLength >= minimumOpeningSectors else { return nil }
 
         let firstSector = (bestGapStart + bestGapLength) % sectorCount
         let span = sectorCount - bestGapLength
         guard span >= 3 else { return nil }
+
+        // Raggio mediano per settore, poi lisciato sui vicini: un settore con pochi punti dà un
+        // raggio ballerino, e una curva a zigzag si corregge peggio di una curva liscia
+        // leggermente fuori posto.
+        let medians: [Double?] = radii.map { values in
+            guard !values.isEmpty else { return nil }
+            let sorted = values.sorted()
+            return sorted[sorted.count / 2]
+        }
+        func smoothedRadius(at sector: Int) -> Double? {
+            let neighbours = [-1, 0, 1].compactMap { offset -> Double? in
+                medians[((sector + offset) % sectorCount + sectorCount) % sectorCount]
+            }
+            guard !neighbours.isEmpty else { return nil }
+            let sorted = neighbours.sorted()
+            return sorted[sorted.count / 2]
+        }
 
         var points: [Vec3] = []
         points.reserveCapacity(pointCount)
         for index in 0..<pointCount {
             let position = Double(index) / Double(pointCount - 1) * Double(span - 1)
             let sector = (firstSector + Int(position.rounded())) % sectorCount
-            let values = radii[sector].sorted()
-            guard !values.isEmpty else { continue }
-            let radius = values[values.count / 2]
+            guard let radius = smoothedRadius(at: sector) else { continue }
             let angle = (Double(sector) + 0.5) / Double(sectorCount) * 2 * .pi
             points.append(
                 Vec3(
@@ -244,5 +299,51 @@ public enum ArchDetection: Sendable {
 
         guard points.count >= 3 else { return nil }
         return points
+    }
+
+    /// Gli indici della macchia connessa più grande fra quelle oltre soglia.
+    ///
+    /// Connessione a quattro vicini e non a otto: a otto, due strutture che si sfiorano in
+    /// diagonale — la corticale linguale e la punta di un processo — diventerebbero una sola, ed
+    /// è proprio la fusione che questo filtro esiste per evitare.
+    ///
+    /// Iterativa e non ricorsiva: una fetta di CBCT a campo grande ha qualche milione di
+    /// campioni, e una ricorsione così profonda esaurisce lo stack.
+    static func largestComponent(
+        densities: [Double], columns: Int, rows: Int, threshold: Double
+    ) -> [Int] {
+        let count = columns * rows
+        guard count > 0, densities.count >= count else { return [] }
+
+        var visited = [Bool](repeating: false, count: count)
+        var best: [Int] = []
+        var stack: [Int] = []
+
+        for start in 0..<count {
+            guard !visited[start], densities[start] >= threshold else { continue }
+            visited[start] = true
+            stack.removeAll(keepingCapacity: true)
+            stack.append(start)
+            var component: [Int] = []
+
+            func push(_ neighbour: Int) {
+                guard !visited[neighbour], densities[neighbour] >= threshold else { return }
+                visited[neighbour] = true
+                stack.append(neighbour)
+            }
+
+            while let index = stack.popLast() {
+                component.append(index)
+                let column = index % columns
+                let row = index / columns
+                if column > 0 { push(index - 1) }
+                if column < columns - 1 { push(index + 1) }
+                if row > 0 { push(index - columns) }
+                if row < rows - 1 { push(index + columns) }
+            }
+
+            if component.count > best.count { best = component }
+        }
+        return best
     }
 }

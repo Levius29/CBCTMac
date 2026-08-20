@@ -78,6 +78,23 @@ struct ToolPalette: View {
                     model.selectedArchPointIndex == nil ? Palette.textSecondary : Palette.danger)
                 .disabled(model.selectedArchPointIndex == nil)
                 .help("Fai prima clic sul punto da togliere. Equivale a ⌥ clic sul punto.")
+
+                // E ricominciare da capo. Togliere nove punti uno per uno, centrando ogni volta
+                // un pallino, non è un modo di cancellare una curva: è un modo di non
+                // cancellarla.
+                Button {
+                    model.clearActiveArchCurve()
+                } label: {
+                    Label("Cancella tutta la curva", systemImage: "trash")
+                        .font(Typography.label)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(
+                    model.archCurve.controlPointsMM.isEmpty
+                        ? Palette.textSecondary : Palette.danger)
+                .disabled(model.archCurve.controlPointsMM.isEmpty)
+                .help("Torna al foglio bianco. ⌘Z la riporta indietro.")
             }
 
             if let hint = model.activeToolHint {

@@ -183,3 +183,127 @@ struct VolumeResamplerTests {
         #expect(excessive == .tooManyVoxels(requested: 990, limit: 7))
     }
 }
+
+// MARK: - Il ritaglio non tocca un voxel
+
+@Suite("Ritaglio senza perdita")
+struct LosslessCropTests {
+
+    /// Anisotropo e non assiale: è la trappola del Contratto 1, e un ritaglio che sbaglia asse
+    /// su un volume isotropo e assiale non dà alcun sintomo.
+    func awkwardVolume() throws -> Volume {
+        let orientation = try #require(
+            SliceOrientation(
+                columnDirection: Vec3(0.6, 0.8, 0), rowDirection: Vec3(-0.8, 0.6, 0)))
+        let geometry = try VolumeGeometry(
+            columnCount: 24, rowCount: 18, sliceCount: 12,
+            columnSpacingMM: 0.3, rowSpacingMM: 0.3, sliceSpacingMM: 0.3,
+            orientation: orientation, originMM: Vec3(-11.5, 7.25, -3.125))
+        var samples: [Int16] = []
+        for index in 0..<geometry.voxelCount {
+            samples.append(Int16(truncatingIfNeeded: index &* 271 &- 3000))
+        }
+        return try Volume(geometry: geometry, samples: samples)
+    }
+
+    @Test("Allo stesso passo i campioni escono identici, non interpolati")
+    func sameSpacingCopiesTheSamplesExactly() throws {
+        // È la prova che conta. Prima ogni voxel usciva come media trilineare di otto vicini,
+        // perché la griglia nuova nasceva sfalsata di una frazione di voxel: un ritaglio
+        // restituiva un volume sfocato su tutta la sua estensione.
+        let volume = try awkwardVolume()
+        let geometry = volume.geometry
+
+        // Una regione presa fra due centri di voxel, cioè **non** allineata alla griglia: è il
+        // caso che prima costringeva a interpolare.
+        let low = geometry.patientPoint(i: 5, j: 4, k: 3)
+        let high = geometry.patientPoint(i: 17, j: 13, k: 9)
+        let region = BoxMM(
+            minMM: Vec3(
+                Swift.min(low.x, high.x), Swift.min(low.y, high.y), Swift.min(low.z, high.z)),
+            maxMM: Vec3(
+                Swift.max(low.x, high.x), Swift.max(low.y, high.y), Swift.max(low.z, high.z)))
+
+        let cropped = try VolumeResampler.resampled(
+            volume,
+            request: ResampleRequest(spacingMM: geometry.columnSpacingMM, regionMM: region))
+
+        // Il passo non cambia, e nemmeno l'orientamento.
+        #expect(cropped.geometry.columnSpacingMM == geometry.columnSpacingMM)
+        #expect(cropped.geometry.orientation == geometry.orientation)
+
+        // Ogni voxel del ritaglio deve essere **esattamente** un voxel del volume di partenza:
+        // stesso valore, allo stesso posto nello spazio Patient.
+        var checked = 0
+        for k in 0..<cropped.geometry.sliceCount {
+            for j in 0..<cropped.geometry.rowCount {
+                for i in 0..<cropped.geometry.columnCount {
+                    let point = cropped.geometry.patientPoint(i: i, j: j, k: k)
+                    let sourceVoxel = geometry.voxelPoint(fromPatient: point)
+                    // Il centro cade su un voxel intero del sorgente, non fra due.
+                    #expect(abs(sourceVoxel.x - sourceVoxel.x.rounded()) < 1e-6)
+                    #expect(abs(sourceVoxel.y - sourceVoxel.y.rounded()) < 1e-6)
+                    #expect(abs(sourceVoxel.z - sourceVoxel.z.rounded()) < 1e-6)
+
+                    let expected = try #require(
+                        volume.densityValue(
+                            i: Int(sourceVoxel.x.rounded()),
+                            j: Int(sourceVoxel.y.rounded()),
+                            k: Int(sourceVoxel.z.rounded())))
+                    let found = try #require(cropped.densityValue(i: i, j: j, k: k))
+                    #expect(found == expected)
+                    checked += 1
+                }
+            }
+        }
+        #expect(checked > 500)
+    }
+
+    @Test("Un passo diverso ricampiona davvero, e lo si vede")
+    func aDifferentSpacingStillResamples() throws {
+        // La strada del ritaglio non deve rubare il lavoro al ricampionamento: chiedendo un passo
+        // più grossolano i valori devono cambiare, perché è quello che si è chiesto.
+        let volume = try awkwardVolume()
+        let coarse = try VolumeResampler.resampled(
+            volume, request: ResampleRequest(spacingMM: volume.geometry.columnSpacingMM * 2))
+
+        #expect(coarse.geometry.columnSpacingMM == volume.geometry.columnSpacingMM * 2)
+        #expect(coarse.geometry.columnCount < volume.geometry.columnCount)
+    }
+
+    @Test("Su un volume anisotropo si ricampiona, perché è quel che serve")
+    func anAnisotropicVolumeIsResampled() throws {
+        // Il passo isotropo richiesto ne pareggia due assi su tre: lungo il terzo il volume va
+        // davvero ricostruito, e prendere la strada della copia darebbe fette alla quota
+        // sbagliata.
+        let orientation = try #require(SliceOrientation.standardAxial)
+        let geometry = try VolumeGeometry(
+            columnCount: 16, rowCount: 16, sliceCount: 8,
+            columnSpacingMM: 0.25, rowSpacingMM: 0.25, sliceSpacingMM: 0.5,
+            orientation: orientation, originMM: .zero)
+        let volume = try Volume(
+            geometry: geometry,
+            samples: (0..<geometry.voxelCount).map { Int16(truncatingIfNeeded: $0) })
+
+        let resampled = try VolumeResampler.resampled(
+            volume, request: ResampleRequest(spacingMM: 0.25))
+        #expect(resampled.geometry.sliceSpacingMM == 0.25)
+        // Il numero di fette raddoppia: se avesse copiato, sarebbe rimasto otto.
+        #expect(resampled.geometry.sliceCount > geometry.sliceCount)
+    }
+
+    @Test("Senza regione il ritaglio è il volume intero, identico")
+    func withoutARegionTheWholeVolumeComesBackUnchanged() throws {
+        let volume = try awkwardVolume()
+        let same = try VolumeResampler.resampled(
+            volume, request: ResampleRequest(spacingMM: volume.geometry.columnSpacingMM))
+
+        #expect(same.geometry.columnCount == volume.geometry.columnCount)
+        #expect(same.geometry.rowCount == volume.geometry.rowCount)
+        #expect(same.geometry.sliceCount == volume.geometry.sliceCount)
+        #expect(same.samples == volume.samples)
+        #expect(
+            same.geometry.originMM.isApproximatelyEqual(
+                to: volume.geometry.originMM, tolerance: 1e-9))
+    }
+}

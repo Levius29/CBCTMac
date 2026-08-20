@@ -497,6 +497,15 @@ struct PanoramicWorkspace: View {
                         .help("Proponi una parabola alla quota che stai guardando, da correggere")
 
                         Button {
+                            model.clearActiveArchCurve()
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .controlSize(.small)
+                        .disabled(model.archCurve.controlPointsMM.isEmpty)
+                        .help("Cancella tutta la curva e ricomincia. ⌘Z la riporta indietro.")
+
+                        Button {
                             model.flattenActiveArchCurve()
                         } label: {
                             Image(systemName: "arrow.down.to.line.compact")

@@ -551,6 +551,8 @@ final class AppModel {
     ///
     /// Non impone più una parabola. Vedi il commento su `archCurves`: una curva imposta al centro
     /// del volume cade fra le due arcate, e produce un panorex che non somiglia a niente.
+    // senza-annulla: azzera aprendo un esame, e lì la cronologia riparte da zero — un passo che
+    // riportasse indietro le curve del paziente precedente sarebbe la cosa da non fare.
     func resetArchCurves() {
         for arch in DentalArch.allCases {
             archCurves[arch] = ArchCurve(controlPointsMM: [])
@@ -608,12 +610,26 @@ final class AppModel {
     }
 
     /// Svuota la curva dell'arcata attiva, lasciando intatta l'altra.
+    ///
+    /// # C'era già, e non serviva a niente
+    ///
+    /// Scritta, provata, e chiamata da **nessuna vista**: i punti si potevano togliere uno per
+    /// uno, con ⌥ clic o col pulsante, e ricominciare da capo non si poteva. Su una curva di
+    /// nove punti sbagliata sono nove gesti mirati, ognuno dei quali richiede di centrare un
+    /// pallino — cioè, in pratica, nessun modo di cancellarla.
+    ///
+    /// E non registrava un passo di annulla, quindi una volta collegata avrebbe cancellato la
+    /// curva senza modo di riaverla. Due difetti nella stessa funzione, e nessuno dei due si
+    /// vedeva leggendola.
     func clearActiveArchCurve() {
+        guard !archCurve.controlPointsMM.isEmpty else { return }
         var curve = archCurve
         curve.removeAllControlPoints()
         archCurve = curve
         selectedArchPointIndex = nil
         rebuildCrossSections()
+        recordUndo("Cancella la curva d'arcata")
+        lastActionMessage = "Curva cancellata. ⌘Z la riporta indietro."
     }
 
     /// Riporta la finestra di densità a quella ricavata dall'istogramma del volume.
@@ -668,6 +684,9 @@ final class AppModel {
         archCurve = curve
         archVerticalCentreMM = vertical
         rebuildCrossSections()
+        // Appiattire sposta ogni punto della curva: è una modifica del piano come le altre, e
+        // senza questo era l'unica che non si poteva annullare.
+        recordUndo("Appiattisci la curva d'arcata")
     }
 
     // MARK: Esportazione
@@ -1152,6 +1171,8 @@ final class AppModel {
     // Annullare cambia il piano quanto modificarlo: senza questo, un impianto spostato e poi
     // riportato indietro con ⌘Z lascerebbe in archivio la versione spostata.
 
+    // senza-annulla: questa **è** l'annulla. Registrare qui creerebbe un passo nuovo a ogni
+    // ⌘Z, e «ripeti» non tornerebbe mai al punto di partenza.
     private func apply(_ snapshot: PlanSnapshot?) {
         guard let snapshot else { return }
         isRestoring = true
@@ -1355,6 +1376,10 @@ final class AppModel {
     var occlusalPickThresholdGV: Double = 1000
 
     /// Passo del volume raddrizzato.
+    ///
+    /// Nasce uguale a quello del volume aperto, non a un numero fisso. Era 0,3 mm per tutti: su
+    /// una CBCT a 0,2 mm, raddrizzare buttava via un terzo della risoluzione senza che nulla lo
+    /// dicesse, e l'immagine tornava più molle di com'era. Vedi `adoptNativeSpacing`.
     var reorientSpacingMM: Double = 0.3
 
     private(set) var isReorienting = false
@@ -2054,6 +2079,9 @@ final class AppModel {
         safetyReports.removeValue(forKey: id)
         selectedImplantID = nil
         recomputeSafety()
+        // Mancava. Eliminare un impianto era l'unica modifica del piano che ⌘Z non riportava
+        // indietro: un impianto posizionato con cura spariva e non c'era modo di riaverlo.
+        recordUndo("Elimina impianto")
     }
 
     // MARK: - Denti protesici
@@ -2181,6 +2209,15 @@ final class AppModel {
         recordUndo("Allinea al dente")
     }
 
+    /// Comincia un canale nuovo.
+    ///
+    /// Non registra un passo di annulla di suo, e non è una dimenticanza: viene chiamata solo da
+    /// `applyToolClick`, che subito dopo chiama `addNerveNode` — e quello registra, raggruppando.
+    /// Un passo per il canale vuoto sarebbe un passo che disfa qualcosa che non si è ancora
+    /// visto.
+    // senza-annulla: la chiama solo `applyToolClick`, un istante prima di `addNerveNode`, che
+    // registra per entrambi raggruppando. Un passo per il canale vuoto disferebbe qualcosa che
+    // non si è ancora visto.
     func beginTracingNerve(side: MandibularSide) {
         let canal = NerveCanal(side: side)
         nerveCanals.append(canal)
@@ -2554,11 +2591,18 @@ final class AppModel {
     }
 
     /// Adotta un volume: costruisce la texture, imposta mirino, finestra e inquadrature.
+    // senza-annulla: aprire un altro volume azzera il piano **e** la cronologia insieme, con
+    // `undoHistory.reset(to:)`. Un passo che riportasse gli impianti dell'esame precedente
+    // dentro le immagini di questo sarebbe pericoloso, non comodo.
     func adopt(volume: Volume, preservingPlan: Bool = false) {
         // La geometria **precedente**, prima di sostituirla: serve a decidere se le inquadrature
         // restano valide. Una riduzione delle strie non cambia un voxel di posto, un ritaglio sì.
         let previousGeometry = self.volume?.geometry
         self.volume = volume
+
+        // Il passo proposto per raddrizzare è quello del volume che si sta aprendo: chiedere un
+        // passo più grossolano è una scelta, non un valore predefinito.
+        reorientSpacingMM = VolumeResampler.spacingOptionsMM(for: volume.geometry)[0]
 
         if let device {
             do {
@@ -4838,6 +4882,8 @@ final class AppModel {
 
     // MARK: Esportazione
 
+    // senza-annulla: non cambia niente, **legge**. Il controllo la segnala perché scrive nei
+    // campi del documento che sta componendo, che si chiamano come quelli del piano.
     func makePlanDocument() -> PlanDocument {
         // Gli UID veri dello studio aperto, non due segnaposto.
         //
