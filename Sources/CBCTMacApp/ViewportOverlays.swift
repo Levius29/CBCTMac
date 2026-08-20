@@ -450,10 +450,11 @@ struct AnnotationOverlay: View {
                 path, with: .color(stroke),
                 style: StrokeStyle(lineWidth: lineWidth, dash: [4, 3]))
             drawHandles(points, in: &context, color: stroke)
-
-        default:
-            drawHandles(points, in: &context, color: stroke)
         }
+        // Nessun `default`: lo switch copre già ogni tipo di annotazione, e quello che c'era non
+        // poteva essere eseguito. Toglierlo non cambia niente oggi e cambia tutto domani —
+        // aggiungendo un tipo nuovo il compilatore lo pretende qui, invece di disegnarlo con le
+        // maniglie di un altro senza dire nulla.
     }
 
     private func pointsPerMillimetre(plane: MPRPlane, width: Int) -> Double {

@@ -1748,8 +1748,13 @@ final class AppModel {
         }
 
         // Il più vicino all'osservatore fra quelli afferrabili: `depthMM` cresce allontanandosi.
-        var best: (anchor: Vec3, depth: Double, grab: () -> Bool)?
-        func consider(_ anchorMM: Vec3, _ grab: @escaping () -> Bool) {
+        //
+        // `@MainActor` sul tipo della chiusura, e non è cerimonia: la chiusura chiama metodi di
+        // `AppModel`, che è isolato al main actor, quindi **è** una chiusura del main actor.
+        // Dichiararla come una funzione qualunque significherebbe dire che si può eseguire da un
+        // altro thread, e Swift 6 lo rifiuta — giustamente, perché sarebbe una corsa.
+        var best: (anchor: Vec3, depth: Double, grab: @MainActor () -> Bool)?
+        func consider(_ anchorMM: Vec3, _ grab: @escaping @MainActor () -> Bool) {
             let depth = projector.project(anchorMM).depthMM
             guard depth.isFinite else { return }
             if best == nil || depth < best!.depth {
