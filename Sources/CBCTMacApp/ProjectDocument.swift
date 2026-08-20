@@ -4,6 +4,7 @@ import DentalKit
 import Foundation
 import ImplantKit
 import MeasureKit
+import MeshKit
 import VolumeKit
 
 // Il documento di progetto `.cbctplan`.
@@ -24,6 +25,8 @@ struct ProjectDocument: Codable, Sendable {
     /// male in silenzio.
     static let currentFormatVersion = 1
 
+    // solo-in-scrittura: si controlla in `decoded(from:)`, prima di leggere qualunque altro
+    // campo, e rimetterlo nel modello non avrebbe senso — è una proprietà del file, non del piano.
     var formatVersion: Int
     /// Misure, annotazioni, stato di vista e registro: tutto quanto già gestito da MeasureKit.
     var plan: PlanDocument
@@ -58,9 +61,13 @@ struct ProjectDocument: Codable, Sendable {
     var snapshots: [AppModel.Snapshot]?
 
     var scanTransform: Transform3D?
-    /// Scarto quadratico medio della registrazione, per non doverla rifare solo per sapere
-    /// quanto valeva.
-    var scanRegistrationRMSMM: Double?
+    /// L'esito della registrazione per intero, non il solo scarto.
+    ///
+    /// Il solo numero si scriveva e non si rileggeva mai: la scansione tornava al posto giusto e
+    /// il programma non sapeva più che fosse registrata. Con l'esito intero — trasformazione,
+    /// scarti, punti, convergenza — il caso riaperto è nello stato in cui l'avevi lasciato, dima
+    /// compresa.
+    var scanRegistration: ScanRegistrationOutcome?
 
     // Curva dell'arcata e parametri delle viste derivate.
     var archControlPointsMM: [[Double]]
@@ -104,7 +111,7 @@ struct ProjectDocument: Codable, Sendable {
         self.bars = model.bars
         self.snapshots = model.snapshots
         self.scanTransform = model.scan == nil ? nil : model.scanTransform
-        self.scanRegistrationRMSMM = model.scanRegistration?.surfaceRMSMM
+        self.scanRegistration = model.scanRegistration
         self.archControlPointsMM = model.archCurve.controlPointsMM.map { [$0.x, $0.y, $0.z] }
         self.archUpAxis = [
             model.archCurve.upAxis.x, model.archCurve.upAxis.y, model.archCurve.upAxis.z,
@@ -181,7 +188,14 @@ struct ProjectDocument: Codable, Sendable {
         model.bars = bars ?? []
         model.cephTracing = cephTracing ?? CephTracing()
         model.adoptSnapshots(snapshots ?? [])
-        if let scanTransform { model.adoptScanTransform(scanTransform) }
+        // L'esito porta con sé la trasformazione, quindi vince su di essa quando c'è. Il campo
+        // separato resta per i piani salvati prima, e per la scansione posata a mano che
+        // registrata non è.
+        if let scanRegistration {
+            model.adoptScanRegistration(scanRegistration)
+        } else if let scanTransform {
+            model.adoptScanTransform(scanTransform)
+        }
 
         let points = archControlPointsMM.compactMap { values -> Vec3? in
             guard values.count >= 3 else { return nil }

@@ -41,7 +41,7 @@ public struct LandmarkPair: Hashable, Sendable, Identifiable {
 }
 
 /// Come è andata una registrazione, con tutto ciò che serve a giudicarla.
-public struct ScanRegistrationOutcome: Sendable {
+public struct ScanRegistrationOutcome: Sendable, Codable, Hashable {
 
     /// Trasformazione che porta la scansione nello spazio Patient.
     public let transform: Transform3D
@@ -52,6 +52,32 @@ public struct ScanRegistrationOutcome: Sendable {
     public let surfaceMaxMM: Double
     public let surfacePointCount: Int
     public let converged: Bool
+
+    /// # Perché è `Codable`, e perché ha un init pubblico
+    ///
+    /// Perché va **conservato col piano**. Chi registra una scansione, salva e riapre il caso
+    /// deve ritrovarla registrata: senza, la scansione tornava al posto giusto — la
+    /// trasformazione si salvava — ma il programma non sapeva più che fosse registrata. Il
+    /// contorno si disegnava nel grigio di «posizione ignota» e la costruzione della dima si
+    /// rifiutava di partire, su un caso in cui la registrazione era stata fatta.
+    ///
+    /// Un esito riletto dal piano non è distinguibile da uno appena calcolato, ed è giusto così:
+    /// sono gli stessi numeri, misurati sulla stessa scansione e sullo stesso volume.
+    public init(
+        transform: Transform3D,
+        landmarkRMSMM: Double,
+        surfaceRMSMM: Double,
+        surfaceMaxMM: Double,
+        surfacePointCount: Int,
+        converged: Bool
+    ) {
+        self.transform = transform
+        self.landmarkRMSMM = landmarkRMSMM
+        self.surfaceRMSMM = surfaceRMSMM
+        self.surfaceMaxMM = surfaceMaxMM
+        self.surfacePointCount = surfacePointCount
+        self.converged = converged
+    }
 
     /// Giudizio esplicito, con la soglia dichiarata.
     ///

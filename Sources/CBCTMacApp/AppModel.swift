@@ -2951,6 +2951,19 @@ final class AppModel {
         rebuildDerivedContours()
     }
 
+    /// Riprende l'esito di una registrazione fatta prima e salvata col piano.
+    ///
+    /// Senza questo la scansione tornava al posto giusto — la trasformazione si salvava — ma il
+    /// programma non sapeva più che fosse registrata: il contorno si disegnava nel grigio di
+    /// «posizione ignota», e la costruzione della dima si rifiutava di partire su un caso in cui
+    /// la registrazione era stata fatta e riusciva bene.
+    func adoptScanRegistration(_ outcome: ScanRegistrationOutcome) {
+        guard scan != nil else { return }
+        scanRegistration = outcome
+        scanTransform = outcome.transform
+        rebuildDerivedContours()
+    }
+
     /// Registra la scansione sul volume, usando le coppie di punti indicate.
     ///
     /// - Parameter regionMM: la zona in cui estrarre la superficie ossea di riferimento. Va

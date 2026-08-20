@@ -1086,4 +1086,30 @@ struct ModuleAPIContractTests {
         #expect(result.dicomFiles.count == volume.geometry.sliceCount)
         #expect(result.previewCount > 0)
     }
+
+    // MARK: ProjectDocument: l'esito della registrazione va e torna
+
+    @Test("L'esito della registrazione sopravvive al salvataggio del piano")
+    func theRegistrationOutcomeSurvivesThePlan() throws {
+        // Il difetto che questo test blocca: l'esito si scriveva e non si rileggeva mai. La
+        // scansione tornava al posto giusto, ma il programma non sapeva più che fosse
+        // registrata — contorno grigio, e la dima che si rifiutava di partire su un caso in cui
+        // la registrazione c'era ed era buona.
+        let outcome = ScanRegistrationOutcome(
+            transform: Transform3D.translation(Vec3(1, -2, 3.5)),
+            landmarkRMSMM: 0.42,
+            surfaceRMSMM: 0.21,
+            surfaceMaxMM: 0.88,
+            surfacePointCount: 4211,
+            converged: true)
+
+        let restored = try JSONDecoder().decode(
+            ScanRegistrationOutcome.self, from: try JSONEncoder().encode(outcome))
+
+        #expect(restored == outcome)
+        // E il giudizio si ricava dallo scarto, quindi torna con esso invece di essere salvato.
+        #expect(restored.quality == .good)
+        #expect(
+            restored.transform.isApproximatelyEqual(to: outcome.transform, tolerance: 1e-12))
+    }
 }
