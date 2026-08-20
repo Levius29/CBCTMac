@@ -177,7 +177,7 @@ Peso: **3** si tocca ogni pochi minuti · **2** ogni sessione · **1** raramente
 | J2 | Stampa | ✅ | 1 | J |
 | J3 | Copia negli appunti | ✅ | 2 | J |
 | J4 | Istantanea di un riquadro | ✅ | 2 | J |
-| J5 | Esportazione della cartella DICOM | ❌ | 1 | J |
+| J5 | Esportazione della cartella DICOM | ✅ | 1 | J |
 | J6 | Esportazione su disco con visualizzatore | ❌ | 1 | — |
 | J7 | Note del caso | ✅ | 1 | E |
 | J8 | Esportazione del modello 3D (STL) | ✅ | 2 | J |

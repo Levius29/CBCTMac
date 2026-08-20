@@ -3802,6 +3802,90 @@ final class AppModel {
         }
     }
 
+    /// Vero mentre l'esportazione DICOM sta scrivendo su disco.
+    private(set) var isExportingDICOM = false
+
+    /// Esporta il volume aperto come cartella DICOM.
+    ///
+    /// # Perché serve, se i file di partenza l'utente ce li ha già
+    ///
+    /// Perché quasi mai è il volume di partenza quello che si vuole consegnare. È quello
+    /// raddrizzato sul piano occlusale, quello ritagliato attorno al settore, quello con le
+    /// strie ridotte: volumi che esistono soltanto dentro questo programma. Senza esportazione
+    /// l'unico modo di darli a un laboratorio o a un altro software sarebbe rifare
+    /// l'elaborazione là — cioè non darli.
+    ///
+    /// # Una cartella nuova, sempre
+    ///
+    /// Si sceglie **dove**, e la cartella la crea il programma. Scrivere dentro una cartella
+    /// scelta dall'utente vuol dire prima o poi scrivere dentro una che contiene già delle
+    /// fette, e mescolare due serie in una: chi la riaprisse leggerebbe un volume fatto di
+    /// pezzi di due. Vedi `DICOMWriter.availableDirectory`.
+    ///
+    /// # Fuori dal main actor
+    ///
+    /// Cinquecento fette da mezzo megabyte sono un quarto di gigabyte da scrivere: sul main
+    /// actor la finestra resterebbe ferma per tutto il tempo, e ferma senza spiegazione.
+    func exportDICOMFolder() {
+        guard let volume, !isExportingDICOM else { return }
+
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Esporta qui"
+        panel.message = "Scegli dove creare la cartella DICOM"
+        guard panel.runModal() == .OK, let parent = panel.url else { return }
+
+        // `archivableExam` e non `exam`: su un volume derivato porta già la descrizione con
+        // l'operazione che l'ha prodotto — «CBCT mascellare — raddrizzato» — ed è esattamente
+        // ciò che deve leggersi nel nome della serie esportata e della cartella.
+        let metadata = archivableExam
+        let identity = DICOMExportIdentity(
+            patientName: patient.name,
+            patientID: patient.patientID,
+            patientBirthDate: patient.birthDate,
+            patientSex: patient.sex,
+            studyInstanceUID: metadata.studyInstanceUID,
+            studyDate: metadata.studyDate,
+            studyTime: metadata.studyTime,
+            studyDescription: metadata.studyDescription,
+            seriesDescription: metadata.displayTitle)
+        let directory = DICOMWriter.availableDirectory(
+            named: identity.suggestedFolderName, in: parent)
+
+        isExportingDICOM = true
+        lastActionMessage = "Esportazione DICOM in corso…"
+
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                () -> Result<Int, Error> in
+                do {
+                    return .success(
+                        try DICOMWriter.write(
+                            volume: volume, identity: identity, to: directory
+                        ).count)
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            isExportingDICOM = false
+            switch outcome {
+            case .success(let count):
+                lastActionMessage =
+                    "Esportate \(count) fette in «\(directory.lastPathComponent)». "
+                    + "La serie ha identificatori nuovi: è un volume diverso da quello acquisito."
+                NSWorkspace.shared.activateFileViewerSelecting([directory])
+            case .failure(let error):
+                lastActionMessage = "Esportazione DICOM non riuscita: \(error.localizedDescription)"
+                loadIssues.append("Esportazione DICOM non riuscita: \(error.localizedDescription)")
+            }
+        }
+    }
+
+
     /// Se il volume aperto è il fantoccio sintetico di riferimento.
     ///
     /// Serve alla verifica di accuratezza, che confronta con grandezze note: su una CBCT di un

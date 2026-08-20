@@ -134,6 +134,9 @@ struct CBCTMacApp: App {
                     .keyboardShortcut("p", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)
 
+                Button("Esporta la cartella DICOM…") { model.exportDICOMFolder() }
+                    .disabled(model.volume == nil || model.isExportingDICOM)
+
                 Divider()
 
                 Button("Apri piano…") { openPlan() }
