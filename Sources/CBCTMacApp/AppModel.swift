@@ -2062,7 +2062,7 @@ final class AppModel {
         // nessun altro è una sagoma sottile in mezzo all'osso: chi non la vede subito non ha modo
         // di sapere se il clic è arrivato, e riprova — e si ritrova due impianti sovrapposti.
         lastActionMessage =
-            "\(placement.label) posato: \(placement.model.localizedName). "
+            "\(placement.label) posato: \(placement.model.displayName). "
             + "Trascinalo dal corpo per spostarlo, dagli estremi per inclinarlo."
     }
 
