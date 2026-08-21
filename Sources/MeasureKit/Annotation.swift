@@ -536,6 +536,33 @@ public enum Annotation: Hashable, Sendable, Codable, Identifiable {
         }
     }
 
+    /// Il valore con l'incertezza esplicita, dove ha senso dichiararla.
+    ///
+    /// # Perché non è `formattedValue` a portarla
+    ///
+    /// Perché `formattedValue` finisce anche sulle etichette dei riquadri, dove il `± 0,1 mm`
+    /// raddoppia la larghezza di ogni cartellino e la collocazione delle etichette è già il
+    /// vincolo più stretto del disegno. La forma lunga sta dove c'è spazio per leggerla —
+    /// l'ispettore, il suggerimento, l'esportazione — ed è la forma che dice la verità intera:
+    /// una lunghezza misurata su voxel da due decimi non vale un centesimo, e scriverla senza
+    /// scarto lascia credere di sì. Vedi il Contratto 5.
+    ///
+    /// Le grandezze che non sono lunghezze tornano com'erano: l'incertezza di un angolo o di
+    /// una densità si calcola in un altro modo, e inventarne una qui sarebbe peggio che tacerla.
+    public var formattedValueWithUncertainty: String {
+        switch self {
+        case .distance(let a):
+            return MeasurementFormatter.lengthWithUncertainty(
+                a.lengthMM, context: a.metadata.acquisition)
+        case .profileLine(let a):
+            return MeasurementFormatter.lengthWithUncertainty(
+                a.lengthMM, context: a.metadata.acquisition)
+        case .arrow, .angle, .ellipseROI, .polygonROI, .sphereROI, .text, .freehand,
+            .polyline, .lineAngle:
+            return formattedValue
+        }
+    }
+
     /// Nome del tipo per la UI.
     /// Sposta l'annotazione con una trasformazione rigida.
     ///

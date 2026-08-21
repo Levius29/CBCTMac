@@ -46,6 +46,10 @@ public enum Morphology: Sendable {
         return try makeMask(geometry: mask.geometry, labels: result)
     }
 
+    // non-ancora-collegato: la segmentazione offre chiusura e dilatazione, che sono ciò che
+    // serve a rimarginare una corticale interrotta. L'apertura toglie i granelli, e i granelli
+    // su una CBCT dentale sono quasi sempre osso vero e sottile: toglierli è più spesso un
+    // danno che una pulizia, e va offerto quando ci sarà da regolarne il raggio guardando.
     /// Applica erosione e poi dilatazione, rimuovendo i granelli più piccoli del raggio richiesto.
     public static func opened(_ mask: VolumeMask, byMM radius: Double) throws -> VolumeMask {
         try dilated(eroded(mask, byMM: radius), byMM: radius)

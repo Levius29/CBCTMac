@@ -211,22 +211,31 @@ public enum VolumeResampler: Sendable {
     /// farebbe fallire il riconoscimento su ogni volume vero.
     static let sameSpacingToleranceMM: Double = 1e-6
 
-    /// La disposizione di un ritaglio puro, se la richiesta è tale.
+    /// Vero se chiedere questo passo su questo volume è un **ritaglio puro**, senza perdita.
     ///
     /// Lo è quando il passo chiesto coincide con quello del volume su **tutti e tre** gli assi.
     /// Su un volume anisotropo il passo isotropo richiesto ne pareggia al più due, e allora è un
-    /// ricampionamento vero: interpolare è quel che si deve fare, e questa strada non si prende.
+    /// ricampionamento vero: interpolare è quel che si deve fare.
+    ///
+    /// È pubblica perché la stessa domanda se la pone l'interfaccia, che deve dire nella catena
+    /// di provenienza se ha ritagliato o ricampionato. Se la ponesse per conto proprio le due
+    /// risposte divergerebbero — ed è già successo: la finestra chiamava «Ritaglio» ogni passo
+    /// **più grosso** dell'originale, cioè esattamente i ricampionamenti che sfocano.
+    public static func isLosslessCrop(spacingMM: Double, in geometry: VolumeGeometry) -> Bool {
+        let tolerance = sameSpacingToleranceMM
+        return abs(spacingMM - geometry.columnSpacingMM) <= tolerance
+            && abs(spacingMM - geometry.rowSpacingMM) <= tolerance
+            && abs(spacingMM - geometry.sliceSpacingMM) <= tolerance
+    }
+
+    /// La disposizione di un ritaglio puro, se la richiesta è tale.
     private static func cropLayout(
         bounds: VoxelResampleBounds,
         sourceGeometry: VolumeGeometry,
         spacingMM: Double,
         maximumVoxelCount: Int
     ) throws -> CropLayout? {
-        let tolerance = sameSpacingToleranceMM
-        guard abs(spacingMM - sourceGeometry.columnSpacingMM) <= tolerance,
-            abs(spacingMM - sourceGeometry.rowSpacingMM) <= tolerance,
-            abs(spacingMM - sourceGeometry.sliceSpacingMM) <= tolerance
-        else { return nil }
+        guard isLosslessCrop(spacingMM: spacingMM, in: sourceGeometry) else { return nil }
 
         // Il primo voxel **intero** dentro la regione, per ciascun asse. Il margine di un
         // milionesimo assorbe l'errore di una divisione: senza, una coordinata che vale
@@ -239,14 +248,36 @@ public enum VolumeResampler: Sendable {
             Swift.max(0, Swift.min(count - 1, Int(floor(value + 1e-6))))
         }
 
-        let i0 = first(bounds.minimum.x, count: sourceGeometry.columnCount)
-        let j0 = first(bounds.minimum.y, count: sourceGeometry.rowCount)
-        let k0 = first(bounds.minimum.z, count: sourceGeometry.sliceCount)
-        let i1 = last(bounds.maximum.x, count: sourceGeometry.columnCount)
-        let j1 = last(bounds.maximum.y, count: sourceGeometry.rowCount)
-        let k1 = last(bounds.maximum.z, count: sourceGeometry.sliceCount)
+        // # Una regione più sottile di un voxel contiene comunque un voxel
+        //
+        // Fra due centri di voxel non c'è niente da copiare: un intervallo da 3,2 a 3,8 non
+        // contiene nessun indice intero, e `first` e `last` si incrociano. La strada del
+        // ricampionamento, che questa sostituisce, in quel caso dava **una** fetta — `ceil` di
+        // una frazione fa uno — e restituire invece «regione vuota» sarebbe una regressione
+        // travestita da controllo: la regione non è vuota, semplicemente non contiene un voxel
+        // intero. Chi trascina il riquadro fino a una lamella vuole quella lamella, e la cosa
+        // giusta da dargli è il voxel che ci sta dentro.
+        //
+        // La regione fuori dal volume l'ha già respinta `sourceBounds`, che è il posto dove
+        // quel controllo appartiene: qui gli indici sono per costruzione dentro i limiti.
+        func span(_ low: Int, _ high: Int, count: Int) -> (Int, Int) {
+            guard high < low else { return (low, high) }
+            let single = Swift.max(0, Swift.min(count - 1, low))
+            return (single, single)
+        }
 
-        guard i1 >= i0, j1 >= j0, k1 >= k0 else { throw ResampleError.emptyRegion }
+        let (i0, i1) = span(
+            first(bounds.minimum.x, count: sourceGeometry.columnCount),
+            last(bounds.maximum.x, count: sourceGeometry.columnCount),
+            count: sourceGeometry.columnCount)
+        let (j0, j1) = span(
+            first(bounds.minimum.y, count: sourceGeometry.rowCount),
+            last(bounds.maximum.y, count: sourceGeometry.rowCount),
+            count: sourceGeometry.rowCount)
+        let (k0, k1) = span(
+            first(bounds.minimum.z, count: sourceGeometry.sliceCount),
+            last(bounds.maximum.z, count: sourceGeometry.sliceCount),
+            count: sourceGeometry.sliceCount)
 
         let columns = i1 - i0 + 1
         let rows = j1 - j0 + 1

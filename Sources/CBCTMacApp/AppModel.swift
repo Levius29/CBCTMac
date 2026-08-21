@@ -2792,6 +2792,16 @@ final class AppModel {
             isPointing: isDraggingCutLines || isCutLineFlashing)
     }
 
+    /// Vero se le tracce di taglio si possono **afferrare**.
+    ///
+    /// Coincide con l'essere visibili, e non è una tautologia da togliere: è la regola scritta
+    /// una volta sola, in un posto dove si legge il motivo. Un oggetto che non si vede non si
+    /// afferra — chi nasconde le linee perché sono invadenti e poi se le ritrova sotto il dito
+    /// ha ottenuto l'opposto di quel che chiedeva, e per giunta senza capire cosa sia successo,
+    /// perché il gesto prende qualcosa che non è disegnato. È la stessa regola, letta dall'altro
+    /// verso, dell'oggetto disegnato e non afferrabile.
+    var areCutLinesGrabbable: Bool { areCutLinesVisible }
+
     func setCutLinesVisible(_ visible: Bool) {
         areCutLinesVisible = visible
         lastActionMessage =
@@ -4077,6 +4087,11 @@ final class AppModel {
 
     /// L'ultima dima costruita, con le sue verifiche.
     private(set) var guideResult: GuideResult?
+
+    /// I parametri con cui è stata costruita. Servono al manifest, e vanno tenuti **insieme**
+    /// al risultato: un riepilogo produttivo che dichiarasse la tolleranza di una costruzione
+    /// diversa da quella del pezzo sarebbe peggio di nessun riepilogo.
+    private(set) var guideConfiguration: GuideConfiguration?
     private(set) var isBuildingGuide = false
     var isShowingGuide = false
 
@@ -4151,6 +4166,7 @@ final class AppModel {
         switch outcome {
         case .success(let result):
             guideResult = result
+            guideConfiguration = configuration
             let quality = scanRegistration?.quality ?? .poor
             let caveat = quality == .good
                 ? ""
@@ -4161,6 +4177,7 @@ final class AppModel {
                 result.validation.volumeMM3 / 1000, result.sleeves.count, caveat)
         case .failure(let error):
             guideResult = nil
+            guideConfiguration = nil
             lastActionMessage =
                 (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         }
@@ -4360,7 +4377,19 @@ final class AppModel {
         }
     }
 
-    /// Esporta la dima in STL.
+    /// Esporta la dima in STL, con accanto il suo manifest.
+    ///
+    /// # Perché il manifest esce insieme, e non a richiesta
+    ///
+    /// Perché un STL è una nuvola di triangoli e non dice nulla di sé: chi lo riceve non può
+    /// sapere con quale tolleranza di adattamento è stato costruito, che spessore di parete
+    /// dichiara, quale spessore minimo è stato verificato. Il riepilogo esisteva già —
+    /// `GuideExport.manifest` — e non lo scriveva nessuno: la dima usciva muta.
+    ///
+    /// Per una dima la cosa pesa più che altrove. È un dispositivo su misura, e i parametri con
+    /// cui è stata prodotta sono precisamente ciò che un domani bisogna poter esibire. Un file
+    /// di testo accanto all'STL costa niente e chiude il buco; separarli è invece facilissimo,
+    /// quindi escono con lo stesso nome.
     func exportGuide() {
         guard let result = guideResult else { return }
         do {
@@ -4369,7 +4398,16 @@ final class AppModel {
             panel.nameFieldStringValue = "dima.stl"
             guard panel.runModal() == .OK, let url = panel.url else { return }
             try data.write(to: url)
-            lastActionMessage = "Dima esportata in \(url.lastPathComponent)."
+
+            var message = "Dima esportata in \(url.lastPathComponent)."
+            if let configuration = guideConfiguration {
+                let manifest = GuideExport.manifest(result, configuration: configuration)
+                let manifestURL = url.deletingPathExtension()
+                    .appendingPathExtension("manifest.txt")
+                try manifest.write(to: manifestURL, atomically: true, encoding: .utf8)
+                message += " Manifest in \(manifestURL.lastPathComponent)."
+            }
+            lastActionMessage = message
         } catch {
             lastActionMessage =
                 (error as? LocalizedError)?.errorDescription ?? String(describing: error)

@@ -862,8 +862,13 @@ struct MeasurementRow: View {
     }
 
     private var helpText: String {
-        guard let statistics else { return annotation.kindName }
-        var lines = [annotation.kindName]
+        // La forma con l'incertezza sta qui e non nella riga: nel suggerimento c'è spazio, e
+        // il `± 0,1 mm` è ciò che distingue una misura dichiarata onestamente da una che
+        // promette decimi che il voxel non ha. Vedi il Contratto 5.
+        guard let statistics else {
+            return "\(annotation.kindName) \(annotation.formattedValueWithUncertainty)"
+        }
+        var lines = ["\(annotation.kindName) \(annotation.formattedValueWithUncertainty)"]
         for row in statistics.detailRows {
             lines.append("\(row.label): \(row.value)")
         }

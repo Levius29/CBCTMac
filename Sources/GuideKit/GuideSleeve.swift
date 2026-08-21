@@ -48,6 +48,9 @@ public struct GuideSleeve: Hashable, Sendable, Codable {
             offsetToPlatformMM: offsetToPlatformMM)
     }
 
+    // non-ancora-collegato: aspetta la guida endodontica, che non esiste come funzione.
+    // Costruire la boccola è il pezzo facile; il difficile è il percorso accesso-apice, che
+    // va tracciato su un canale, e per tracciarlo serve una vista dedicata che non c'è.
     /// Costruisce una boccola endodontica lungo il percorso accesso-apice.
     public static func forCanal(
         accessMM: Vec3,

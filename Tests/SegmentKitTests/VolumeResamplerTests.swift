@@ -307,3 +307,94 @@ struct LosslessCropTests {
                 to: volume.geometry.originMM, tolerance: 1e-9))
     }
 }
+
+// Ritaglio o ricampionamento: la classificazione, e la lamella più sottile di un voxel.
+//
+// Due difetti trovati in revisione, entrambi al confine fra le due operazioni. Che allo stesso
+// passo i campioni escano identici lo prova già `LosslessCropTests`; qui si prova **chi decide**
+// che il passo è lo stesso, e che cosa succede quando la regione è più sottile di un voxel.
+//
+// Il primo difetto stava nell'interfaccia, che decideva da sé con `passo < passo minimo del
+// volume`: vero solo per i passi **più fini** dell'originale, quindi ogni ingrossamento — cioè
+// ogni ricampionamento che sfoca davvero — finiva nella catena di provenienza etichettato
+// «Ritaglio». La domanda adesso la si pone al ricampionatore, che è l'unico a saperla.
+//
+// Il secondo stava nella strada veloce: una regione fra due centri di voxel non contiene nessun
+// indice intero, i due estremi si incrociavano, e usciva «regione vuota». La strada che quella
+// sostituisce, il ricampionamento, in quel caso dava una fetta.
+
+@Suite("Ritaglio o ricampionamento")
+struct CropClassificationTests {
+
+    /// Cubo isotropo da 0,3 mm con una densità diversa in ogni voxel.
+    private func makeIsotropicVolume() throws -> Volume {
+        let orientation = try #require(
+            SliceOrientation(columnDirection: Vec3(1, 0, 0), rowDirection: Vec3(0, 1, 0)))
+        let geometry = try VolumeGeometry(
+            columnCount: 12, rowCount: 12, sliceCount: 12,
+            columnSpacingMM: 0.3, rowSpacingMM: 0.3, sliceSpacingMM: 0.3,
+            orientation: orientation, originMM: Vec3(-3, -2, 5))
+        var samples = [Int16]()
+        samples.reserveCapacity(geometry.voxelCount)
+        for k in 0..<geometry.sliceCount {
+            for j in 0..<geometry.rowCount {
+                for i in 0..<geometry.columnCount {
+                    samples.append(Int16(i + 20 * j + 400 * k))
+                }
+            }
+        }
+        return try Volume(geometry: geometry, samples: samples)
+    }
+
+    @Test("È ritaglio solo al passo del volume, non a qualunque passo più grosso")
+    func onlyTheNativeSpacingIsACrop() throws {
+        let geometry = try makeIsotropicVolume().geometry
+
+        #expect(VolumeResampler.isLosslessCrop(spacingMM: 0.3, in: geometry))
+        // Più grosso: la vecchia regola diceva «ritaglio» anche qui, ed è il caso che sfoca.
+        #expect(!VolumeResampler.isLosslessCrop(spacingMM: 0.4, in: geometry))
+        #expect(!VolumeResampler.isLosslessCrop(spacingMM: 1.0, in: geometry))
+        // Più fine: ricampionamento anche questo, e non aggiunge niente.
+        #expect(!VolumeResampler.isLosslessCrop(spacingMM: 0.15, in: geometry))
+    }
+
+    @Test("Il micron di tolleranza accetta il passo del DICOM e rifiuta uno scarto vero")
+    func theToleranceAcceptsFloatingPointNoise() throws {
+        let geometry = try makeIsotropicVolume().geometry
+        // Lo scarto tipico di un passo letto da un file: sotto il micron.
+        #expect(VolumeResampler.isLosslessCrop(spacingMM: 0.3 + 1e-9, in: geometry))
+        // Un centesimo di millimetro non è rumore: su cento fette è un millimetro.
+        #expect(!VolumeResampler.isLosslessCrop(spacingMM: 0.31, in: geometry))
+    }
+
+    @Test("Su un volume anisotropo nessun passo isotropo è un ritaglio")
+    func anisotropicVolumesAreNeverCropped() throws {
+        let geometry = try makeLinearDensityVolume().geometry
+        for spacing in [0.4, 0.5, 0.6] {
+            #expect(!VolumeResampler.isLosslessCrop(spacingMM: spacing, in: geometry))
+        }
+    }
+
+    @Test("Una regione più sottile di un voxel dà un voxel, non un errore")
+    func aSubVoxelRegionYieldsOneVoxel() throws {
+        let volume = try makeIsotropicVolume()
+        let geometry = volume.geometry
+
+        // Una lamella fra due centri di voxel sull'asse delle colonne: nessun indice intero
+        // dentro. Sugli altri due assi la regione è larga, così in prova c'è un caso solo.
+        let low = geometry.patientPoint(fromVoxel: Vec3(4.2, 1, 1))
+        let high = geometry.patientPoint(fromVoxel: Vec3(4.8, 9, 9))
+        let region = BoxMM(
+            minMM: Vec3(min(low.x, high.x), min(low.y, high.y), min(low.z, high.z)),
+            maxMM: Vec3(max(low.x, high.x), max(low.y, high.y), max(low.z, high.z)))
+
+        let cropped = try VolumeResampler.resampled(
+            volume, request: ResampleRequest(spacingMM: 0.3, regionMM: region))
+
+        #expect(cropped.geometry.columnCount == 1)
+        #expect(cropped.geometry.rowCount > 1)
+        #expect(cropped.geometry.sliceCount > 1)
+        // E il passo resta quello: è pur sempre un ritaglio.
+        #expect(abs(cropped.geometry.columnSpacingMM - 0.3) < 1e-9)
+    }
+}

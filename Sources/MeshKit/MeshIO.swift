@@ -120,6 +120,9 @@ public enum MeshIO: Sendable {
         return writer.data
     }
 
+    // non-ancora-collegato: alle stampanti si consegna il binario, che è dieci volte più
+    // piccolo, e l'ASCII serve a leggere un file con gli occhi quando qualcosa non torna.
+    // Offrirlo nel menu accanto al binario inviterebbe a scegliere il formato sbagliato.
     /// Esporta una mesh come STL ASCII.
     public static func exportSTLASCII(_ mesh: Mesh) -> String {
         let validTriangles = exportableTriangles(in: mesh)

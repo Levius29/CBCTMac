@@ -45,7 +45,8 @@ struct ModuleAPIContractTests {
         _ = DensityWindow.automatic(from: volume)
         _ = volume.rawHistogram(binCount: 256)
         _ = VolumeCamera.fitted(to: geometry)
-        _ = ArchCurve.defaultArch(for: geometry)
+        _ = ArchCurve.suggested(
+            for: geometry, atVerticalMM: geometry.centerMM.z, arch: .mandibular)
 
         // `clampCrosshairToVolume()`
         let v = geometry.voxelPoint(fromPatient: geometry.centerMM)
@@ -195,7 +196,8 @@ struct ModuleAPIContractTests {
     @Test("Le API di arcata, panorex e sezioni trasversali")
     func dentalAPI() throws {
         let geometry = try makeVolume().geometry
-        var curve = ArchCurve.defaultArch(for: geometry)
+        var curve = ArchCurve.suggested(
+            for: geometry, atVerticalMM: geometry.centerMM.z, arch: .mandibular)
 
         _ = curve.isUsable
         _ = curve.lengthMM
@@ -534,7 +536,9 @@ struct ModuleAPIContractTests {
         _ = plane.matchingAspect(pixelWidth: 1600, pixelHeight: 1200).widthMM
 
         // `ProjectDocument` serializza la curva come array di componenti.
-        let curve = ArchCurve.defaultArch(for: volume.geometry)
+        let curve = ArchCurve.suggested(
+            for: volume.geometry, atVerticalMM: volume.geometry.centerMM.z,
+            arch: DentalArch.mandibular)
         let encoded = curve.controlPointsMM.map { [$0.x, $0.y, $0.z] }
         let decoded = encoded.compactMap { values -> Vec3? in
             guard values.count >= 3 else { return nil }

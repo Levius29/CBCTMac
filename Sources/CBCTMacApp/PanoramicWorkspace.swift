@@ -357,7 +357,12 @@ struct PanoramicWorkspace: View {
 
         // La linea di taglio ha la precedenza: è l'oggetto più usato della panorex, e afferrare
         // un impianto che le sta accanto invece della linea romperebbe un gesto che funziona.
-        if let section = model.crossSectionBrowser.selectedSection {
+        //
+        // Ma solo se si vede: nascosta continuava a prendersi la pressione **prima** degli
+        // impianti, e a due centesimi di larghezza dal punto in cui era, senza che nulla a
+        // schermo dicesse perché il gesto non arrivava all'impianto sotto il dito. Vedi
+        // `AppModel.areCutLinesGrabbable`.
+        if model.areCutLinesGrabbable, let section = model.crossSectionBrowser.selectedSection {
             let range = model.panoramicLayout.visibleArcRangeMM
             let span = max(range.upperBound - range.lowerBound, 1e-6)
             let lineX = (section.arcLengthMM - range.lowerBound) / span

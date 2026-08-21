@@ -329,35 +329,4 @@ public struct ArchCurve: Hashable, Sendable, Codable {
 
         return bestLength
     }
-
-    // MARK: Curva predefinita
-
-    /// Arcata approssimata, come punto di partenza da correggere a mano.
-    ///
-    /// Una parabola centrata nel volume, dimensionata su un'arcata adulta media. Non pretende
-    /// di essere corretta per il paziente: serve a evitare che l'utente debba costruire la
-    /// curva da zero a ogni apertura, quando spostare cinque punti è molto più rapido.
-    /// Il rilevamento automatico arriverà con la segmentazione della Fase 6.
-    public static func defaultArch(for geometry: VolumeGeometry) -> ArchCurve {
-        let centre = geometry.centerMM
-        let size = geometry.physicalSizeMM
-
-        // Semilarghezza dell'arcata: circa metà del campo, limitata a valori plausibili per
-        // una mandibola adulta.
-        let halfWidth = min(max(size.x * 0.32, 18.0), 32.0)
-        let depth = min(max(size.y * 0.30, 16.0), 30.0)
-
-        // Nove punti su una parabola aperta verso il posteriore: l'apice sta sugli incisivi,
-        // in avanti, e i rami vanno indietro verso i molari.
-        var points: [Vec3] = []
-        let count = 9
-        for index in 0..<count {
-            let t = Double(index) / Double(count - 1) * 2.0 - 1.0  // da −1 a +1
-            let x = centre.x + t * halfWidth
-            let y = centre.y - depth * (1.0 - t * t) + depth * 0.5
-            points.append(Vec3(x, y, centre.z))
-        }
-
-        return ArchCurve(controlPointsMM: points)
-    }
 }

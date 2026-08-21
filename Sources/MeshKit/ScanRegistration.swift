@@ -162,6 +162,9 @@ public enum ScanRegistration {
             converged: refined.converged)
     }
 
+    // non-ancora-collegato: manca la mappa a colori che la renderebbe leggibile, ed è quella
+    // la funzione — un vettore di scarti stampato non lo guarda nessuno. Va disegnata sul
+    // contorno della scansione, con la stessa scala in tutte le viste.
     /// Scarto punto per punto fra la scansione registrata e la nuvola del volume.
     ///
     /// Serve a **vedere dove** la registrazione è buona e dove no, invece di leggere un numero

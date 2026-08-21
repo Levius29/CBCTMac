@@ -270,25 +270,40 @@ struct ImplantOverlay: View {
         guard nodes.count >= 2 else { return }
         let scale = pointsPerMM(plane, width: width)
 
-        var path = Path()
-        var opacity = 1.0
-        for (index, node) in nodes.enumerated() {
-            let projected = plane.pixelPosition(
-                ofPatient: node, pixelWidth: width, pixelHeight: height)
-            let point = CGPoint(x: projected.x, y: projected.y)
-            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
-            // Sfuma come un impianto: oltre il raggio dal piano la barra non lo interseca più.
-            let fade = PlaneProximity.fadeOpacity(
-                distanceMM: abs(projected.distanceMM), fadeOverMM: bar.diameterMM)
-            opacity = min(opacity, fade)
+        let projected = nodes.map {
+            plane.pixelPosition(ofPatient: $0, pixelWidth: width, pixelHeight: height)
         }
-        guard opacity > 0.03 else { return }
 
+        // # Tratto per tratto, e non tutta o niente
+        //
+        // L'opacità era il minimo su tutti i nodi: bastava che un capo della barra stesse oltre
+        // un diametro dal piano perché sparisse **tutta**, compreso il tratto che il piano
+        // attraversa. Su una coronale una barra che corre lungo l'arcata ha sempre un capo
+        // lontano, quindi non si vedeva mai — e la domanda per cui la barra si disegna è proprio
+        // quanto spazio resta sopra di essa nel punto che si sta guardando.
+        //
+        // Ogni tratto ha la sua: zero distanza finché quel tratto attraversa il piano, e da lì
+        // la distanza dell'estremo più vicino. Il tratto vicino si vede pieno, quello lontano
+        // sfuma, e la barra racconta dove passa invece di scomparire.
         let colour = Color(hexString: bar.colorHex) ?? Palette.textPrimary
-        context.stroke(
-            path, with: .color(colour.opacity(0.9 * opacity)),
-            style: StrokeStyle(
-                lineWidth: max(bar.diameterMM * scale, 1.5), lineCap: .round, lineJoin: .round))
+        let lineWidth = max(bar.diameterMM * scale, 1.5)
+
+        for index in 0..<(projected.count - 1) {
+            let start = projected[index]
+            let end = projected[index + 1]
+            let distance = PlaneProximity.distanceMM(
+                from: start.distanceMM, to: end.distanceMM)
+            let opacity = PlaneProximity.fadeOpacity(
+                distanceMM: distance, fadeOverMM: bar.diameterMM)
+            guard opacity > 0.03 else { continue }
+
+            var segment = Path()
+            segment.move(to: CGPoint(x: start.x, y: start.y))
+            segment.addLine(to: CGPoint(x: end.x, y: end.y))
+            context.stroke(
+                segment, with: .color(colour.opacity(0.9 * opacity)),
+                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+        }
     }
 
     /// Direzione dell'asse proiettata sul piano, normalizzata in coordinate pixel.

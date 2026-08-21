@@ -177,14 +177,16 @@ struct ArchCurveTests {
         #expect(curve.nearestControlPoint(to: Vec3(20, 50, 0), toleranceMM: 3) == nil)
     }
 
-    @Test("L'arcata predefinita è utilizzabile e sta dentro il volume")
-    func defaultArchIsUsable() throws {
+    @Test("L'arcata suggerita è utilizzabile e sta dentro il volume")
+    func suggestedArchIsUsable() throws {
         let geometry = try VolumeGeometry(
             columnCount: 240, rowCount: 240, sliceCount: 240,
             columnSpacingMM: 0.25, rowSpacingMM: 0.25, sliceSpacingMM: 0.25,
             orientation: .standardAxial, originMM: Vec3(-30, -30, -30))
 
-        let curve = ArchCurve.defaultArch(for: geometry)
+        let curve = ArchCurve.suggested(
+            for: geometry, atVerticalMM: geometry.centerMM.z,
+            arch: DentalArch.mandibular)
         #expect(curve.isUsable)
         #expect(curve.lengthMM > 40)
 

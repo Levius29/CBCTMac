@@ -225,14 +225,23 @@ struct ReformatSheet: View {
         Grid(alignment: .leading, horizontalSpacing: Metrics.spacingLarge, verticalSpacing: 6) {
             GridRow {
                 Text("Dimensione voxel").foregroundStyle(Palette.textSecondary)
+                // I passi **di questo volume**, non i nove fissi.
+                //
+                // Il menu offriva i preset e basta, e il piano nasceva col passo nativo — che da
+                // un DICOM vero arriva come 0,2000000029802322 e non è nessuno dei nove. Il
+                // menu quindi non mostrava alcuna scelta, e qualunque voce si toccasse portava
+                // a un passo diverso dall'originale: la strada del ritaglio senza perdita, che
+                // esiste e funziona, non era raggiungibile da nessun gesto. Si ritagliava
+                // sempre ricampionando, ed è precisamente l'immagine più molle che si vedeva.
                 Picker(
                     "",
                     selection: Binding(
                         get: { plan.spacingMM },
                         set: { self.plan?.spacingMM = $0 })
                 ) {
-                    ForEach(VolumeResampler.spacingPresetsMM, id: \.self) { value in
-                        Text(spacingText(value)).tag(value)
+                    ForEach(VolumeResampler.spacingOptionsMM(for: geometry), id: \.self) {
+                        value in
+                        Text(spacingLabel(value, geometry: geometry)).tag(value)
                     }
                 }
                 .labelsHidden()
@@ -284,6 +293,18 @@ struct ReformatSheet: View {
             : String(format: "%.2f mm", value).replacingOccurrences(of: ".", with: ",")
     }
 
+    /// Il passo, e se è quello del volume anche il perché sceglierlo.
+    ///
+    /// Detto, perché arrotondato non si distingue: il passo nativo di 0,2000000029802322 e il
+    /// preset 0,2 si scrivono tutti e due «200 µm», e sono due operazioni diverse — una copia i
+    /// voxel, l'altra li interpola. Senza etichetta la differenza è invisibile proprio nel punto
+    /// in cui si decide.
+    private func spacingLabel(_ value: Double, geometry: VolumeGeometry) -> String {
+        VolumeResampler.isLosslessCrop(spacingMM: value, in: geometry)
+            ? "\(spacingText(value)) — originale, senza perdita"
+            : spacingText(value)
+    }
+
     private func estimateText(plan: ReformatPlan) -> String {
         let voxels = plan.estimatedVoxelCount()
         let megabytes = Double(plan.estimatedBytes()) / 1_048_576
@@ -312,12 +333,6 @@ struct ReformatSheet: View {
         failure = nil
     }
 
-    /// Passo più fine del volume in uso: sotto di esso si sta ricampionando, non ritagliando.
-    private var smallestSpacing: Double {
-        guard let s = model.volume?.geometry.spacingMM else { return 0 }
-        return min(s.x, min(s.y, s.z))
-    }
-
     /// Fuori dal thread dell'interfaccia: vedi `ArtifactSheet.apply`.
     private func apply() {
         guard let plan, let volume = model.volume else { return }
@@ -325,7 +340,12 @@ struct ReformatSheet: View {
         failure = nil
 
         let request = ResampleRequest(spacingMM: plan.spacingMM, regionMM: plan.regionMM)
-        let isResample = plan.spacingMM < smallestSpacing
+        // La stessa domanda che si pone il ricampionatore, posta a lui. Qui stava scritta
+        // `plan.spacingMM < smallestSpacing`, che è vera solo per i passi **più fini**
+        // dell'originale: ogni ingrossamento — cioè ogni ricampionamento che sfoca davvero —
+        // finiva nella catena di provenienza come «Ritaglio».
+        let isResample = !VolumeResampler.isLosslessCrop(
+            spacingMM: plan.spacingMM, in: volume.geometry)
         let name = plan.name
 
         Task {

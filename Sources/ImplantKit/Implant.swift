@@ -200,6 +200,10 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
         ]
     }
 
+    // non-ancora-collegato: nessun impianto a pareti parallele nell'elenco dei modelli, e
+    // finché non ce n'è uno questo profilo non ha chi lo chieda. Sta qui perché il costruttore
+    // di `ImplantModel` accetta un profilo esplicito: aggiungere un modello cilindrico è una
+    // riga, non un lavoro.
     /// Profilo cilindrico, con la sola punta arrotondata.
     public static func cylindricalProfile(diameterMM: Double, lengthMM: Double) -> [ProfilePoint] {
         let radius = diameterMM / 2

@@ -694,6 +694,8 @@ struct ViewportContainer: View {
 
     /// Decide quale linea del mirino si è afferrata, e come.
     private func beginCrosshairDrag(at point: PixelPoint) {
+        // Nascoste vuol dire anche non afferrabili. Vedi `AppModel.areCutLinesGrabbable`.
+        guard model.areCutLinesGrabbable else { return }
 
         // La più vicina fra tutte, non la prima che risponde: vicino all'incrocio le due linee
         // sono entrambe a portata, e prendere la prima dell'elenco significherebbe afferrare
