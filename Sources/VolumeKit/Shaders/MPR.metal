@@ -32,7 +32,21 @@ struct MPRUniforms {
     float rawOffset;       // -32768: riporta al dominio Int16 originale
     float invertGrayscale; // 0 o 1, per la resa in negativo
     float padding;
+
+    // Riquadro di lettura, come nel raycaster: tre righe, dentro se tutte e tre stanno fra zero
+    // e uno. Senza riquadro valgono "sempre dentro". Vedi `ClipBox`.
+    float4 clipRowX;
+    float4 clipRowY;
+    float4 clipRowZ;
 };
+
+inline bool isInsideClip(float3 coord, constant MPRUniforms& u) {
+    const float3 n = float3(
+        dot(u.clipRowX.xyz, coord) + u.clipRowX.w,
+        dot(u.clipRowY.xyz, coord) + u.clipRowY.w,
+        dot(u.clipRowZ.xyz, coord) + u.clipRowZ.w);
+    return all(n >= 0.0f) && all(n <= 1.0f);
+}
 
 constant int kProjectionAverage = 0;
 constant int kProjectionMaximum = 1;
@@ -92,7 +106,7 @@ kernel void mprSample(
         const float offset = float(s) - float(steps - 1) * 0.5f;
         const float3 coord = base + normalStep * offset;
 
-        if (!isInsideVolume(coord)) {
+        if (!isInsideVolume(coord) || !isInsideClip(coord, u)) {
             continue;
         }
 
@@ -157,6 +171,13 @@ kernel void mprProbe(
                        + u.texRightStep.xyz * pixel.x
                        + u.texDownStep.xyz  * pixel.y;
 
+    // # Il riquadro di lettura **non** si applica qui, ed e' deliberato
+    //
+    // Questo kernel non disegna: legge i valori su cui si misura. Il riquadro e' un modo di
+    // guardare, e un modo di guardare non deve poter cambiare un numero — una ROI a cavallo del
+    // bordo perderebbe in silenzio i campioni dalla parte tagliata, e la media che ne esce
+    // sarebbe sbagliata senza che niente lo dica. Chi ritaglia per vedere meglio non si aspetta
+    // che la densita' cambi.
     if (!isInsideVolume(coord)) {
         result = NAN;
         return;

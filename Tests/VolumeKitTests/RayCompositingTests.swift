@@ -125,14 +125,15 @@ struct RayCompositingTests {
 
     @Test("Il blocco di uniform ha la dimensione che lo shader si aspetta")
     func theUniformBlockKeepsItsLayout() {
-        // Sei `float4` e quattro gruppi da quattro scalari: centosessanta byte.
+        // Sei `float4` iniziali (96), quattro gruppi da quattro scalari (64), e le tre righe
+        // del riquadro di lettura (48): duecentotto byte.
         //
         // Non è pedanteria. Il layout dev'essere identico byte per byte a quello in
         // `Raycast.metal`, e un campo aggiunto senza il riempimento che completa il gruppo non
         // dà né errore né avviso: dà campi letti dal posto sbagliato, cioè un'immagine sbagliata
         // per una ragione che non si trova guardando il codice che disegna.
-        #expect(MemoryLayout<RaycastUniforms>.size == 160)
-        #expect(MemoryLayout<RaycastUniforms>.stride == 160)
+        #expect(MemoryLayout<RaycastUniforms>.size == 208)
+        #expect(MemoryLayout<RaycastUniforms>.stride == 208)
         #expect(MemoryLayout<RaycastUniforms>.alignment == 16)
     }
 }

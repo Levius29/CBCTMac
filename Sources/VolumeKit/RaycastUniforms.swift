@@ -48,5 +48,9 @@ struct RaycastUniforms {
     /// sbagliato, senza un errore e senza un avviso.
     var reserved0: Float
     var reserved1: Float
+
+    var clipRowX: SIMD4<Float>
+    var clipRowY: SIMD4<Float>
+    var clipRowZ: SIMD4<Float>
 }
 

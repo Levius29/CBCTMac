@@ -241,3 +241,106 @@ private struct VoxelBounds: Sendable {
     let maximumJ: Int
     let maximumK: Int
 }
+
+// MARK: - Spostare una faccia
+
+extension BoxMM {
+
+    /// Sposta una faccia del riquadro entro il volume, senza consentirne l'inversione.
+    ///
+    /// # Perché sta sul riquadro e non sul piano di ricampionamento
+    ///
+    /// Perché è una faccenda del **riquadro**. Ci stava dentro `ReformatPlan`, che è il piano di
+    /// un ricampionamento, e da lì la usava solo quello: quando è servito trascinare i lati di
+    /// un riquadro che non ricampiona niente — quello di sola lettura — l'alternativa era
+    /// ricopiare la stessa logica di bloccaggio da un'altra parte. Due copie di una regola che
+    /// impedisce di rovesciare un parallelepipedo prima o poi discordano, e discordano nel caso
+    /// storto, che è l'unico in cui la regola conta.
+    ///
+    /// - Parameter marginMM: quanto deve restare largo il riquadro sull'asse mosso. Impedire
+    ///   l'inversione **qui** evita che un trascinamento produca molto più tardi conteggi
+    ///   negativi o allocazioni insensate.
+    public static func moving(
+        _ face: BoxFace,
+        of region: BoxMM,
+        toMM value: Double,
+        within geometry: VolumeGeometry,
+        marginMM: Double
+    ) -> BoxMM {
+        guard value.isFinite else { return region }
+        let bounds = patientBounds(of: geometry)
+        var moved = region.clamped(to: bounds)
+
+        let marginX = Swift.min(marginMM, bounds.maxMM.x - bounds.minMM.x)
+        let marginY = Swift.min(marginMM, bounds.maxMM.y - bounds.minMM.y)
+        let marginZ = Swift.min(marginMM, bounds.maxMM.z - bounds.minMM.z)
+
+        let x = normalized(
+            minimum: moved.minMM.x, maximum: moved.maxMM.x,
+            boundMinimum: bounds.minMM.x, boundMaximum: bounds.maxMM.x, margin: marginX)
+        let y = normalized(
+            minimum: moved.minMM.y, maximum: moved.maxMM.y,
+            boundMinimum: bounds.minMM.y, boundMaximum: bounds.maxMM.y, margin: marginY)
+        let z = normalized(
+            minimum: moved.minMM.z, maximum: moved.maxMM.z,
+            boundMinimum: bounds.minMM.z, boundMaximum: bounds.maxMM.z, margin: marginZ)
+        moved = BoxMM(
+            minMM: Vec3(x.minimum, y.minimum, z.minimum),
+            maxMM: Vec3(x.maximum, y.maximum, z.maximum))
+
+        switch face {
+        case .minX:
+            moved.minMM.x = Swift.max(
+                bounds.minMM.x, Swift.min(value, moved.maxMM.x - marginX))
+        case .maxX:
+            moved.maxMM.x = Swift.min(
+                bounds.maxMM.x, Swift.max(value, moved.minMM.x + marginX))
+        case .minY:
+            moved.minMM.y = Swift.max(
+                bounds.minMM.y, Swift.min(value, moved.maxMM.y - marginY))
+        case .maxY:
+            moved.maxMM.y = Swift.min(
+                bounds.maxMM.y, Swift.max(value, moved.minMM.y + marginY))
+        case .minZ:
+            moved.minMM.z = Swift.max(
+                bounds.minMM.z, Swift.min(value, moved.maxMM.z - marginZ))
+        case .maxZ:
+            moved.maxMM.z = Swift.min(
+                bounds.maxMM.z, Swift.max(value, moved.minMM.z + marginZ))
+        }
+        return moved
+    }
+
+    /// Il riquadro che contiene tutto il volume, in millimetri Patient.
+    public static func patientBounds(of geometry: VolumeGeometry) -> BoxMM {
+        var minimum = Vec3(Double.infinity, Double.infinity, Double.infinity)
+        var maximum = Vec3(-Double.infinity, -Double.infinity, -Double.infinity)
+        for point in geometry.boundingBoxCornersMM {
+            minimum = Vec3(
+                Swift.min(minimum.x, point.x),
+                Swift.min(minimum.y, point.y),
+                Swift.min(minimum.z, point.z))
+            maximum = Vec3(
+                Swift.max(maximum.x, point.x),
+                Swift.max(maximum.y, point.y),
+                Swift.max(maximum.z, point.z))
+        }
+        return BoxMM(minMM: minimum, maxMM: maximum)
+    }
+
+    /// Un intervallo riportato dentro i limiti e mai più stretto del margine.
+    private static func normalized(
+        minimum: Double, maximum: Double,
+        boundMinimum: Double, boundMaximum: Double, margin: Double
+    ) -> (minimum: Double, maximum: Double) {
+        var lower = Swift.min(Swift.max(minimum, boundMinimum), boundMaximum)
+        var upper = Swift.min(Swift.max(maximum, boundMinimum), boundMaximum)
+        if upper < lower { swap(&lower, &upper) }
+        guard upper - lower < margin else { return (lower, upper) }
+        let centre = (lower + upper) * 0.5
+        lower = Swift.max(
+            boundMinimum, Swift.min(centre - margin * 0.5, boundMaximum - margin))
+        upper = lower + margin
+        return (lower, upper)
+    }
+}

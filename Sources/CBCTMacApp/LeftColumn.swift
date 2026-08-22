@@ -227,6 +227,37 @@ struct AdjustmentsPanel: View {
                 }
                 .disabled(model.volume == nil)
 
+                // Il riquadro di lettura, accanto al ritaglio vero e distinto da esso: quello
+                // produce un volume nuovo, questo cambia solo che cosa si vede. Il testo lo dice,
+                // perché è l'unica differenza che conta e non si vede dalle icone.
+                Button {
+                    model.toggleClipping()
+                } label: {
+                    Label(
+                        model.clipBox.isActive
+                            ? "Togli il riquadro di lettura"
+                            : "Guarda solo una porzione…",
+                        systemImage: model.clipBox.isActive
+                            ? "rectangle.dashed" : "rectangle.dashed.badge.record")
+                        .font(Typography.label)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(model.volume == nil)
+                .help(
+                    "Limita la vista a un riquadro trascinabile. Non modifica l'esame: "
+                    + "l'archivio conserva il volume intero.")
+
+                if model.clipBox.isActive {
+                    Button {
+                        model.resetClipBox()
+                    } label: {
+                        Label("Riquadro a tutto il volume", systemImage: "arrow.up.left.and.arrow.down.right")
+                            .font(Typography.label)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .help("Riapre il riquadro su tutto, senza spegnerlo.")
+                }
+
                 Button {
                     model.resetAllViews()
                 } label: {

@@ -1,6 +1,7 @@
 import CephKit
 import DICOMCore
 import MeasureKit
+import SegmentKit
 import StudyKit
 import SwiftUI
 import VolumeKit
@@ -152,6 +153,9 @@ struct ViewportContainer: View {
     /// qualunque visore: chi trascina ottiene la forma, chi preferisce mirare due volte pure.
     @State private var twoPointDrag: (start: CGPoint, last: CGPoint)?
 
+    /// Lato del riquadro di lettura afferrato in questo riquadro.
+    @State private var clipEdge: CropBoxEdge?
+
     private struct CrosshairDrag {
         let represented: ViewportSlot
         let grip: CrosshairGrip
@@ -182,6 +186,18 @@ struct ViewportContainer: View {
                         model: model,
                         plane: model.planes[slot],
                         pixelSize: pixelSize)
+                }
+
+                // Il riquadro di lettura, sopra l'immagine e sotto tutto il resto: è una
+                // cornice, non un oggetto del piano, e non deve coprire ciò su cui si lavora.
+                if model.clipBox.isActive, let plane = adjustedPlane,
+                    slot.anatomicalPlane != nil
+                {
+                    CropBoxOverlay(
+                        regionMM: BoxMM(
+                            minMM: model.clipBox.minMM, maxMM: model.clipBox.maxMM),
+                        viewPlane: plane,
+                        grabbedEdge: clipEdge)
                 }
 
                 if slot.anatomicalPlane != nil {
@@ -284,6 +300,7 @@ struct ViewportContainer: View {
                 volumeTexture: model.volumeTexture,
                 renderer: model.mprRenderer,
                 windowLevel: model.windowLevel,
+                clip: model.activeClipBox,
                 renderScale: model.mprResolution.scale,
                 onScroll: { steps in
                     model.focusedSlot = slot
@@ -326,6 +343,7 @@ struct ViewportContainer: View {
                     if archDragIndex != nil { model.rebuildCrossSections() }
                     crosshairDrag = nil
                     archDragIndex = nil
+                    clipEdge = nil
                     model.setDraggingCutLines(false)
                 },
                 onCancel: { model.cancelToolSession() },
@@ -359,6 +377,7 @@ struct ViewportContainer: View {
             transferFunction: model.transferFunction,
             quality: model.effectiveQuality,
             lighting: model.lighting,
+            clip: model.activeClipBox,
             onOrbit: { delta in
                 model.focusedSlot = slot
                 model.orbit(byPixels: delta)
@@ -445,6 +464,7 @@ struct ViewportContainer: View {
         // afferrava *e* ne posava uno nuovo nello stesso punto: due impianti sovrapposti, di cui
         // il secondo invisibile perché coperto dal primo. Con lo strumento dente lo stesso, e da
         // oggi che i denti si afferrano sarebbe stato il doppio dei casi.
+        guard clipEdge == nil else { return }
         guard !model.isDraggingObject else { return }
         guard model.annotationDrag == nil, model.nerveDrag == nil else { return }
 
@@ -622,8 +642,46 @@ struct ViewportContainer: View {
         beginCrosshairDrag(at: point)
     }
 
+    /// Prova ad afferrare un lato del riquadro di lettura.
+    ///
+    /// Prima di tutto il resto: è una cornice, ci si preme sopra apposta, e se la contendesse a
+    /// un impianto che le sta accanto vincerebbe l'impianto — che è il contrario di quel che si
+    /// sta chiedendo. Fuori dai lati non afferra niente e lascia passare il gesto.
+    private func beginClipDrag(at pixelPoint: CGPoint) -> Bool {
+        clipEdge = nil
+        guard model.clipBox.isActive, let plane = adjustedPlane,
+            pixelSize.width > 1, pixelSize.height > 1
+        else { return false }
+
+        let frame = CropBoxOverlay.frame(of: plane, size: pixelSize)
+        let rect = CropBoxGeometry.rect(
+            of: BoxMM(minMM: model.clipBox.minMM, maxMM: model.clipBox.maxMM),
+            in: frame,
+            width: Double(pixelSize.width), height: Double(pixelSize.height))
+        let slop = Double(max(pixelSize.width, pixelSize.height)) * 0.02
+
+        clipEdge = CropBoxGeometry.edge(
+            nearX: Double(pixelPoint.x), y: Double(pixelPoint.y), of: rect, slop: slop)
+        if clipEdge != nil { model.focusedSlot = slot }
+        return clipEdge != nil
+    }
+
+    /// Continua il trascinamento di un lato del riquadro di lettura.
+    private func dragClip(to pixelPoint: CGPoint) {
+        guard let edge = clipEdge, let plane = adjustedPlane,
+            pixelSize.width > 1, pixelSize.height > 1
+        else { return }
+        let frame = CropBoxOverlay.frame(of: plane, size: pixelSize)
+        let valueMM = CropBoxGeometry.millimetres(
+            atX: Double(pixelPoint.x), y: Double(pixelPoint.y), for: edge, in: frame,
+            width: Double(pixelSize.width), height: Double(pixelSize.height))
+        model.moveClipFace(CropBoxGeometry.face(for: edge, in: frame), toMM: valueMM)
+    }
+
     /// Prova ad afferrare qualcosa che appartiene al piano. Restituisce vero se ci riesce.
     private func beginPlanDrag(at pixelPoint: CGPoint) -> Bool {
+        if beginClipDrag(at: pixelPoint) { return true }
+
         // # ⌥ non afferra
         //
         // In tutto il programma ⌥ clic significa **togli**: un punto d'arcata, un nodo del
@@ -762,6 +820,13 @@ struct ViewportContainer: View {
     }
 
     private func handleDrag(_ point: CGPoint, _ delta: CGSize) {
+        // Il lato del riquadro di lettura afferrato viene prima di tutto: chi l'ha preso alla
+        // pressione sta muovendo quello, e nient'altro.
+        if clipEdge != nil {
+            dragClip(to: point)
+            return
+        }
+
         // La mano libera: il trascinamento **è** il disegno, e viene prima di ogni altra
         // interpretazione del gesto.
         if model.activeTool == .freehand {

@@ -73,58 +73,16 @@ public struct ReformatPlan: Hashable, Sendable, Codable {
         toMM value: Double,
         within geometry: VolumeGeometry
     ) {
-        guard value.isFinite else { return }
-        let bounds = Self.patientBounds(of: geometry)
-        regionMM = regionMM.clamped(to: bounds)
-        let requestedMargin = spacingMM.isFinite && spacingMM > 0
+        // Il bloccaggio vive sul riquadro, dove appartiene: lo stesso serve al riquadro di sola
+        // lettura, che non ricampiona niente. Vedi `BoxMM.moving(_:of:toMM:within:marginMM:)`.
+        let margin = spacingMM.isFinite && spacingMM > 0
             ? spacingMM
             : min(
                 geometry.columnSpacingMM,
                 min(geometry.rowSpacingMM, geometry.sliceSpacingMM)
             )
-        let marginX = min(requestedMargin, bounds.maxMM.x - bounds.minMM.x)
-        let marginY = min(requestedMargin, bounds.maxMM.y - bounds.minMM.y)
-        let marginZ = min(requestedMargin, bounds.maxMM.z - bounds.minMM.z)
-        let x = normalizedInterval(
-            minimum: regionMM.minMM.x,
-            maximum: regionMM.maxMM.x,
-            boundMinimum: bounds.minMM.x,
-            boundMaximum: bounds.maxMM.x,
-            margin: marginX
-        )
-        let y = normalizedInterval(
-            minimum: regionMM.minMM.y,
-            maximum: regionMM.maxMM.y,
-            boundMinimum: bounds.minMM.y,
-            boundMaximum: bounds.maxMM.y,
-            margin: marginY
-        )
-        let z = normalizedInterval(
-            minimum: regionMM.minMM.z,
-            maximum: regionMM.maxMM.z,
-            boundMinimum: bounds.minMM.z,
-            boundMaximum: bounds.maxMM.z,
-            margin: marginZ
-        )
-        regionMM = BoxMM(
-            minMM: Vec3(x.minimum, y.minimum, z.minimum),
-            maxMM: Vec3(x.maximum, y.maximum, z.maximum)
-        )
-
-        switch face {
-        case .minX:
-            regionMM.minMM.x = max(bounds.minMM.x, min(value, regionMM.maxMM.x - marginX))
-        case .maxX:
-            regionMM.maxMM.x = min(bounds.maxMM.x, max(value, regionMM.minMM.x + marginX))
-        case .minY:
-            regionMM.minMM.y = max(bounds.minMM.y, min(value, regionMM.maxMM.y - marginY))
-        case .maxY:
-            regionMM.maxMM.y = min(bounds.maxMM.y, max(value, regionMM.minMM.y + marginY))
-        case .minZ:
-            regionMM.minMM.z = max(bounds.minMM.z, min(value, regionMM.maxMM.z - marginZ))
-        case .maxZ:
-            regionMM.maxMM.z = min(bounds.maxMM.z, max(value, regionMM.minMM.z + marginZ))
-        }
+        regionMM = BoxMM.moving(
+            face, of: regionMM, toMM: value, within: geometry, marginMM: margin)
     }
 
     /// Elenca i problemi che impedirebbero un ricampionamento sicuro.
@@ -166,39 +124,9 @@ public struct ReformatPlan: Hashable, Sendable, Codable {
         return Int(exactly: value)
     }
 
-    private func normalizedInterval(
-        minimum: Double,
-        maximum: Double,
-        boundMinimum: Double,
-        boundMaximum: Double,
-        margin: Double
-    ) -> (minimum: Double, maximum: Double) {
-        var lower = min(max(minimum, boundMinimum), boundMaximum)
-        var upper = min(max(maximum, boundMinimum), boundMaximum)
-        if upper < lower { swap(&lower, &upper) }
-        guard upper - lower < margin else { return (lower, upper) }
-        let centre = (lower + upper) * 0.5
-        lower = max(boundMinimum, min(centre - margin * 0.5, boundMaximum - margin))
-        upper = lower + margin
-        return (lower, upper)
-    }
-
+    /// Il riquadro che contiene tutto il volume. Una riga sola: la regola sta sul riquadro.
     private static func patientBounds(of geometry: VolumeGeometry) -> BoxMM {
-        var minimum = Vec3(Double.infinity, Double.infinity, Double.infinity)
-        var maximum = Vec3(-Double.infinity, -Double.infinity, -Double.infinity)
-        for point in geometry.boundingBoxCornersMM {
-            minimum = Vec3(
-                min(minimum.x, point.x),
-                min(minimum.y, point.y),
-                min(minimum.z, point.z)
-            )
-            maximum = Vec3(
-                max(maximum.x, point.x),
-                max(maximum.y, point.y),
-                max(maximum.z, point.z)
-            )
-        }
-        return BoxMM(minMM: minimum, maxMM: maximum)
+        BoxMM.patientBounds(of: geometry)
     }
 
     private func intersects(_ first: BoxMM, _ second: BoxMM) -> Bool {

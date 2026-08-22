@@ -16,14 +16,19 @@ import VolumeKit
 // geometria che decide dove disegnare e che cosa si è afferrato è una sola — `CropBoxGeometry`,
 // in SegmentKit, dove si verifica con `swift test` invece che a occhio.
 //
-// I tre riquadri descrivono **un solo parallelepipedo**: chi disegna qui legge `plan.regionMM`,
+// I tre riquadri descrivono **un solo parallelepipedo**: chi disegna qui legge `regionMM`,
 // quindi muovendo un lato in una vista le altre due si aggiornano da sole. Tre rettangoli
 // indipendenti sarebbero più semplici da scrivere e discorderebbero al primo trascinamento,
 // perché descriverebbero tre scatole diverse.
 
 struct CropBoxOverlay: View {
 
-    let plan: ReformatPlan
+    /// Il riquadro da disegnare, in millimetri Patient.
+    ///
+    /// Un `BoxMM` e non un `ReformatPlan`: la sovraimpressione disegna **un riquadro**, e legarla
+    /// al piano di un ricampionamento la rendeva inservibile per il riquadro di sola lettura, che
+    /// un ricampionamento non lo fa. Vedi `ClipBox`.
+    let regionMM: BoxMM
     let viewPlane: MPRPlane
     /// Lato attualmente afferrato, per evidenziarlo mentre lo si trascina.
     var grabbedEdge: CropBoxEdge?
@@ -40,7 +45,7 @@ struct CropBoxOverlay: View {
             // numeri: i millimetri sarebbero giusti e il disegno no.
             let frame = CropBoxOverlay.frame(of: viewPlane, size: size)
             let rect = CropBoxGeometry.rect(
-                of: plan.regionMM, in: frame,
+                of: regionMM, in: frame,
                 width: Double(size.width), height: Double(size.height))
             let box = CGRect(
                 x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)

@@ -125,6 +125,7 @@ public final class VolumeRaycaster {
         transferFunction: TransferFunction,
         quality: RenderQuality,
         lighting: LightingParameters = .standard,
+        clip: ClipBox? = nil,
         into output: MTLTexture,
         commandBuffer: MTLCommandBuffer
     ) throws {
@@ -157,6 +158,7 @@ public final class VolumeRaycaster {
             volume: volume,
             quality: quality,
             lighting: lighting,
+            clip: clip,
             densityRange: densityRange,
             pixelWidth: pixelWidth,
             pixelHeight: pixelHeight)
@@ -253,6 +255,7 @@ public final class VolumeRaycaster {
         volume: VolumeTexture,
         quality: RenderQuality,
         lighting: LightingParameters,
+        clip: ClipBox? = nil,
         densityRange: ClosedRange<Double>,
         pixelWidth: Int,
         pixelHeight: Int
@@ -324,6 +327,10 @@ public final class VolumeRaycaster {
         // Passo delle differenze centrali: mezzo voxel, espresso in unita' di texture.
         let gradientStepTex = 0.5 / Double(max(geometry.columnCount, 1))
 
+        // Vedi `ClipBox`: senza riquadro le righe lasciano passare tutto.
+        let clipRows = (clip ?? ClipBox(minMM: .zero, maxMM: .zero))
+            .textureRows(patientToTexture: toTexture)
+
         return RaycastUniforms(
             texOrigin: SIMD4<Float>(
                 Float(texOrigin.x), Float(texOrigin.y), Float(texOrigin.z), 0),
@@ -356,7 +363,10 @@ public final class VolumeRaycaster {
                     rescaleSlope: volume.rescaleSlope,
                     rawScale: Double(volume.rawScale))),
             reserved0: 0,
-            reserved1: 0
+            reserved1: 0,
+            clipRowX: clipRows[0],
+            clipRowY: clipRows[1],
+            clipRowZ: clipRows[2]
         )
     }
 

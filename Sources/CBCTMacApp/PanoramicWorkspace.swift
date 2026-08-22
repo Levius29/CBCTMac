@@ -573,6 +573,10 @@ struct PanoramicWorkspace: View {
                 layout: model.panoramicLayout,
                 volumeTexture: model.volumeTexture,
                 renderer: model.panoramicRenderer,
+                // Il riquadro di lettura **non** si applica alla panorex, di proposito: è la
+                // mappa su cui ci si orienta, e una mappa tagliata smette di servire proprio
+                // mentre si lavora su una parte. Le sezioni trasversali invece lo seguono, che
+                // è dove «lavorare solo sulla porzione scelta» vuol dire qualcosa.
                 windowLevel: model.windowLevel,
                 onHoverArcLength: { hoverArcLengthMM = $0 },
                 onClickArcLength: { arcLength, patient in
@@ -1037,11 +1041,19 @@ struct CrossSectionCell: View {
 
     var body: some View {
         VStack(spacing: 2) {
+            // sovraimpressione-non-richiesta: CropBoxOverlay — il riquadro di lettura si sagoma
+            // sulle tre viste ortogonali, dove le sue facce sono lati e si trascinano. Una
+            // sezione trasversale è **obliqua** rispetto agli assi del riquadro: il suo contorno
+            // lì è un esagono, che questa sovraimpressione non sa disegnare, e la conversione fra
+            // lato premuto e faccia mossa, che assume un piano allineato, darebbe la faccia
+            // sbagliata. Il ritaglio la sezione lo **subisce** — fuori dal riquadro non si
+            // disegna — e questa è la cosa che conta; a sagomarlo si va sulle ortogonali.
             MPRViewportView(
                 plane: zoomedPlane,
                 volumeTexture: model.volumeTexture,
                 renderer: model.mprRenderer,
                 windowLevel: model.windowLevel,
+                clip: model.activeClipBox,
                 onScroll: { steps in
                     // La rotella scorre la striscia: si passa da un dente all'altro senza
                     // staccare la mano dall'immagine.

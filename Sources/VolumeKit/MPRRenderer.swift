@@ -33,6 +33,10 @@ struct MPRUniforms {
     var rawOffset: Float
     var invertGrayscale: Float
     var padding: Float
+
+    var clipRowX: SIMD4<Float>
+    var clipRowY: SIMD4<Float>
+    var clipRowZ: SIMD4<Float>
 }
 
 /// Disegna piani arbitrari del volume in una texture 2D.
@@ -75,6 +79,7 @@ public final class MPRRenderer {
         volume: VolumeTexture,
         windowLevel: DensityWindow,
         invertGrayscale: Bool = false,
+        clip: ClipBox? = nil,
         into output: MTLTexture,
         commandBuffer: MTLCommandBuffer
     ) throws {
@@ -88,6 +93,7 @@ public final class MPRRenderer {
             volume: volume,
             windowLevel: windowLevel,
             invertGrayscale: invertGrayscale,
+            clip: clip,
             pixelWidth: pixelWidth,
             pixelHeight: pixelHeight)
 
@@ -124,6 +130,7 @@ public final class MPRRenderer {
         volume: VolumeTexture,
         windowLevel: DensityWindow,
         invertGrayscale: Bool,
+        clip: ClipBox? = nil,
         pixelWidth: Int,
         pixelHeight: Int
     ) -> MPRUniforms {
@@ -140,6 +147,11 @@ public final class MPRRenderer {
         // **direzioni** e vanno trasformati senza. Confondere le due cose è l'errore che
         // sposta l'immagine di una costante, ed è il motivo per cui `Transform3D` espone due
         // metodi distinti invece di uno solo.
+        // Senza riquadro le righe lasciano passare tutto, quindi lo shader non ha un ramo in
+        // più e la strada senza ritaglio costa quanto prima. Vedi `ClipBox`.
+        let rows = (clip ?? ClipBox(minMM: .zero, maxMM: .zero))
+            .textureRows(patientToTexture: toTexture)
+
         let texOrigin = toTexture.apply(toPoint: originMM)
         let texRightStep = toTexture.apply(toVector: rightStepMM)
         let texDownStep = toTexture.apply(toVector: downStepMM)
@@ -167,7 +179,10 @@ public final class MPRRenderer {
             rawScale: volume.rawScale,
             rawOffset: volume.rawOffset,
             invertGrayscale: invertGrayscale ? 1 : 0,
-            padding: 0)
+            padding: 0,
+            clipRowX: rows[0],
+            clipRowY: rows[1],
+            clipRowZ: rows[2])
     }
 
     // MARK: Texture di destinazione

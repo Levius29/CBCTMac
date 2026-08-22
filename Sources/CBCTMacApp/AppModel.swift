@@ -1206,6 +1206,73 @@ final class AppModel {
     // Annullare cambia il piano quanto modificarlo: senza questo, un impianto spostato e poi
     // riportato indietro con ⌘Z lascerebbe in archivio la versione spostata.
 
+    // MARK: - Riquadro di lettura
+
+    // # Perché non entra in nessuna istantanea
+    //
+    // Perché non modifica niente. «Ritaglia e ricampiona» produce un volume nuovo, e da lì in poi
+    // è quello il dato: giusto che esista — serve a consegnare un settore a un laboratorio — ma
+    // è una modifica che l'esame si porta dietro. Guardare una parte è un'altra faccenda: si
+    // toglie di mezzo la guancia per arrivare alla cresta, e si vuole che chiuso il programma il
+    // volume sia intero.
+    //
+    // Quindi: fuori da `PlanSnapshot`, perché non c'è niente da annullare; fuori dal documento
+    // di progetto e dall'archivio, perché riaprire un esame con mezzo cranio invisibile e non
+    // sapere perché sarebbe esattamente il difetto che questa funzione esiste per non avere.
+    // Vive quanto la sessione, come l'inquadratura o la finestra di densità.
+
+    /// Il riquadro entro cui si guarda. Spento, il volume si vede intero.
+    var clipBox = ClipBox(minMM: .zero, maxMM: .zero)
+
+    /// Il riquadro da passare ai renderer: `nil` quando non limita niente.
+    var activeClipBox: ClipBox? {
+        clipBox.isActive && !clipBox.isEmpty ? clipBox : nil
+    }
+
+    /// Accende il riquadro sull'intero volume, pronto da stringere.
+    func beginClipping() {
+        guard let geometry = volume?.geometry else {
+            lastActionMessage = "Nessun volume aperto."
+            return
+        }
+        clipBox = ClipBox.wholeVolume(geometry)
+        clipBox.isActive = true
+        lastActionMessage =
+            "Riquadro di lettura acceso. Trascina i lati sulle viste per stringerlo; "
+            + "l'esame non viene modificato."
+    }
+
+    /// Spegne il riquadro e torna a vedere tutto.
+    func stopClipping() {
+        guard clipBox.isActive else { return }
+        clipBox.isActive = false
+        lastActionMessage = "Riquadro di lettura tolto: si vede di nuovo tutto il volume."
+    }
+
+    func toggleClipping() {
+        clipBox.isActive ? stopClipping() : beginClipping()
+    }
+
+    /// Riporta il riquadro a contenere tutto, lasciandolo acceso.
+    func resetClipBox() {
+        guard let geometry = volume?.geometry else { return }
+        let wasActive = clipBox.isActive
+        clipBox = ClipBox.wholeVolume(geometry)
+        clipBox.isActive = wasActive
+    }
+
+    /// Sposta una faccia del riquadro, con la stessa regola di bloccaggio del ritaglio vero.
+    func moveClipFace(_ face: BoxFace, toMM value: Double) {
+        guard let geometry = volume?.geometry, clipBox.isActive else { return }
+        let spacing = geometry.spacingMM
+        let margin = min(spacing.x, min(spacing.y, spacing.z))
+        let moved = BoxMM.moving(
+            face, of: BoxMM(minMM: clipBox.minMM, maxMM: clipBox.maxMM),
+            toMM: value, within: geometry, marginMM: margin)
+        clipBox.minMM = moved.minMM
+        clipBox.maxMM = moved.maxMM
+    }
+
     /// Le mesh degli oggetti del piano, pronte per il riquadro 3D. Vedi `SolidMeshCache`.
     ///
     /// Fuori dall'osservazione di proposito: si riempie durante il disegno, e stato osservato

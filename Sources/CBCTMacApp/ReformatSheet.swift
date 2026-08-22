@@ -170,7 +170,7 @@ struct ReformatSheet: View {
                         onDrawableSize: { pixelSizes[anatomical] = $0 })
 
                     CropBoxOverlay(
-                        plan: self.plan ?? plan,
+                        regionMM: (self.plan ?? plan).regionMM,
                         viewPlane: previewPlane(anatomical, geometry: geometry),
                         grabbedEdge: grabbedView == anatomical ? grabbedEdge : nil)
                 }

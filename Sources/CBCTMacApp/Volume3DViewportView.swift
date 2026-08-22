@@ -22,6 +22,8 @@ struct Volume3DViewportView: NSViewRepresentable {
     let transferFunction: TransferFunction
     let quality: RenderQuality
     let lighting: LightingParameters
+    /// Riquadro di sola lettura: fuori da esso il raggio non campiona. Vedi `ClipBox`.
+    var clip: ClipBox?
 
     var onOrbit: (CGSize) -> Void = { _ in }
     var onMagnify: (Double) -> Void = { _ in }
@@ -64,6 +66,7 @@ struct Volume3DViewportView: NSViewRepresentable {
         context.coordinator.transferFunction = transferFunction
         context.coordinator.quality = quality
         context.coordinator.lighting = lighting
+        context.coordinator.clip = clip
         context.coordinator.onDrawableSize = onDrawableSize
         attachHandlers(to: view, coordinator: context.coordinator)
         view.setNeedsDisplay(view.bounds)
@@ -127,6 +130,7 @@ struct Volume3DViewportView: NSViewRepresentable {
         var transferFunction: TransferFunction = .bone
         var quality: RenderQuality = .standard
         var lighting: LightingParameters = .standard
+        var clip: ClipBox?
 
         private var commandQueue: MTLCommandQueue?
 
@@ -168,6 +172,7 @@ struct Volume3DViewportView: NSViewRepresentable {
                         transferFunction: transferFunction,
                         quality: quality,
                         lighting: lighting,
+                        clip: clip,
                         into: target,
                         commandBuffer: commandBuffer)
                 } catch {

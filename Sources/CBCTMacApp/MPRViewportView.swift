@@ -22,6 +22,8 @@ struct MPRViewportView: NSViewRepresentable {
     let volumeTexture: VolumeTexture?
     let renderer: MPRRenderer?
     let windowLevel: DensityWindow
+    /// Riquadro di sola lettura: fuori da esso non si disegna. Vedi `ClipBox`.
+    var clip: ClipBox?
     /// Frazione della risoluzione nativa a cui rendere. Vedi `MPRResolution`.
     var renderScale: Double = 1
 
@@ -82,6 +84,7 @@ struct MPRViewportView: NSViewRepresentable {
         context.coordinator.volumeTexture = volumeTexture
         context.coordinator.renderer = renderer
         context.coordinator.windowLevel = windowLevel
+        context.coordinator.clip = clip
         context.coordinator.onDrawableSize = onDrawableSize
         view.renderScale = CGFloat(renderScale)
 
@@ -116,6 +119,7 @@ struct MPRViewportView: NSViewRepresentable {
         var volumeTexture: VolumeTexture?
         var renderer: MPRRenderer?
         var windowLevel: DensityWindow = .bone
+        var clip: ClipBox?
         var onDrawableSize: ((CGSize) -> Void)?
 
         private var commandQueue: MTLCommandQueue?
@@ -169,6 +173,7 @@ struct MPRViewportView: NSViewRepresentable {
                         plane: adjusted,
                         volume: volumeTexture,
                         windowLevel: windowLevel,
+                        clip: clip,
                         into: target,
                         commandBuffer: commandBuffer)
                 } catch {

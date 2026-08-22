@@ -46,7 +46,25 @@ struct RaycastUniforms {
     float gradientReference;  // gradiente di un fronte "pieno" per millimetro
     float reserved0;          // allineamento a sedici byte
     float reserved1;
+
+    // Riquadro di lettura: tre righe che portano una coordinata texture nelle coordinate del
+    // riquadro. Dentro quando tutte e tre stanno fra zero e uno. Vedi `ClipBox`.
+    float4 clipRowX;
+    float4 clipRowY;
+    float4 clipRowZ;
 };
+
+/// Vero se il campione sta dentro il riquadro di lettura.
+///
+/// Senza riquadro le tre righe valgono "sempre dentro", quindi questa funzione non ha bisogno di
+/// sapere se c'e' un ritaglio: la strada senza costa tre prodotti scalari e nessun ramo.
+inline bool isInsideClip(float3 coord, constant RaycastUniforms& u) {
+    const float3 n = float3(
+        dot(u.clipRowX.xyz, coord) + u.clipRowX.w,
+        dot(u.clipRowY.xyz, coord) + u.clipRowY.w,
+        dot(u.clipRowZ.xyz, coord) + u.clipRowZ.w);
+    return all(n >= 0.0f) && all(n <= 1.0f);
+}
 
 // MARK: - Campionatori
 
@@ -130,10 +148,12 @@ kernel void volumeRaycast(
 
     for (int s = 0; s < steps; ++s, coord += step) {
 
-        if (!isInsideVolume(coord)) {
+        if (!isInsideVolume(coord) || !isInsideClip(coord, u)) {
             // Non si interrompe: il raggio entra nel volume, lo attraversa e ne esce, e i
             // campioni fuori sono quelli prima dell'ingresso o dopo l'uscita. Fermarsi al
             // primo campione esterno taglierebbe via tutto quando la camera e' obliqua.
+            // Vale identico per il riquadro di lettura, che il raggio attraversa allo stesso
+            // modo — e che quando non c'e' lascia passare tutto.
             continue;
         }
 
