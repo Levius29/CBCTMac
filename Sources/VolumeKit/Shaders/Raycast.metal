@@ -41,6 +41,11 @@ struct RaycastUniforms {
     float specular;
     float shininess;
     float gradientStepTex; // passo per le differenze centrali, in unita' di texture
+
+    float boundarySharpness;  // quanto l'opacita' segue il gradiente, da 0 a 1
+    float gradientReference;  // gradiente di un fronte "pieno" per millimetro
+    float reserved0;          // allineamento a sedici byte
+    float reserved1;
 };
 
 // MARK: - Campionatori
@@ -136,21 +141,52 @@ kernel void volumeRaycast(
         const float lookup  = tableCoordinate(sampled, u);
         const float4 mapped = transferTable.sample(tableSampler, float2(lookup, 0.5f));
 
-        const float alpha = mapped.a;
-        if (alpha <= 0.001f) {
+        const float tableAlpha = mapped.a;
+        if (tableAlpha <= 0.001f) {
             // Campione trasparente: niente da comporre, e soprattutto niente gradiente da
             // calcolare. E' il risparmio piu' grosso del kernel, perche' su un preset "osso"
             // la maggior parte del volume e' aria.
             continue;
         }
 
-        float3 color = mapped.rgb;
+        const float3 gradient = volumeGradient(volume, coord, u);
+        const float gradientLength = length(gradient);
+
+        // # L'opacita' segue il gradiente: e' cio' che separa i tessuti
+        //
+        // Senza, ogni campione sopra soglia contribuisce quanto ogni altro, e cio' che si
+        // attraversa di piu' pesa di piu': l'interno spugnoso di un osso, che e' spesso, copre
+        // la corticale che lo delimita, che e' sottile. Da qui il "tutto un po' mischiato" —
+        // non e' la tabella dei colori a essere sbagliata, e' che i colori vengono da dove non
+        // c'e' una superficie.
+        //
+        // Il gradiente dice dove una superficie c'e'. Modulare l'opacita' con esso spegne gli
+        // interni omogenei — dove varia solo il rumore — e lascia i fronti, che sono i confini
+        // fra un tessuto e l'altro. E' il motivo per cui gli stessi dati, negli altri
+        // programmi, sembrano segmentati mentre qui sembravano nebbia.
+        //
+        // Il riferimento e' un fronte "pieno" — l'intera escursione della tabella nell'arco di
+        // un millimetro — e non un numero scelto a mano: un confine osso-aria vero lo supera e
+        // satura a uno, il rumore dentro l'osso ne resta un ventesimo.
+        const float boundary = clamp(gradientLength / max(u.gradientReference, 1e-9f), 0.0f, 1.0f);
+        const float shaped = tableAlpha * mix(1.0f, boundary, u.boundarySharpness);
+        if (shaped <= 0.001f) {
+            continue;
+        }
+
+        // La correzione per il passo la porta gia' la tabella, cotta una volta per voce invece
+        // che qui una volta per campione: cinquecentododici elevamenti a potenza contro qualche
+        // milione, e una sola implementazione della formula — quella provata, in
+        // `RayCompositing.correctedOpacity`. Qui resta una moltiplicazione.
+        const float alpha = shaped;
+
+        // Il colore della tabella e' premoltiplicato per la sua opacita': riportarlo a quella
+        // modulata dal gradiente e' una moltiplicazione per il rapporto.
+        float3 color = mapped.rgb * (alpha / tableAlpha);
 
         // Illuminazione solo dove c'e' una superficie. Un gradiente quasi nullo significa
         // interno omogeneo: applicare Blinn-Phong li' produce chiazze dovute al rumore, non
         // rilievo.
-        const float3 gradient = volumeGradient(volume, coord, u);
-        const float gradientLength = length(gradient);
 
         if (gradientLength > 1e-5f) {
             const float3 normal = -gradient / gradientLength;

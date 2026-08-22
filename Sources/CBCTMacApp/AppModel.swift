@@ -1206,6 +1206,12 @@ final class AppModel {
     // Annullare cambia il piano quanto modificarlo: senza questo, un impianto spostato e poi
     // riportato indietro con ⌘Z lascerebbe in archivio la versione spostata.
 
+    /// Le mesh degli oggetti del piano, pronte per il riquadro 3D. Vedi `SolidMeshCache`.
+    ///
+    /// Fuori dall'osservazione di proposito: si riempie durante il disegno, e stato osservato
+    /// scritto mentre una vista si costruisce la fa invalidare nel mezzo.
+    @ObservationIgnored let solidMeshes = SolidMeshCache()
+
     /// L'identificatore, se l'oggetto a cui punta esiste ancora.
     private func validated<S: Sequence>(_ id: UUID?, in ids: S) -> UUID? where S.Element == UUID {
         guard let id, ids.contains(id) else { return nil }

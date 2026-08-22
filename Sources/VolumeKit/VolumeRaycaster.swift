@@ -12,32 +12,6 @@ import simd
 // Grazie alla proiezione ortografica la direzione del raggio e' identica per ogni pixel, quindi
 // la struttura degli uniform e' la stessa dell'MPR con un passo in piu'.
 
-/// Uniform del raycaster. Il layout deve corrispondere byte per byte a `RaycastUniforms`
-/// in `Shaders/Raycast.metal`.
-struct RaycastUniforms {
-    var texOrigin: SIMD4<Float>
-    var texRightStep: SIMD4<Float>
-    var texDownStep: SIMD4<Float>
-    var texRayStep: SIMD4<Float>
-    var gradientScale: SIMD4<Float>
-    var lightDirection: SIMD4<Float>
-
-    var sampleCount: Int32
-    var rawScale: Float
-    var rawOffset: Float
-    var rescaleSlope: Float
-
-    var rescaleIntercept: Float
-    var densityMin: Float
-    var densityMax: Float
-    var ambient: Float
-
-    var diffuse: Float
-    var specular: Float
-    var shininess: Float
-    var gradientStepTex: Float
-}
-
 public final class VolumeRaycaster {
 
     private let device: MTLDevice
@@ -82,18 +56,26 @@ public final class VolumeRaycaster {
     /// dell'intervallo di densita', perche' la stessa rampa su un volume diverso produce una
     /// tabella diversa.
     private func updateTable(
-        _ function: TransferFunction, densityRange: ClosedRange<Double>
+        _ function: TransferFunction,
+        densityRange: ClosedRange<Double>,
+        quality: RenderQuality
     ) throws {
+        // Il passo entra nella chiave: la tabella porta la correzione per il passo, quindi
+        // cambiando qualità va rifatta. Senza, ruotando si sarebbe continuato a usare la tabella
+        // della qualità precedente — il difetto che la correzione doveva togliere, spostato.
+        let stepScale = RayCompositing.opacityStepScale(for: quality)
         var hasher = Hasher()
         hasher.combine(function)
         hasher.combine(densityRange.lowerBound)
         hasher.combine(densityRange.upperBound)
+        hasher.combine(stepScale)
         let key = hasher.finalize()
 
         if key == cachedTableKey, tableTexture != nil { return }
 
         let entries = Self.tableEntryCount
-        let values = function.bake(entryCount: entries, densityRange: densityRange)
+        let values = function.bake(
+            entryCount: entries, densityRange: densityRange, opacityStepScale: stepScale)
 
         if tableTexture == nil {
             // `rgba32Float` e non `rgba16Float`: `Float16` non è disponibile su Mac Intel, e
@@ -137,7 +119,8 @@ public final class VolumeRaycaster {
         guard pixelWidth > 0, pixelHeight > 0 else { return }
 
         let densityRange = densityRange(for: volume)
-        try updateTable(transferFunction, densityRange: densityRange)
+        try updateTable(
+            transferFunction, densityRange: densityRange, quality: quality)
         guard let tableTexture else { return }
 
         var uniforms = makeUniforms(
@@ -283,7 +266,15 @@ public final class VolumeRaycaster {
             diffuse: Float(lighting.diffuse),
             specular: Float(lighting.specular),
             shininess: Float(max(lighting.shininess, 1)),
-            gradientStepTex: Float(gradientStepTex)
+            gradientStepTex: Float(gradientStepTex),
+            boundarySharpness: Float(lighting.boundarySharpness),
+            gradientReference: Float(
+                RayCompositing.gradientReference(
+                    densitySpan: densityRange.upperBound - densityRange.lowerBound,
+                    rescaleSlope: volume.rescaleSlope,
+                    rawScale: Double(volume.rawScale))),
+            reserved0: 0,
+            reserved1: 0
         )
     }
 

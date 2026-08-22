@@ -236,7 +236,9 @@ struct Volume3DOverlay: View {
     /// un errore che l'analisi di sicurezza segnala.
     private func drawImplants(_ context: inout GraphicsContext, projector: ScreenProjector) {
         for implant in model.implants where implant.isVisible {
-            let mesh = ImplantMesh.surface(of: implant, segments: Self.solidSegments)
+            let mesh = model.solidMeshes.mesh(id: implant.id, key: implant.hashValue) {
+                ImplantMesh.surface(of: implant, segments: Self.solidSegments)
+            }
             guard !mesh.triangles.isEmpty else { continue }
             draw(
                 mesh, in: &context, projector: projector,
@@ -259,7 +261,11 @@ struct Volume3DOverlay: View {
     /// caso che va fermato.
     private func drawNerves(_ context: inout GraphicsContext, projector: ScreenProjector) {
         for canal in model.nerveCanals where canal.isVisible {
-            let mesh = NerveMesh.surface(of: canal, segments: Self.solidSegments)
+            let mesh = model.solidMeshes.mesh(id: canal.id, key: canal.hashValue) {
+                NerveMesh.surface(
+                    of: canal, segments: Self.solidSegments,
+                    spacingMM: Self.nerveDisplaySpacingMM)
+            }
             guard !mesh.triangles.isEmpty else { continue }
             draw(
                 mesh, in: &context, projector: projector,
@@ -271,8 +277,15 @@ struct Volume3DOverlay: View {
     /// Le barre, come i tubi che sono.
     private func drawBars(_ context: inout GraphicsContext, projector: ScreenProjector) {
         for bar in model.bars where bar.isVisible {
-            let mesh = ProstheticBarBuilder.surface(
-                of: bar, implants: model.implants, segments: Self.solidSegments)
+            // La barra dipende **anche** dagli impianti, che le danno i nodi: la chiave li
+            // comprende, altrimenti spostando un impianto la barra resterebbe dov'era.
+            var hasher = Hasher()
+            hasher.combine(bar)
+            for implant in model.implants { hasher.combine(implant) }
+            let mesh = model.solidMeshes.mesh(id: bar.id, key: hasher.finalize()) {
+                ProstheticBarBuilder.surface(
+                    of: bar, implants: model.implants, segments: Self.solidSegments)
+            }
             guard !mesh.triangles.isEmpty else { continue }
             draw(
                 mesh, in: &context, projector: projector,
@@ -288,6 +301,24 @@ struct Volume3DOverlay: View {
     /// stampa resta quello di `ImplantMesh.defaultSegments`, e sono due cose diverse — qui
     /// governa la fluidità, là la fedeltà del pezzo.
     private static let solidSegments = 16
+
+    /// Livelli di ombreggiatura in cui si arrotonda il Lambert.
+    ///
+    /// Sedici: su un tubo la banda fra un livello e il successivo è più stretta di un pixel e
+    /// non si distingue da una sfumatura continua, mentre accorpare per livelli riduce i
+    /// riempimenti di un ordine di grandezza.
+    private static let shadeLevels = 16
+
+    /// Passo con cui si campiona il canale **per disegnarlo**, in millimetri.
+    ///
+    /// Due millimetri, non il mezzo millimetro con cui lo si misura. Un canale mandibolare è
+    /// lungo una sessantina di millimetri: a mezzo millimetro sono centotrenta anelli, cioè
+    /// oltre quattromila triangoli per canale — e sono due. A due millimetri sono seicento, e a
+    /// schermo un tubo di un millimetro e mezzo di raggio non mostra la differenza.
+    ///
+    /// Il numero che conta per la geometria resta `NerveMesh.defaultSpacingMM`: sono due cose
+    /// diverse, qui governa la fluidità, là la fedeltà.
+    private static let nerveDisplaySpacingMM = 2.0
 
     /// Disegna una mesh col pittore e un'illuminazione diffusa.
     private func draw(
@@ -344,8 +375,33 @@ struct Volume3DOverlay: View {
 
         // Dal più lontano al più vicino.
         faces.sort { $0.depth > $1.depth }
+
+        // # Un riempimento per **tratto**, non per triangolo
+        //
+        // Erano migliaia di `fill` per fotogramma, uno per faccia, ed è la seconda metà del
+        // costo dopo la costruzione della mesh. Le facce contigue in profondità di una
+        // superficie liscia hanno quasi sempre la stessa ombreggiatura, quindi arrotondandola a
+        // pochi livelli si formano tratti lunghi che si possono riempire in un colpo solo.
+        //
+        // Si accorpa **solo dentro un tratto consecutivo**, mai raggruppando per ombreggiatura
+        // in giro per l'elenco: l'ordine di profondità è ciò che rende corretto il disegno del
+        // pittore, e riordinare per colore metterebbe davanti facce che stanno dietro.
+        var run = Path()
+        var runShade = -1.0
         for face in faces {
-            context.fill(face.path, with: .color(colour.opacity(face.shade)))
+            let quantised = (face.shade * Double(Self.shadeLevels)).rounded()
+                / Double(Self.shadeLevels)
+            if quantised != runShade {
+                if runShade >= 0 {
+                    context.fill(run, with: .color(colour.opacity(runShade)))
+                }
+                run = Path()
+                runShade = quantised
+            }
+            run.addPath(face.path)
+        }
+        if runShade >= 0 {
+            context.fill(run, with: .color(colour.opacity(runShade)))
         }
 
         guard isSelected, let outline = faces.last?.path else { return }

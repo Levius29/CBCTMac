@@ -121,7 +121,16 @@ public struct TransferFunction: Hashable, Sendable, Codable {
     ///     e l'occhio non distingue oltre.
     ///   - densityRange: intervallo di densità su cui si distribuisce la tabella. Deve essere lo
     ///     stesso che il raycaster usa per normalizzare, altrimenti i colori scivolano.
-    public func bake(entryCount: Int = 512, densityRange: ClosedRange<Double>) -> [Float] {
+    /// - Parameter opacityStepScale: quante volte il passo del raggio vale quello di
+    ///   riferimento. La correzione si applica **qui**, una volta per voce, invece che nello
+    ///   shader una volta per campione: cinquecentododici elevamenti a potenza contro qualche
+    ///   milione, e soprattutto una sola implementazione della formula — quella provata. Vedi
+    ///   `RayCompositing`.
+    public func bake(
+        entryCount: Int = 512,
+        densityRange: ClosedRange<Double>,
+        opacityStepScale: Double = 1
+    ) -> [Float] {
         let count = max(2, entryCount)
         var table = [Float](repeating: 0, count: count * 4)
 
@@ -132,7 +141,8 @@ public struct TransferFunction: Hashable, Sendable, Codable {
         for index in 0..<count {
             let density = low + span * (Double(index) / Double(count - 1))
             let (color, opacity) = sample(at: density)
-            let alpha = min(max(opacity * opacityScale, 0), 1)
+            let scaled = min(max(opacity * opacityScale, 0), 1)
+            let alpha = RayCompositing.correctedOpacity(scaled, stepScale: opacityStepScale)
 
             table[index * 4 + 0] = Float(color.red * alpha)
             table[index * 4 + 1] = Float(color.green * alpha)
@@ -216,17 +226,92 @@ public struct LightingParameters: Hashable, Sendable {
     public var specular: Double
     public var shininess: Double
 
+    /// Quanto l'opacità segue il **gradiente**, da 0 a 1.
+    ///
+    /// # Che cos'è, e perché cambia tutto
+    ///
+    /// A zero ogni campione sopra soglia pesa quanto ogni altro, e allora conta lo spessore
+    /// attraversato: l'interno spugnoso di un osso, che è spesso, copre la corticale che lo
+    /// delimita, che è sottile. Il risultato è una nebbia in cui i tessuti si mescolano, e non
+    /// è colpa della tabella dei colori — è che il colore viene da dove non c'è una superficie.
+    ///
+    /// A uno contribuiscono soltanto i **fronti**, cioè i confini fra un tessuto e l'altro, e
+    /// gli interni omogenei spariscono. È come si ottiene la separazione netta che si vede
+    /// negli altri programmi; spinto al massimo, però, assottiglia anche le strutture vere.
+    ///
+    /// Sei decimi come punto di partenza: i confini dominano, ma sotto resta il corpo del
+    /// tessuto. È un valore da regolare guardando, e per questo ha un cursore.
+    public var boundarySharpness: Double
+
     public init(
         ambient: Double = 0.25, diffuse: Double = 0.85, specular: Double = 0.35,
-        shininess: Double = 24
+        shininess: Double = 24, boundarySharpness: Double = 0.6
     ) {
         self.ambient = ambient
         self.diffuse = diffuse
         self.specular = specular
         self.shininess = shininess
+        self.boundarySharpness = min(max(boundarySharpness, 0), 1)
     }
 
     public static let standard = LightingParameters()
+}
+
+// MARK: - Composizione lungo il raggio
+
+/// Le due correzioni che rendono il rendering indipendente da come lo si è campionato.
+///
+/// Stanno qui, e non dentro lo shader, perché sono formule con una risposta giusta e una
+/// sbagliata, e in un file `.metal` nessuna prova le può raggiungere: il bersaglio Metal non si
+/// compila fuori da macOS. Lo shader le riceve già calcolate.
+public enum RayCompositing: Sendable {
+
+    /// Passo di riferimento a cui le opacità della tabella sono espresse, in frazioni di voxel.
+    ///
+    /// È il passo della qualità **alta**: le opacità si scelgono guardando l'immagine migliore,
+    /// e le altre qualità si correggono verso quella, non il contrario.
+    public static let referenceStepInVoxels: Double = 0.5
+
+    /// Quante volte il passo corrente vale il passo di riferimento.
+    ///
+    /// # Perché serve
+    ///
+    /// L'opacità della tabella vale **per campione**. A passo triplo si prendono un terzo dei
+    /// campioni e il volume risulta più trasparente; a passo fine, più denso. Girando il volume
+    /// si passa a passo grosso per restare fluidi — e l'immagine cambiava aspetto proprio
+    /// mentre la si muoveva, che è il momento in cui un cambiamento si nota di più.
+    public static func opacityStepScale(for quality: RenderQuality) -> Double {
+        max(quality.stepInVoxels / referenceStepInVoxels, 1e-6)
+    }
+
+    /// L'opacità di un campione corretta per un passo diverso da quello di riferimento.
+    ///
+    /// È la legge di Beer-Lambert in forma discreta: attraversare un tratto doppio equivale a
+    /// due tratti semplici in fila, e la trasparenza si compone moltiplicandosi.
+    public static func correctedOpacity(_ opacity: Double, stepScale: Double) -> Double {
+        let clamped = min(max(opacity, 0), 1)
+        guard clamped > 0, clamped < 1 else { return clamped }
+        return 1 - pow(1 - clamped, max(stepScale, 0))
+    }
+
+    /// Il gradiente di un fronte «pieno»: l'intera escursione della tabella in un millimetro.
+    ///
+    /// È l'unità di misura con cui lo shader giudica se sta attraversando un confine o
+    /// l'interno di un tessuto, ed è espressa nelle unità in cui lo shader lavora — campioni
+    /// unorm per millimetro. Un confine osso-aria vero la supera e satura; il rumore dentro
+    /// l'osso ne resta una frazione.
+    ///
+    /// - Parameters:
+    ///   - densitySpan: l'escursione di densità su cui la tabella è distribuita.
+    ///   - rescaleSlope: la pendenza DICOM che porta i valori grezzi a densità.
+    ///   - rawScale: il fattore che porta il campione unorm al passo intero, cioè 65535.
+    public static func gradientReference(
+        densitySpan: Double, rescaleSlope: Double, rawScale: Double
+    ) -> Double {
+        let slope = abs(rescaleSlope) > 1e-12 ? abs(rescaleSlope) : 1
+        let scale = rawScale > 0 ? rawScale : 1
+        return max(abs(densitySpan), 1) / (slope * scale)
+    }
 }
 
 // MARK: - Camera

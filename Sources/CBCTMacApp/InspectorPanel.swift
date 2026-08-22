@@ -652,6 +652,12 @@ struct InspectorPanel: View {
             LabeledSlider(
                 label: "Opacità", value: $model.transferFunction.opacityScale,
                 range: 0...3, format: "%.2f")
+            // Il cursore che decide se i tessuti si separano o si mescolano. Vedi
+            // `LightingParameters.boundarySharpness`: a zero conta lo spessore attraversato e
+            // il risultato è una nebbia, a uno contano solo i confini.
+            LabeledSlider(
+                label: "Separazione", value: $model.lighting.boundarySharpness,
+                range: 0...1, format: "%.2f")
         }
     }
 
