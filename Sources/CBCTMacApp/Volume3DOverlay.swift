@@ -65,6 +65,7 @@ struct Volume3DOverlay: View {
                 drawArchBand(&context, projector: projector)
                 drawPlanes(&context, geometry: volume.geometry, projector: projector)
                 drawCurrentSection(&context, geometry: volume.geometry, projector: projector)
+                drawNerves(&context, projector: projector)
                 drawBars(&context, projector: projector)
                 drawImplants(&context, projector: projector)
                 drawTeeth(&context, projector: projector)
@@ -241,6 +242,29 @@ struct Volume3DOverlay: View {
                 mesh, in: &context, projector: projector,
                 colour: implantColor(implant),
                 isSelected: implant.id == model.selectedImplantID)
+        }
+    }
+
+    /// Il canale alveolare, come il tubo che è.
+    ///
+    /// Mancava, ed è l'oggetto per cui il riquadro 3D serve più di ogni altra vista: la domanda
+    /// «l'impianto passa sopra il canale o dentro?» si legge a colpo d'occhio qui e va ricostruita
+    /// sezione per sezione altrove. Il canale si tracciava, `SafetyAnalysis` ne calcolava già le
+    /// distanze, l'ispettore le mostrava — e la vista che avrebbe dovuto renderle evidenti non
+    /// disegnava l'oggetto di cui parlavano.
+    ///
+    /// **Prima degli impianti**, e non è indifferente: il pittore disegna in ordine, e un
+    /// impianto che entra nel canale deve comparire sopra di esso. Al contrario si vedrebbe il
+    /// canale integro davanti all'impianto che lo attraversa, cioè l'immagine rassicurante del
+    /// caso che va fermato.
+    private func drawNerves(_ context: inout GraphicsContext, projector: ScreenProjector) {
+        for canal in model.nerveCanals where canal.isVisible {
+            let mesh = NerveMesh.surface(of: canal, segments: Self.solidSegments)
+            guard !mesh.triangles.isEmpty else { continue }
+            draw(
+                mesh, in: &context, projector: projector,
+                colour: Color(hexString: canal.colorHex) ?? Palette.warning,
+                isSelected: canal.id == model.tracingNerveID)
         }
     }
 

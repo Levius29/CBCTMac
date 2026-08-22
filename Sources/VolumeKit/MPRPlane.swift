@@ -214,6 +214,32 @@ public struct MPRPlane: Hashable, Sendable {
     ///
     /// È la via di ritorno dopo essersi persi ingrandendo, e va sempre offerta: senza, l'unico
     /// modo di ritrovare l'anatomia è riaprire lo studio.
+    /// Lo stesso piano, centrato **sul volume dentro il piano**, con la fetta dov'era.
+    ///
+    /// # Perché serve, e perché non basta `fitted`
+    ///
+    /// `fitted` misura le distanze degli spigoli **dal centro del piano**, e tiene la maggiore.
+    /// Con il centro sul mirino, e il mirino di lato, la maggiore è la distanza dal bordo
+    /// lontano: il campo diventa il doppio di quel che serve e l'anatomia ci sta dentro
+    /// spostata da una parte. Su un volume largo cento millimetri, col mirino a quaranta dal
+    /// centro, il campo esce quasi centottanta — l'anatomia occupa poco più di metà larghezza e
+    /// non è al centro. È il «rimpicciolisce e decentra» di «rimetti a posto le viste».
+    ///
+    /// Centrare prima toglie il problema alla radice: da un centro simmetrico le due distanze
+    /// sono uguali, e `fitted` dà esattamente l'ingombro del volume.
+    ///
+    /// **Fuori dal piano non si muove niente.** La componente lungo la normale resta quella di
+    /// prima, cioè la fetta che si sta guardando: rimettere a posto l'inquadratura non deve
+    /// cambiare *che cosa* si sta guardando.
+    public func centred(onVolume geometry: VolumeGeometry) -> MPRPlane {
+        let normal = normalMM
+        let centre = geometry.centerMM
+        let depth = (centerMM - centre).dot(normal)
+        var copy = self
+        copy.centerMM = centre + normal * depth
+        return copy
+    }
+
     public func fitted(to geometry: VolumeGeometry, marginFraction: Double = 0.04) -> MPRPlane {
         let corners = geometry.boundingBoxCornersMM
         guard !corners.isEmpty else { return self }

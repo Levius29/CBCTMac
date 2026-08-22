@@ -3122,9 +3122,14 @@ final class AppModel {
     }
 
     /// Riporta un riquadro a inquadrare tutto il volume, senza toccare orientamento né mirino.
+    ///
+    /// L'inquadratura si **centra sul volume**, non resta dov'era: `fitted` da un centro
+    /// spostato allarga il campo fino a comprendere il bordo lontano, e il risultato è
+    /// un'anatomia piccola e da una parte invece che grande e in mezzo. La fetta non si muove.
+    /// Vedi `MPRPlane.centred(onVolume:)`.
     func resetView(slot: ViewportSlot) {
         guard let plane = planes[slot], let geometry = volume?.geometry else { return }
-        planes[slot] = plane.fitted(to: geometry)
+        planes[slot] = plane.centred(onVolume: geometry).fitted(to: geometry)
     }
 
     /// Riporta tutti i riquadri all'orientamento anatomico canonico e all'inquadratura piena.
@@ -3136,19 +3141,28 @@ final class AppModel {
         guard let geometry = volume?.geometry else { return }
         for slot in ViewportSlot.allCases {
             guard let anatomical = slot.anatomicalPlane else { continue }
-            let size = geometry.physicalSizeMM
-            let extent = max(size.x, max(size.y, size.z)) * 1.05
+            // La misura la decide `fitted`, che la ricava dal volume: dargliene una qui era
+            // lavoro buttato, e per giunta sbagliato — un campo quadrato grande quanto la
+            // dimensione **maggiore** del volume, quindi su un campo di vista dentale, che è più
+            // largo che alto, un terzo di riquadro vuoto sopra e sotto.
             planes[slot] = MPRPlane(
                 plane: anatomical,
                 through: crosshairMM,
-                widthMM: extent,
-                heightMM: extent,
+                widthMM: 1,
+                heightMM: 1,
                 // Anche qui spessore e proiezione del riquadro sopravvivono: «riporta tutto
                 // all'origine» riguarda l'inquadratura, non il modo di leggere l'immagine.
                 slabThicknessMM: planes[slot]?.slabThicknessMM ?? slabThicknessMM,
                 projection: planes[slot]?.projection ?? projection
-            ).fitted(to: geometry)
+            )
+            .centred(onVolume: geometry)
+            .fitted(to: geometry)
         }
+
+        // Anche il 3D, che il ciclo qui sopra salta perché non ha un piano anatomico. Il
+        // pulsante dice «tutte le viste», e chi si è perso orbitando si è perso lì quanto
+        // altrove: lasciarlo com'era è la stessa promessa a metà di prima.
+        camera = VolumeCamera.fitted(to: geometry)
     }
 
     func pan(slot: ViewportSlot, byMM offset: Vec3) {
