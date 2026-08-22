@@ -236,6 +236,13 @@ struct Volume3DOverlay: View {
     /// un errore che l'analisi di sicurezza segnala.
     private func drawImplants(_ context: inout GraphicsContext, projector: ScreenProjector) {
         for implant in model.implants where implant.isVisible {
+            if model.isInteractingWith3D {
+                drawProxy(
+                    through: [implant.platformMM, implant.apexMM],
+                    diameterMM: implant.model.diameterMM,
+                    in: &context, projector: projector, colour: implantColor(implant))
+                continue
+            }
             let mesh = model.solidMeshes.mesh(id: implant.id, key: implant.hashValue) {
                 ImplantMesh.surface(of: implant, segments: Self.solidSegments)
             }
@@ -261,6 +268,16 @@ struct Volume3DOverlay: View {
     /// caso che va fermato.
     private func drawNerves(_ context: inout GraphicsContext, projector: ScreenProjector) {
         for canal in model.nerveCanals where canal.isVisible {
+            let colour = Color(hexString: canal.colorHex) ?? Palette.warning
+            if model.isInteractingWith3D {
+                // Mentre si gira: la polilinea dei nodi, spessa quanto il canale. Un tratto
+                // solo invece di seicento triangoli proiettati e ordinati.
+                drawProxy(
+                    through: canal.nodes.map(\.positionMM),
+                    diameterMM: (canal.nodes.map(\.radiusMM).max() ?? 1) * 2,
+                    in: &context, projector: projector, colour: colour)
+                continue
+            }
             let mesh = model.solidMeshes.mesh(id: canal.id, key: canal.hashValue) {
                 NerveMesh.surface(
                     of: canal, segments: Self.solidSegments,
@@ -269,7 +286,7 @@ struct Volume3DOverlay: View {
             guard !mesh.triangles.isEmpty else { continue }
             draw(
                 mesh, in: &context, projector: projector,
-                colour: Color(hexString: canal.colorHex) ?? Palette.warning,
+                colour: colour,
                 isSelected: canal.id == model.tracingNerveID)
         }
     }
@@ -277,6 +294,13 @@ struct Volume3DOverlay: View {
     /// Le barre, come i tubi che sono.
     private func drawBars(_ context: inout GraphicsContext, projector: ScreenProjector) {
         for bar in model.bars where bar.isVisible {
+            if model.isInteractingWith3D {
+                drawProxy(
+                    through: bar.nodesMM(in: model.implants), diameterMM: bar.diameterMM,
+                    in: &context, projector: projector,
+                    colour: Color(hexString: bar.colorHex) ?? Palette.textPrimary)
+                continue
+            }
             // La barra dipende **anche** dagli impianti, che le danno i nodi: la chiave li
             // comprende, altrimenti spostando un impianto la barra resterebbe dov'era.
             var hasher = Hasher()
@@ -301,6 +325,40 @@ struct Volume3DOverlay: View {
     /// stampa resta quello di `ImplantMesh.defaultSegments`, e sono due cose diverse — qui
     /// governa la fluidità, là la fedeltà del pezzo.
     private static let solidSegments = 16
+
+    /// La sagoma povera di un oggetto allungato: la sua linea, spessa quanto lui.
+    ///
+    /// # Perché mentre si gira si disegna un'altra cosa
+    ///
+    /// Perché il volume lo disegna Metal e la sovraimpressione la disegna SwiftUI, e i due non
+    /// hanno lo stesso costo. Proiettare, ordinare e riempire qualche migliaio di triangoli a
+    /// ogni fotogramma la `Canvas` non ce la fa, quindi restava indietro — e un canale che
+    /// insegue il volume con un fotogramma di ritardo si vede eccome: il piano sembra staccarsi
+    /// dall'anatomia mentre lo si gira.
+    ///
+    /// Un tratto spesso quanto l'oggetto ne dà l'ingombro e la posizione, che è tutto quello che
+    /// serve **mentre si gira**: la forma la si guarda da fermi, e da fermi torna il solido. È
+    /// la stessa scelta che il raycaster fa già con la risoluzione, applicata all'altro disegno.
+    private func drawProxy(
+        through pointsMM: [Vec3],
+        diameterMM: Double,
+        in context: inout GraphicsContext,
+        projector: ScreenProjector,
+        colour: Color
+    ) {
+        guard pointsMM.count >= 2 else { return }
+        var path = Path()
+        for (index, point) in pointsMM.enumerated() {
+            let projected = projector.project(point)
+            let screen = CGPoint(x: projected.x, y: projected.y)
+            if index == 0 { path.move(to: screen) } else { path.addLine(to: screen) }
+        }
+        context.stroke(
+            path, with: .color(colour.opacity(0.85)),
+            style: StrokeStyle(
+                lineWidth: max(diameterMM * projector.pointsPerMM, 1.5),
+                lineCap: .round, lineJoin: .round))
+    }
 
     /// Livelli di ombreggiatura in cui si arrotonda il Lambert.
     ///

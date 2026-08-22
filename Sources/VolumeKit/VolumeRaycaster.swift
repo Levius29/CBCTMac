@@ -45,7 +45,22 @@ public final class VolumeRaycaster {
         } catch {
             throw MPRRendererError.pipelineCreationFailed(underlying: String(describing: error))
         }
+        guard let upscale = library.makeFunction(name: "upscaleBlit") else {
+            throw MPRRendererError.kernelNotFound(name: "upscaleBlit")
+        }
+        do {
+            self.upscaleState = try device.makeComputePipelineState(function: upscale)
+        } catch {
+            throw MPRRendererError.pipelineCreationFailed(underlying: String(describing: error))
+        }
     }
+
+    /// Pipeline che riporta il disegno a risoluzione ridotta sulla dimensione piena.
+    private let upscaleState: MTLComputePipelineState
+
+    /// Texture intermedia per il disegno a risoluzione ridotta, tenuta fra un fotogramma e
+    /// l'altro: ricrearla sessanta volte al secondo sarebbe un'allocazione per fotogramma.
+    private var reducedTexture: MTLTexture?
 
     // MARK: Tabella
 
@@ -114,9 +129,23 @@ public final class VolumeRaycaster {
         commandBuffer: MTLCommandBuffer
     ) throws {
 
-        let pixelWidth = output.width
-        let pixelHeight = output.height
-        guard pixelWidth > 0, pixelHeight > 0 else { return }
+        guard output.width > 0, output.height > 0 else { return }
+
+        // # A risoluzione ridotta mentre si gira
+        //
+        // Il divisore della qualità esisteva e non lo leggeva nessuno: si è sempre disegnato un
+        // raggio per pixel del drawable, cioè qualche milione su un pannello Retina, ciascuno
+        // con qualche centinaio di passi e sei campioni di gradiente per passo. È la ragione per
+        // cui il riquadro 3D era lento a girare, e nessun ritocco al passo del raggio poteva
+        // rimediarci: il numero dei raggi non cambiava.
+        //
+        // Metà lato durante la rotazione sono **quattro volte** meno raggi. Il dettaglio perso
+        // su un'immagine in movimento non si coglie, e al rilascio si torna pieni.
+        let divisor = max(quality.resolutionDivisor, 1)
+        let target = try renderTarget(for: output, divisor: divisor)
+
+        let pixelWidth = target.width
+        let pixelHeight = target.height
 
         let densityRange = densityRange(for: volume)
         try updateTable(
@@ -139,7 +168,7 @@ public final class VolumeRaycaster {
         encoder.setComputePipelineState(pipelineState)
         encoder.setTexture(volume.texture, index: 0)
         encoder.setTexture(tableTexture, index: 1)
-        encoder.setTexture(output, index: 2)
+        encoder.setTexture(target, index: 2)
         encoder.setBytes(&uniforms, length: MemoryLayout<RaycastUniforms>.stride, index: 0)
 
         let threadgroupWidth = min(pipelineState.threadExecutionWidth, pixelWidth)
@@ -154,6 +183,59 @@ public final class VolumeRaycaster {
             depth: 1)
 
         encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
+        encoder.endEncoding()
+
+        // A piena risoluzione si è disegnato direttamente nel drawable e non c'è altro da fare.
+        if target !== output {
+            try upscale(from: target, into: output, commandBuffer: commandBuffer)
+        }
+    }
+
+    /// La texture su cui disegnare: il drawable stesso, o una più piccola da ingrandire.
+    private func renderTarget(for output: MTLTexture, divisor: Int) throws -> MTLTexture {
+        guard divisor > 1 else { return output }
+        let width = max(output.width / divisor, 1)
+        let height = max(output.height / divisor, 1)
+
+        if let existing = reducedTexture, existing.width == width, existing.height == height {
+            return existing
+        }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: output.pixelFormat, width: width, height: height, mipmapped: false)
+        // Scritta dal raycaster, riletta dall'ingranditore: servono entrambi gli usi.
+        descriptor.usage = [.shaderWrite, .shaderRead]
+        descriptor.storageMode = .private
+        guard let texture = device.makeTexture(descriptor: descriptor) else {
+            throw MPRRendererError.outputTextureCreationFailed(width: width, height: height)
+        }
+        reducedTexture = texture
+        return texture
+    }
+
+    /// Riporta il disegno ridotto sulla dimensione piena, interpolando.
+    private func upscale(
+        from source: MTLTexture, into destination: MTLTexture,
+        commandBuffer: MTLCommandBuffer
+    ) throws {
+        guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
+            throw MPRRendererError.encoderCreationFailed
+        }
+        encoder.label = "Ingrandimento \(source.width)×\(source.height) → "
+            + "\(destination.width)×\(destination.height)"
+        encoder.setComputePipelineState(upscaleState)
+        encoder.setTexture(source, index: 0)
+        encoder.setTexture(destination, index: 1)
+
+        let width = min(upscaleState.threadExecutionWidth, destination.width)
+        let height = min(
+            max(upscaleState.maxTotalThreadsPerThreadgroup / max(width, 1), 1),
+            destination.height)
+        let size = MTLSize(width: max(width, 1), height: max(height, 1), depth: 1)
+        let count = MTLSize(
+            width: (destination.width + size.width - 1) / size.width,
+            height: (destination.height + size.height - 1) / size.height,
+            depth: 1)
+        encoder.dispatchThreadgroups(count, threadsPerThreadgroup: size)
         encoder.endEncoding()
     }
 

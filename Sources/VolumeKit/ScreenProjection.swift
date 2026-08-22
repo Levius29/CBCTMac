@@ -28,6 +28,16 @@ public struct ScreenProjector: Hashable, Sendable {
         self.pixelHeight = max(pixelHeight, 1)
     }
 
+    /// Quanti punti dello schermo vale un millimetro, in orizzontale.
+    ///
+    /// Con la proiezione ortografica è un numero solo per tutta l'immagine — non dipende dalla
+    /// profondità — e serve a dare a un tratto lo spessore dell'oggetto che rappresenta.
+    public var pointsPerMM: Double {
+        let halfWidth = validHalfHeight * aspectRatio
+        guard halfWidth > 0 else { return 1 }
+        return Double(pixelWidth) / (halfWidth * 2)
+    }
+
     /// Proietta un punto Patient senza divisione per la profondità.
     public func project(_ pointMM: Vec3) -> ProjectedPoint {
         let relative = pointMM - camera.targetMM

@@ -220,3 +220,38 @@ kernel void volumeRaycast(
     // Composizione su fondo nero: il colore e' gia' premoltiplicato, quindi si scrive com'e'.
     output.write(float4(accumulatedColor, 1.0f), gid);
 }
+
+// MARK: - Ingrandimento
+
+/// Campionatore bilineare per la riscalatura.
+constant sampler upscaleSampler(
+    coord::normalized,
+    filter::linear,
+    address::clamp_to_edge);
+
+/// Copia una texture in una piu' grande, interpolando.
+///
+/// # Perche' serve un secondo passo
+///
+/// Perche' `resolutionDivisor` esisteva e non lo leggeva nessuno: ruotando si continuava a
+/// lanciare **un raggio per pixel del drawable**, cioe' qualche milione su un pannello Retina,
+/// ognuno con qualche centinaio di passi e sei campioni di gradiente per passo. Il divisore c'e'
+/// proprio per non farlo — si disegna a meta' lato durante la rotazione, che sono quattro volte
+/// meno raggi, e si raffina al rilascio.
+///
+/// Un `MTLBlitCommandEncoder` non sa riscalare, quindi la copia la fa un kernel. Bilineare e non
+/// a blocchi: a blocchi si vedrebbero i quadrati, e su un'immagine in movimento un bordo
+/// scalettato si nota piu' della meta' risoluzione.
+kernel void upscaleBlit(
+    texture2d<float, access::sample> source [[texture(0)]],
+    texture2d<float, access::write>  destination [[texture(1)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    const uint width = destination.get_width();
+    const uint height = destination.get_height();
+    if (gid.x >= width || gid.y >= height) {
+        return;
+    }
+    const float2 uv = (float2(gid) + 0.5f) / float2(width, height);
+    destination.write(source.sample(upscaleSampler, uv), gid);
+}

@@ -43,6 +43,24 @@ public struct TransferColor: Hashable, Sendable, Codable {
     public static let softTissue = TransferColor(0.85, 0.55, 0.48)
     public static let skin = TransferColor(0.92, 0.72, 0.62)
     public static let air = TransferColor(0.20, 0.35, 0.55)
+
+    // # Le tinte del preset «Tessuti distinti»
+    //
+    // Le altre imitano il tessuto vero, e la ragione resta buona: un osso verde acido si legge
+    // peggio, e mostrato al paziente sembra un videogioco. Ma imitare il tessuto vero significa
+    // che osso, dentina e smalto sono tre beige, e a schermo diventano una cosa sola — che è
+    // precisamente il problema quando si vuole **vedere dove finisce l'uno e comincia l'altro**.
+    //
+    // Queste sono l'altra scelta, offerta accanto e non al posto: tinte separate in **tonalità**
+    // e non in luminosità, perché una differenza di tonalità sopravvive all'ombreggiatura mentre
+    // una di luminosità no — due beige di chiarezza diversa, illuminati da angoli diversi,
+    // tornano indistinguibili.
+    public static let muscle = TransferColor(0.72, 0.26, 0.24)
+    public static let fat = TransferColor(0.92, 0.82, 0.55)
+    public static let cancellous = TransferColor(0.55, 0.72, 0.42)
+    public static let cortical = TransferColor(0.96, 0.94, 0.88)
+    public static let toothCrown = TransferColor(0.62, 0.85, 0.95)
+    public static let restoration = TransferColor(0.85, 0.45, 0.90)
 }
 
 // MARK: - Punto di controllo
@@ -203,7 +221,50 @@ public struct TransferFunction: Hashable, Sendable, Codable {
         TransferStop(density: 3000, opacity: 0.00, color: .bone),
     ])
 
+    /// Cinque tessuti, cinque tinte che non si confondono.
+    ///
+    /// # A che serve, dato che ci sono già i preset realistici
+    ///
+    /// A rispondere alla domanda «dove finisce questo e comincia quello». Con le tinte
+    /// realistiche osso spugnoso, corticale, dentina e smalto sono quattro beige, e a schermo
+    /// diventano un impasto: la differenza c'è nei dati e non nell'immagine. Qui ogni fascia di
+    /// densità ha una tonalità sua, e il confine si vede perché **cambia colore**, non perché
+    /// cambia chiarezza.
+    ///
+    /// Le soglie sono valori grigi CBCT, non unità Hounsfield: su questa macchina non lo sono
+    /// mai, e il Contratto 4 vieta di chiamarle così. Vanno prese come punti di partenza da
+    /// spostare guardando l'istogramma di questo esame — un apparecchio diverso le sposta tutte.
+    ///
+    /// Le fasce, in ordine:
+    ///
+    /// - **grasso e pelle**, giallo caldo, poco opachi: fanno da involucro senza chiudere la vista
+    /// - **muscolo**, rosso, per distinguerlo dal grasso che gli sta subito sotto in densità
+    /// - **osso spugnoso**, verde: è la fascia più larga e più ambigua, e una tinta lontana da
+    ///   tutte le altre è ciò che permette di vederne l'estensione
+    /// - **corticale**, bianco avorio: il guscio che delimita, e che va letto come tale
+    /// - **corona dentale**, azzurro: smalto e dentina insieme, perché in un CBCT si separano
+    ///   male e fingere il contrario darebbe un confine che non c'è
+    /// - **restauri e metallo**, magenta: sopra lo smalto non c'è tessuto, c'è materiale, e va
+    ///   riconosciuto a colpo d'occhio perché è anche la sorgente degli artefatti da indurimento
+    public static let distinctTissues = TransferFunction(stops: [
+        TransferStop(density: -1000, opacity: 0.00, color: .air),
+        TransferStop(density: -300, opacity: 0.00, color: .fat),
+        TransferStop(density: -120, opacity: 0.06, color: .fat),
+        TransferStop(density: -20, opacity: 0.08, color: .fat),
+        TransferStop(density: 20, opacity: 0.10, color: .muscle),
+        TransferStop(density: 140, opacity: 0.12, color: .muscle),
+        TransferStop(density: 220, opacity: 0.18, color: .cancellous),
+        TransferStop(density: 650, opacity: 0.34, color: .cancellous),
+        TransferStop(density: 800, opacity: 0.60, color: .cortical),
+        TransferStop(density: 1300, opacity: 0.78, color: .cortical),
+        TransferStop(density: 1500, opacity: 0.88, color: .toothCrown),
+        TransferStop(density: 2600, opacity: 0.95, color: .toothCrown),
+        TransferStop(density: 2900, opacity: 1.00, color: .restoration),
+        TransferStop(density: 3600, opacity: 1.00, color: .restoration),
+    ])
+
     public static let presets: [(name: String, value: TransferFunction)] = [
+        ("Tessuti distinti", .distinctTissues),
         ("Osso", .bone),
         ("Denti", .teeth),
         ("Tessuti molli", .softTissue),
