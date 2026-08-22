@@ -596,8 +596,21 @@ struct PanoramicWorkspace: View {
 
                     // Un clic sul panorex seleziona la sezione corrispondente, e con essa porta
                     // le altre viste sul punto: è il modo naturale di passare dalla panoramica al
-                    // dente che interessa.
-                    model.selectCrossSection(nearestToArcLengthMM: arcLength)
+                    // dente che interessa. **Con la navigazione in mano**, però, e non sempre.
+                    //
+                    // Sempre, era il difetto peggiore del tracciamento del nervo. Il nervo si
+                    // traccia proprio qui, quindici clic lungo il canale, e ognuno spostava il
+                    // mirino sull'origine della sezione più vicina: le tre viste ortogonali
+                    // saltavano a ogni nodo, la striscia delle sezioni si riposizionava, e chi
+                    // stava seguendo il canale si ritrovava altrove a metà del gesto. Vale per
+                    // qualunque strumento — misurare lungo l'arcata aveva lo stesso problema —
+                    // ma sul nervo si vede peggio perché i clic sono tanti e vicini.
+                    //
+                    // È la stessa regola che le sezioni trasversali applicano già: con uno
+                    // strumento in mano il clic appartiene allo strumento.
+                    if model.activeTool == .navigate {
+                        model.selectCrossSection(nearestToArcLengthMM: arcLength)
+                    }
 
                     // E con uno strumento in mano misura, come in ogni altro riquadro.
                     //

@@ -312,7 +312,28 @@ final class AppModel {
     // MARK: Annotazioni
 
     var annotations: [Annotation] = []
-    var selectedAnnotationID: UUID?
+
+    // # Le selezioni si verificano in lettura, non si ripuliscono a ogni cancellazione
+    //
+    // Un identificatore di selezione può restare puntato su un oggetto che non c'è più, e le vie
+    // sono più di quelle che si ricordano: `deleteObject`, `deleteObjects(of:)`, il caricamento
+    // di un piano, l'apertura di un altro esame, e soprattutto **l'annulla** — che ripristina
+    // un'istantanea del piano senza toccare le selezioni, perché nell'istantanea non ci sono.
+    //
+    // Appeso, l'identificatore non dà un errore: dà il silenzio. `selectedImplant` restituisce
+    // `nil`, l'ispettore non mostra niente, e `removeSelectedImplant` o `updateSelectedImplant`
+    // non fanno nulla — comandi che smettono di funzionare senza dirlo, dopo un ⌘Z, che è
+    // esattamente quando si sta rimediando a uno sbaglio. È lo stesso guasto che uccideva lo
+    // strumento nervo, in forma più quieta.
+    //
+    // Verificare in lettura vale per tutte le vie, comprese quelle che verranno: se l'oggetto
+    // non c'è, non è selezionato.
+
+    private var selectedAnnotationStorage: UUID?
+    var selectedAnnotationID: UUID? {
+        get { validated(selectedAnnotationStorage, in: annotations.lazy.map(\.id)) }
+        set { selectedAnnotationStorage = newValue }
+    }
     /// Statistiche calcolate, indicizzate per annotazione. Ricalcolate a richiesta, non a ogni
     /// ridisegno: scorrere i voxel di una ROI è un'operazione da CPU, non da frame.
     var roiStatistics: [UUID: ROIStatistics] = [:]
@@ -372,8 +393,22 @@ final class AppModel {
     /// Vero mentre l'utente sta disegnando o correggendo la curva sull'assiale.
     var isEditingArch = false
 
+    private var selectedArchPointStorage: Int?
+
     /// Punto di controllo selezionato, quello che il tasto Backspace cancella.
-    var selectedArchPointIndex: Int?
+    ///
+    /// Verificato in lettura come le altre selezioni, ma su un **indice**: un punto tolto o un
+    /// ⌘Z accorciano la curva, e un indice oltre la fine è peggio di uno appeso — chi lo usasse
+    /// senza controllare leggerebbe fuori dall'array.
+    var selectedArchPointIndex: Int? {
+        get {
+            guard let index = selectedArchPointStorage,
+                index >= 0, index < archCurve.controlPointsMM.count
+            else { return nil }
+            return index
+        }
+        set { selectedArchPointStorage = newValue }
+    }
 
     /// Raggio di presa di un punto di controllo, in **pixel** dello schermo.
     ///
@@ -1171,6 +1206,12 @@ final class AppModel {
     // Annullare cambia il piano quanto modificarlo: senza questo, un impianto spostato e poi
     // riportato indietro con ⌘Z lascerebbe in archivio la versione spostata.
 
+    /// L'identificatore, se l'oggetto a cui punta esiste ancora.
+    private func validated<S: Sequence>(_ id: UUID?, in ids: S) -> UUID? where S.Element == UUID {
+        guard let id, ids.contains(id) else { return nil }
+        return id
+    }
+
     // senza-annulla: questa **è** l'annulla. Registrare qui creerebbe un passo nuovo a ogni
     // ⌘Z, e «ripeti» non tornerebbe mai al punto di partenza.
     private func apply(_ snapshot: PlanSnapshot?) {
@@ -1501,7 +1542,13 @@ final class AppModel {
 
     var nerveCanals: [NerveCanal] = []
     var implants: [ImplantPlacement] = []
-    var selectedImplantID: UUID?
+
+    private var selectedImplantStorage: UUID?
+    /// Vedi la nota sulle selezioni verificate accanto a `selectedAnnotationID`.
+    var selectedImplantID: UUID? {
+        get { validated(selectedImplantStorage, in: implants.lazy.map(\.id)) }
+        set { selectedImplantStorage = newValue }
+    }
 
     // MARK: Denti protesici
     //
@@ -1511,7 +1558,13 @@ final class AppModel {
     // emerge fuori dalla corona è inservibile, e finora il programma non sapeva dirlo.
 
     var teeth: [ProstheticTooth] = []
-    var selectedToothID: UUID?
+
+    private var selectedToothStorage: UUID?
+    /// Vedi la nota sulle selezioni verificate accanto a `selectedAnnotationID`.
+    var selectedToothID: UUID? {
+        get { validated(selectedToothStorage, in: teeth.lazy.map(\.id)) }
+        set { selectedToothStorage = newValue }
+    }
     /// Numero FDI del prossimo dente posato. Si sceglie prima del clic, come il modello implantare.
     var pendingToothNumber: Int = 46
     var prostheticThresholds: ProstheticThresholds = .standard
@@ -1519,7 +1572,13 @@ final class AppModel {
     // MARK: Barre protesiche
 
     var bars: [ProstheticBar] = []
-    var selectedBarID: UUID?
+
+    private var selectedBarStorage: UUID?
+    /// Vedi la nota sulle selezioni verificate accanto a `selectedAnnotationID`.
+    var selectedBarID: UUID? {
+        get { validated(selectedBarStorage, in: bars.lazy.map(\.id)) }
+        set { selectedBarStorage = newValue }
+    }
 
     var selectedBar: ProstheticBar? {
         guard let id = selectedBarID else { return nil }
@@ -1608,8 +1667,32 @@ final class AppModel {
         guard let id = selectedToothID else { return nil }
         return teeth.first { $0.id == id }
     }
+    private var tracingNerveStorage: UUID?
+
     /// Canale in corso di tracciamento; `nil` quando non si sta tracciando.
-    var tracingNerveID: UUID?
+    ///
+    /// # Perché è verificato a ogni lettura invece che aggiornato a ogni cancellazione
+    ///
+    /// Perché le vie per cui un canale sparisce sono quattro e ne bastava una dimenticata per
+    /// uccidere lo strumento. Cancellandolo dall'elenco degli oggetti, o cancellando tutti i
+    /// nervi, o **premendo ⌘Z** — l'annulla ripristina un'istantanea del piano, e l'istantanea
+    /// il tracciamento non lo contiene — questo riferimento restava puntato su un canale che non
+    /// c'era più. Da quel momento `addNerveNode` usciva dalla sua guardia in silenzio: ogni clic
+    /// non faceva niente, senza un messaggio e senza un modo di accorgersene. Lo strumento
+    /// nervo era morto per il resto della sessione, e proprio dopo un errore, che è quando
+    /// serve.
+    ///
+    /// Verificato in lettura vale per tutte e quattro le vie e per quelle che verranno: se il
+    /// canale non c'è, non si sta tracciando. Non c'è niente da ricordarsi di aggiornare.
+    var tracingNerveID: UUID? {
+        get {
+            guard let id = tracingNerveStorage,
+                nerveCanals.contains(where: { $0.id == id })
+            else { return nil }
+            return id
+        }
+        set { tracingNerveStorage = newValue }
+    }
 
     var implantCatalog: [ImplantModel] = ImplantModel.genericCatalog()
     /// Modello scelto per il prossimo impianto inserito.
@@ -1729,12 +1812,21 @@ final class AppModel {
             guard let node = nerveCanals[index].nearestNode(to: pointMM, toleranceMM: toleranceMM)
             else { continue }
             nerveCanals[index].removeNode(id: node.id)
-            // Un canale rimasto senza nodi a sufficienza non è più un canale: toglierlo evita un
-            // oggetto nell'elenco che non si disegna e non si può più afferrare.
-            if nerveCanals[index].nodes.count < 2 {
+            // Se ne va solo il canale **vuoto**, non quello rimasto con un nodo.
+            //
+            // La soglia era due, e cancellava il lavoro invece di correggerlo: si posano due
+            // nodi, il secondo viene storto, lo si toglie con ⌥ clic — e spariva anche il primo,
+            // insieme al tracciamento in corso. Chiedere di togliere **un nodo** e vedersi
+            // cancellare tutto è l'opposto di quel che si è chiesto, ed è il motivo per cui uno
+            // sbaglio costringeva a ricominciare da capo.
+            //
+            // Il motivo che la giustificava — «un canale così non si disegna e non si può più
+            // afferrare» — non regge: i nodi si disegnano uno per uno e si afferrano uno per
+            // uno, quindi un canale con un nodo si vede ed è raggiungibile. Con zero nodi no, e
+            // quello se ne va.
+            if nerveCanals[index].nodes.isEmpty {
                 let doomed = nerveCanals[index].id
                 nerveCanals.removeAll { $0.id == doomed }
-                if tracingNerveID == doomed { tracingNerveID = nil }
             }
             recomputeSafety()
             syncRegistry()
@@ -2049,12 +2141,6 @@ final class AppModel {
             label: "Impianto \(implants.count + 1)")
         implants.append(placement)
         selectedImplantID = placement.id
-        // Le altre due viste vanno **sull'impianto**, non dove stavano. Un impianto posato
-        // sull'assiale sta fuori dai piani coronale e sagittale correnti — di quanto, lo decide
-        // dove si è cliccato — e restare fermi significa mostrare tre viste in cui l'oggetto
-        // appena creato non compare in nessuna. Portarcele sopra è anche il primo passo del
-        // lavoro che segue: si guarda la sezione per correggere inclinazione e profondità.
-        moveCrosshair(to: pointMM)
         recomputeSafety()
         syncRegistry()
         recordUndo("Aggiungi impianto")
@@ -2118,8 +2204,6 @@ final class AppModel {
         tooth.positionMM = pointMM + tooth.axisMM * (tooth.heightMM * 0.5)
         teeth.append(tooth)
         selectedToothID = tooth.id
-        // Come per l'impianto: le viste seguono ciò che si è appena posato.
-        moveCrosshair(to: pointMM)
         syncRegistry()
         recordUndo("Posa dente")
         lastActionMessage =
@@ -2246,6 +2330,13 @@ final class AppModel {
         let canal = NerveCanal(side: side)
         nerveCanals.append(canal)
         tracingNerveID = canal.id
+        // Detto, e detto **come si esce**. Senza, ogni clic successivo continuava questo canale:
+        // finito il lato sinistro e passati al destro, i nodi nuovi si attaccavano al canale di
+        // sinistra e il nervo attraversava la mandibola. Il pulsante per terminare c'era, ma
+        // solo nell'ispettore, e chi non lo vedeva non aveva modo di sapere che serviva.
+        lastActionMessage =
+            "Tracciamento del canale \(canal.side.localizedName.lowercased()) avviato. "
+            + "Fai clic lungo il canale; doppio clic o Esc per terminarlo."
     }
 
     func addNerveNode(at pointMM: Vec3) {
@@ -2255,14 +2346,28 @@ final class AppModel {
         nerveCanals[index].addNode(NerveNode(positionMM: pointMM))
         recomputeSafety()
         syncRegistry()
-        // Raggruppato: tracciare un canale sono venti clic di seguito, e annullarli uno per uno
-        // sarebbe venti pressioni per disfare un gesto solo.
-        recordContinuousUndo("Traccia nervo")
+        // Un passo per nodo, non raggruppati.
+        //
+        // Erano raggruppati, col ragionamento che venti clic sono un gesto solo e annullarli
+        // uno per uno sarebbe stato scomodo. Il ragionamento guarda il caso che non capita: chi
+        // traccia un nervo non vuole disfarlo tutto, vuole disfare **l'ultimo nodo**, quello
+        // appena messo storto. Raggruppati, ⌘Z cancellava l'intero canale — e siccome
+        // l'istantanea del piano non contiene il tracciamento, lo strumento restava anche
+        // agganciato a un canale sparito. Un errore, e il nervo era da rifare da zero.
+        recordUndo("Aggiungi nodo del nervo")
     }
 
-    func finishTracingNerve() {
+    /// Chiude il tracciamento in corso.
+    ///
+    /// - Returns: `true` se ce n'era uno. Chi chiama lo usa per non interpretare lo stesso
+    ///   doppio clic anche come ingrandimento del riquadro.
+    @discardableResult
+    func finishTracingNerve() -> Bool {
+        guard tracingNerveID != nil else { return false }
         tracingNerveID = nil
         recomputeSafety()
+        lastActionMessage = "Tracciamento terminato."
+        return true
     }
 
     // MARK: Rendering 3D
@@ -3469,6 +3574,10 @@ final class AppModel {
     private(set) var exam = ExamMetadata()
     /// La cartella da cui l'esame è stato importato.
     private(set) var examSourcePath = ""
+    // senza-verifica: non punta a una raccolta del modello ma a una voce su disco, che questo
+    // programma non cancella mentre l'esame è aperto. Verificarlo vorrebbe dire leggere
+    // l'indice dell'archivio a ogni accesso, cioè toccare il disco per rispondere a una
+    // domanda che si pone durante il disegno.
     /// L'identificatore della voce d'archivio, se l'esame aperto viene dall'archivio o vi è
     /// stato messo. Serve a riarchiviare sulla stessa voce invece di crearne una nuova.
     private(set) var archivedExamID: UUID?
@@ -4772,6 +4881,12 @@ final class AppModel {
     ///   lo stesso doppio clic anche come ingrandimento del riquadro.
     @discardableResult
     func closeToolSession() -> Bool {
+        // Il nervo per primo: è l'unico strumento che tiene aperto qualcosa fuori dalla
+        // sessione di misura, e il doppio clic è il gesto con cui si chiude una polilinea
+        // dappertutto nel programma. Chiederne uno diverso proprio qui sarebbe una regola in
+        // più da ricordare.
+        if finishTracingNerve() { return true }
+
         // Le forme che si chiudono da sé non hanno nulla da chiudere: se qualcosa è rimasto a
         // metà lo si scarta, perché due punti di un angolo a tre non sono una misura.
         guard activeToolShape == .openPolyline else {
@@ -4838,6 +4953,8 @@ final class AppModel {
 
     /// Esc: annulla la misura in corso senza toccare quelle già poste.
     func cancelToolSession() {
+        // Esc chiude anche il tracciamento del nervo, come il doppio clic.
+        if finishTracingNerve() { return }
         guard !toolSession.isEmpty else { return }
         toolSession.cancel()
         lastActionMessage = "Misura annullata"
