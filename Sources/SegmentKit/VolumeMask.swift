@@ -162,6 +162,17 @@ public struct VolumeMask: Sendable {
     }
 
     /// Imposta l'etichetta del voxel; fuori dal volume non effettua alcuna modifica.
+    /// Scrittura per indice lineare, senza ricalcolare le tre coordinate.
+    ///
+    /// Interna al modulo e non pubblica: fuori di qui l'indice lineare non è una cosa che si
+    /// debba conoscere, e chi lo sbagliasse scriverebbe in un voxel a caso senza accorgersene.
+    /// Dentro, in un ciclo che tocca milioni di voxel, ricostruire `i`, `j` e `k` per poi
+    /// rimoltiplicarli è metà del lavoro fatto due volte.
+    mutating func setLabel(_ label: SegmentLabel, atIndex index: Int) {
+        guard index >= 0, index < labels.count else { return }
+        labels[index] = label
+    }
+
     public mutating func setLabel(_ label: SegmentLabel, i: Int, j: Int, k: Int) {
         guard isValidVoxel(i: i, j: j, k: k) else { return }
         labels[linearIndex(i: i, j: j, k: k)] = label

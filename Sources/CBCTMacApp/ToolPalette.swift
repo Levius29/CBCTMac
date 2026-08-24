@@ -167,6 +167,9 @@ struct ToolPalette: View {
         result.append(ToolEntry(tool: .prostheticTooth))
         result.append(ToolEntry(tool: .implant))
         result.append(ToolEntry(tool: .nerve))
+        // Il marcatore di tessuto in fondo: non è uno strumento di piano, è il primo passo di
+        // una separazione, e il posto dove si guardano i risultati è il suo pannello.
+        result.append(ToolEntry(tool: .tissueSeed))
         return result
     }
 }

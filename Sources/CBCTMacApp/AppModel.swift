@@ -54,6 +54,10 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
     case cephalometry
     /// I tre punti del piano occlusale, per raddrizzare il volume.
     case occlusalPlane
+    /// Marcatore di tessuto: un punto dentro l'osso o dentro un dente, da cui la separazione
+    /// parte. Vedi `CompetitiveGrowth`: i semi li mette chi guarda, perché il riconoscimento
+    /// automatico su una CBCT con otturazioni metalliche sbaglia in modi che non si vedono.
+    case tissueSeed
 
     var localizedName: String {
         switch self {
@@ -72,6 +76,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .freePlane: return "Taglio libero"
         case .cephalometry: return "Cefalometria"
         case .occlusalPlane: return "Piano occlusale"
+        case .tissueSeed: return "Marcatore di tessuto"
         }
     }
 
@@ -98,6 +103,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
             return "Scegli il repere nel pannello e fai clic dov'è. ⌥ clic per toglierlo."
         case .occlusalPlane:
             return "Fai clic su due cuspidi e un incisivo, in qualunque riquadro, 3D compreso."
+        case .tissueSeed:
+            return "Fai clic dentro l'osso e dentro ogni dente da separare. Un punto per oggetto, ben al centro."
         }
     }
 
@@ -120,6 +127,8 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .freePlane: return "l"
         case .cephalometry: return "k"
         case .occlusalPlane: return "o"
+        // «m» come marcatore: «s» e «t» sono già presi.
+        case .tissueSeed: return "m"
         }
     }
 
@@ -140,6 +149,7 @@ enum Tool: String, CaseIterable, Hashable, Sendable {
         case .freePlane: return "line.diagonal"
         case .cephalometry: return "point.3.connected.trianglepath.dotted"
         case .occlusalPlane: return "level"
+        case .tissueSeed: return "drop.circle"
         }
     }
 
@@ -3377,7 +3387,7 @@ final class AppModel {
     /// Forma che lo strumento attivo chiede, con la variante corrente.
     var activeToolShape: ToolShape {
         switch activeTool {
-        case .navigate, .archCurve, .cephalometry, .occlusalPlane:
+        case .navigate, .archCurve, .cephalometry, .occlusalPlane, .tissueSeed:
             return .singlePoint
         case .freePlane:
             return .twoPoints
@@ -4150,6 +4160,185 @@ final class AppModel {
     /// Fisso e non generato: la segmentazione è **una**, si rifà cambiando la soglia, e un
     /// identificatore nuovo a ogni esecuzione lascerebbe nell'elenco una riga morta per ogni
     /// tentativo — con visibilità e colore scelti dall'utente che si perdono a ogni giro.
+    // MARK: - Separazione dei tessuti
+    //
+    // # Che cosa risolve, e perché non basta una soglia
+    //
+    // La domanda è: il modello di **un dente**, e il modello dell'osso **senza i denti dentro**.
+    // Una soglia non ci arriva, e non per pigrizia dell'implementazione: la radice di un dente
+    // sta dentro l'osso, dentina e corticale hanno densità che si sovrappongono, e qualunque
+    // soglia comprenda la dentina comprende anche l'osso. Alzandola resta la sola corona.
+    //
+    // Quel che separa i due è lo spazio del legamento parodontale, la riga radiotrasparente che
+    // gira attorno alla radice: non un muro, un avvallamento. Lo trova `CompetitiveGrowth`,
+    // facendo avanzare le regioni dai voxel più densi verso i meno densi — due fronti si fermano
+    // dove il percorso fra loro è più scuro, che è lì.
+    //
+    // # Perché i semi li mette l'utente
+    //
+    // Perché il riconoscimento automatico dei denti su una CBCT con otturazioni metalliche
+    // sbaglia in modi che non si vedono guardando il risultato, e un modello di dente sbagliato
+    // in silenzio è peggio di nessun modello. Un clic per oggetto è poco, e chi lo fa sa che
+    // cosa ha marcato.
+
+    /// Un punto dentro un tessuto, da cui la sua regione parte.
+    struct TissueSeed: Identifiable, Hashable, Sendable {
+        var id = UUID()
+        var pointMM: Vec3
+        /// Etichetta della regione. Uno è l'osso; da due in su i denti.
+        var label: SegmentLabel
+        var name: String
+        var colorHex: String
+    }
+
+    /// L'etichetta riservata all'osso: la prima, e quella che i denti lasciano indietro.
+    static let boneLabel: SegmentLabel = 1
+
+    var tissueSeeds: [TissueSeed] = []
+    private(set) var tissueMeshes: [SegmentLabel: Mesh] = [:]
+    private(set) var isSeparatingTissues = false
+    private(set) var tissueMessage: String?
+
+    /// La fascia entro cui si compete. Comprende dentina e corticale **insieme**: separarle è
+    /// compito della competizione, non della soglia, ed è il punto di tutta la faccenda.
+    var tissueLowerGV: Double = 900
+    var tissueUpperGV: Double = 4000
+    var tissueSpacingMM: Double = 0.4
+
+    /// Il numero FDI del prossimo dente marcato. Il primo marcatore però è l'osso.
+    var pendingTissueToothNumber: Int = 46
+
+    /// Vero finché l'osso non è stato marcato: è il marcatore che deve venire per primo.
+    var needsBoneSeed: Bool {
+        !tissueSeeds.contains { $0.label == Self.boneLabel }
+    }
+
+    func addTissueSeed(at pointMM: Vec3) {
+        if needsBoneSeed {
+            tissueSeeds.append(
+                TissueSeed(
+                    pointMM: pointMM, label: Self.boneLabel, name: "Osso",
+                    colorHex: "#E8DCC8"))
+            lastActionMessage =
+                "Osso marcato. Adesso un clic dentro ogni dente da separare — al centro della "
+                + "corona, non sullo smalto del bordo."
+            return
+        }
+
+        // Un'etichetta per dente, a partire da due. Duecentocinquantacinque etichette bastano per
+        // trentadue denti con larghezza da vendere, e `SegmentLabel` è un byte per voxel.
+        let used = Set(tissueSeeds.map(\.label))
+        guard let next = (2...255).first(where: { !used.contains(SegmentLabel($0)) }) else {
+            lastActionMessage = "Troppi marcatori: il massimo è duecentocinquantacinque."
+            return
+        }
+        tissueSeeds.append(
+            TissueSeed(
+                pointMM: pointMM, label: SegmentLabel(next),
+                name: "Dente \(pendingTissueToothNumber)",
+                colorHex: "#7FD4F0"))
+        lastActionMessage = "Dente \(pendingTissueToothNumber) marcato."
+    }
+
+    func removeTissueSeed(_ id: UUID) {
+        tissueSeeds.removeAll { $0.id == id }
+        tissueMeshes = [:]
+    }
+
+    func clearTissueSeeds() {
+        tissueSeeds = []
+        tissueMeshes = [:]
+        tissueMessage = nil
+    }
+
+    /// Fa competere le regioni e ne estrae una superficie ciascuna.
+    ///
+    /// Fuori dal main actor come la segmentazione a soglia, e per la stessa ragione: la
+    /// competizione tocca ogni voxel sopra soglia, e marching cubes altrettanti per ogni
+    /// etichetta.
+    func separateTissues() async {
+        guard let volume, !isSeparatingTissues else { return }
+        guard !needsBoneSeed else {
+            tissueMessage = "Manca il marcatore dell'osso: è il primo che va messo."
+            return
+        }
+        guard tissueSeeds.count >= 2 else {
+            tissueMessage =
+                "Serve almeno un dente oltre all'osso: con un marcatore solo non c'è niente da "
+                + "separare."
+            return
+        }
+
+        isSeparatingTissues = true
+        tissueMessage = nil
+        let seeds = tissueSeeds.map { (seedMM: $0.pointMM, label: $0.label) }
+        let names = Dictionary(uniqueKeysWithValues: tissueSeeds.map { ($0.label, $0.name) })
+        let lower = Swift.min(tissueLowerGV, tissueUpperGV)
+        let upper = Swift.max(tissueLowerGV, tissueUpperGV)
+        let spacing = tissueSpacingMM
+
+        struct Outcome: Sendable {
+            var meshes: [SegmentLabel: Mesh] = [:]
+            var message: String?
+        }
+
+        let outcome = await Task.detached(priority: .userInitiated) { () -> Outcome in
+            do {
+                let mask = try CompetitiveGrowth.grow(
+                    in: volume, seeds: seeds, densityRange: lower...upper)
+                var meshes: [SegmentLabel: Mesh] = [:]
+                var empties: [String] = []
+                for (label, name) in names.sorted(by: { $0.key < $1.key }) {
+                    guard !MaskSurface.isEmpty(mask, label: label) else {
+                        empties.append(name)
+                        continue
+                    }
+                    if let mesh = MaskSurface.mesh(
+                        of: mask, label: label, spacingMM: spacing, name: name)
+                    {
+                        meshes[label] = mesh
+                    }
+                }
+                var message: String?
+                if !empties.isEmpty {
+                    message =
+                        "Senza voxel: \(empties.joined(separator: ", ")). "
+                        + "Il marcatore è finito fuori dalla fascia di densità?"
+                }
+                return Outcome(meshes: meshes, message: message)
+            } catch {
+                return Outcome(
+                    message: (error as? LocalizedError)?.errorDescription
+                        ?? String(describing: error))
+            }
+        }.value
+
+        isSeparatingTissues = false
+        tissueMeshes = outcome.meshes
+        tissueMessage = outcome.message
+        if outcome.message == nil, !outcome.meshes.isEmpty {
+            let triangles = outcome.meshes.values.reduce(0) { $0 + $1.triangles.count }
+            lastActionMessage =
+                "\(outcome.meshes.count) tessuti separati, \(triangles) triangoli in tutto. "
+                + "Esportali uno per uno dal pannello."
+        }
+    }
+
+    /// Scrive un tessuto come STL binario.
+    func exportTissue(label: SegmentLabel) {
+        guard let mesh = tissueMeshes[label] else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue =
+            mesh.name.replacingOccurrences(of: " ", with: "-").lowercased() + ".stl"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try MeshIO.exportSTLBinary(mesh).write(to: url)
+            lastActionMessage = "\(mesh.name) esportato in \(url.lastPathComponent)."
+        } catch {
+            lastActionMessage = String(describing: error)
+        }
+    }
+
     static let segmentationObjectID = UUID(
         uuidString: "5E6DE7A0-0000-4000-8000-000000000001") ?? UUID()
 
@@ -4951,6 +5140,10 @@ final class AppModel {
         case .occlusalPlane:
             toolSession.cancel()
             placeOcclusalPoint(at: pointMM)
+
+        case .tissueSeed:
+            toolSession.cancel()
+            addTissueSeed(at: pointMM)
 
         case .nerve:
             toolSession.cancel()

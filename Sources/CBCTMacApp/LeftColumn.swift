@@ -49,6 +49,17 @@ struct LeftColumn: View {
                     ToolPalette(model: model)
                 }
 
+                // Accanto agli strumenti, perché comincia con uno strumento in mano: si
+                // marcano gli oggetti cliccando, e i risultati si guardano qui.
+                SidePanel(
+                    title: "Tessuti", systemImage: "square.3.layers.3d",
+                    storageKey: "tissues",
+                    badge: model.tissueSeeds.isEmpty
+                        ? nil : "\(model.tissueSeeds.count)"
+                ) {
+                    TissueSeparationPanel(model: model)
+                }
+
                 SidePanel(
                     title: "Oggetti", systemImage: "list.bullet",
                     storageKey: "objects",

@@ -1137,6 +1137,10 @@ struct CrossSectionCell: View {
                 // impianto che non si vedeva. La sezione trasversale è per giunta la vista su
                 // cui un impianto si giudica davvero, perché è l'unica che mostra insieme le
                 // due corticali e la distanza da ciascuna.
+                if !model.tissueSeeds.isEmpty {
+                    TissueSeedOverlay(model: model, plane: zoomedPlane)
+                }
+
                 ImplantOverlay(model: model, plane: zoomedPlane)
 
                 ProstheticToothOverlay(model: model, plane: zoomedPlane)

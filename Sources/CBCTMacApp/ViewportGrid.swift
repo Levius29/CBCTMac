@@ -214,6 +214,12 @@ struct ViewportContainer: View {
                         pixelSize: pixelSize,
                         pendingPointsMM: model.toolSession.pointsMM)
 
+                    // I marcatori di tessuto sotto gli oggetti del piano: sono punti di lavoro,
+                    // non parti del progetto, e non devono coprire un impianto.
+                    if !model.tissueSeeds.isEmpty {
+                        TissueSeedOverlay(model: model, plane: model.planes[slot])
+                    }
+
                     ImplantOverlay(model: model, plane: model.planes[slot])
 
                     // I denti sopra gli impianti: la sagoma è tratteggiata e leggera, e sotto
