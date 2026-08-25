@@ -241,6 +241,9 @@ struct Volume3DOverlay: View {
                     through: [implant.platformMM, implant.apexMM],
                     diameterMM: implant.model.diameterMM,
                     in: &context, projector: projector, colour: implantColor(implant))
+                if implant.id == model.selectedImplantID {
+                    drawImplantHandles(implant, in: &context, projector: projector)
+                }
                 continue
             }
             let mesh = model.solidMeshes.mesh(id: implant.id, key: implant.hashValue) {
@@ -251,6 +254,28 @@ struct Volume3DOverlay: View {
                 mesh, in: &context, projector: projector,
                 colour: implantColor(implant),
                 isSelected: implant.id == model.selectedImplantID)
+            if implant.id == model.selectedImplantID {
+                drawImplantHandles(implant, in: &context, projector: projector)
+            }
+        }
+    }
+
+    /// Prese proiettate di testa e apice: sono gli stessi due bersagli che
+    /// `beginVolume3DDrag` classifica come rotazione, resi visibili nella vista che li riceve.
+    private func drawImplantHandles(
+        _ implant: ImplantPlacement,
+        in context: inout GraphicsContext,
+        projector: ScreenProjector
+    ) {
+        let colour = implantColor(implant)
+        for position in [implant.platformMM, implant.apexMM] {
+            let projected = projector.project(position)
+            let point = CGPoint(x: projected.x, y: projected.y)
+            let outer = CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)
+            let inner = CGRect(x: point.x - 2.5, y: point.y - 2.5, width: 5, height: 5)
+            context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.7)))
+            context.stroke(Path(ellipseIn: outer), with: .color(colour), lineWidth: 1.5)
+            context.fill(Path(ellipseIn: inner), with: .color(colour))
         }
     }
 

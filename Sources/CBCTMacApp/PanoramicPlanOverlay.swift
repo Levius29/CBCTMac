@@ -130,6 +130,29 @@ struct PanoramicPlanOverlay: View {
         context.stroke(
             outline, with: .color(colour.opacity(0.95 * opacity)),
             lineWidth: isSelected ? 2 : 1.4)
+
+        guard isSelected, let platform = centres.first, let apex = centres.last else { return }
+        drawManipulationHandles(
+            platform: platform, apex: apex, in: &context, color: colour, opacity: opacity)
+    }
+
+    /// Testa e apice sono le prese di inclinazione anche sulla panorex. Disegnarle soltanto
+    /// sull'oggetto selezionato evita di coprire un piano con molti impianti adiacenti.
+    private func drawManipulationHandles(
+        platform: CGPoint,
+        apex: CGPoint,
+        in context: inout GraphicsContext,
+        color: Color,
+        opacity: Double
+    ) {
+        for point in [platform, apex] {
+            let outer = CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)
+            let inner = CGRect(x: point.x - 2.5, y: point.y - 2.5, width: 5, height: 5)
+            context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.7 * opacity)))
+            context.stroke(
+                Path(ellipseIn: outer), with: .color(color.opacity(opacity)), lineWidth: 1.5)
+            context.fill(Path(ellipseIn: inner), with: .color(color.opacity(opacity)))
+        }
     }
 
     /// Direzione della polilinea nel punto indicato, normalizzata.

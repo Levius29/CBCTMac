@@ -140,23 +140,27 @@ struct InspectorPanel: View {
             LabeledControl("Spessore") {
                 Menu(slabLabel) {
                     ForEach(slabOptions, id: \.self) { thickness in
-                        Button(slabLabel(for: thickness)) { model.slabThicknessMM = thickness }
+                        Button(slabLabel(for: thickness)) {
+                            model.setSlabThickness(thickness, for: model.focusedSlot)
+                        }
                     }
                 }
                 .menuStyle(.borderlessButton)
             }
 
             LabeledControl("Proiezione") {
-                Menu(model.projection.localizedName) {
+                Menu(model.projection(for: model.focusedSlot).localizedName) {
                     ForEach(SlabProjection.allCases, id: \.self) { projection in
-                        Button(projection.localizedName) { model.projection = projection }
+                        Button(projection.localizedName) {
+                            model.setProjection(projection, for: model.focusedSlot)
+                        }
                     }
                 }
                 .menuStyle(.borderlessButton)
                 // Con una slice singola la proiezione non ha nulla da combinare: disabilitare
                 // dice all'utente che il controllo dipende dallo spessore, invece di lasciarlo
                 // sperimentare senza vedere cambiamenti.
-                .disabled(model.slabThicknessMM <= 0)
+                .disabled(model.slabThickness(for: model.focusedSlot) <= 0)
             }
         }
     }
@@ -170,7 +174,9 @@ struct InspectorPanel: View {
 
     private var slabOptions: [Double] { [0, 0.5, 1, 2, 3, 5, 10, 20] }
 
-    private var slabLabel: String { slabLabel(for: model.slabThicknessMM) }
+    private var slabLabel: String {
+        slabLabel(for: model.slabThickness(for: model.focusedSlot))
+    }
 
     private func slabLabel(for thickness: Double) -> String {
         thickness <= 0
@@ -389,6 +395,17 @@ struct InspectorPanel: View {
                         .frame(maxWidth: .infinity)
                 }
             } else {
+                LabeledControl("Modello") {
+                    Menu(model.pendingImplantModel.displayName) {
+                        ForEach(model.implantCatalog) { implantModel in
+                            Button(implantModel.displayName) {
+                                model.pendingImplantModel = implantModel
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                }
+
                 Text("Scegli lo strumento Impianto dalla toolbar e fai clic sulla cresta per "
                     + "collocarne uno.")
                     .font(Typography.label)

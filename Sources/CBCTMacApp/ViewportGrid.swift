@@ -439,10 +439,7 @@ struct ViewportContainer: View {
         guard let plane = model.planes[slot], pixelSize.width > 0, pixelSize.height > 0 else {
             return nil
         }
-        var configured = plane
-        configured.slabThicknessMM = model.slabThicknessMM
-        configured.projection = model.projection
-        return configured.matchingAspect(
+        return plane.matchingAspect(
             pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
     }
 

@@ -196,9 +196,32 @@ struct ImplantOverlay: View {
             style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
 
         guard isSelected else { return }
+        drawManipulationHandles(
+            platform: CGPoint(x: platformProjection.x, y: platformProjection.y),
+            apex: CGPoint(x: apexProjection.x, y: apexProjection.y),
+            in: &context, color: strokeColor, opacity: opacity)
         drawLabel(
             sizeLabel(implant), at: CGPoint(x: platformProjection.x, y: platformProjection.y),
             in: &context, color: strokeColor, opacity: opacity)
+    }
+
+    /// Le due prese che inclinano l'impianto. Il corpo lo trasla; testa e apice ne cambiano
+    /// l'asse, quindi devono apparire come bersagli distinti quando l'impianto è selezionato.
+    private func drawManipulationHandles(
+        platform: CGPoint,
+        apex: CGPoint,
+        in context: inout GraphicsContext,
+        color: Color,
+        opacity: Double
+    ) {
+        for point in [platform, apex] {
+            let outer = CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)
+            let inner = CGRect(x: point.x - 2.5, y: point.y - 2.5, width: 5, height: 5)
+            context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.7 * opacity)))
+            context.stroke(
+                Path(ellipseIn: outer), with: .color(color.opacity(opacity)), lineWidth: 1.5)
+            context.fill(Path(ellipseIn: inner), with: .color(color.opacity(opacity)))
+        }
     }
 
     /// La sezione dell'impianto sul piano: il cerchio del raggio che ha a quella quota.
