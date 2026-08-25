@@ -111,3 +111,68 @@ struct OrientationCubeTests {
         }
     }
 }
+
+// Il verso in cui gira quando si trascina, fissato per iscritto.
+//
+// Non c'è un asse trattato diversamente dall'altro: la camera segue il dito su entrambi. Queste
+// prove servono a **non** poterne correggere uno solo — è la forma che un difetto del genere
+// prende, e da fuori si vede come «sopra-sotto va bene, destra-sinistra no».
+//
+// Che questa sia la convenzione **giusta** è un'altra questione, e non si decide da qui: si
+// decide guardando lo schermo. Se va cambiata, si cambia in un punto solo e queste prove lo
+// dicono subito.
+
+@Suite("Verso della rotazione")
+struct OrbitDirectionTests {
+
+    private let start = VolumeCamera(
+        azimuth: 0, elevation: 0, halfHeightMM: 100, targetMM: .zero)
+
+    @Test("Trascinare a destra porta la camera verso la sinistra del paziente")
+    func draggingRightMovesTheCameraLeftwards() {
+        let turned = start.orbited(byDragX: 40, y: 0)
+        // `forward` punta dalla camera al paziente: se la camera si sposta verso +x, guarda
+        // verso −x.
+        #expect(turned.forward.x < start.forward.x)
+    }
+
+    @Test("Trascinare in basso porta la camera sotto")
+    func draggingDownMovesTheCameraBelow() {
+        let turned = start.orbited(byDragX: 0, y: 40)
+        // Camera sotto: guarda verso l'alto, quindi la componente z di `forward` cresce.
+        #expect(turned.forward.z > start.forward.z)
+    }
+
+    @Test("I due assi sono trattati allo stesso modo")
+    func bothAxesShareTheSameConvention() {
+        // È la prova che conta. Un difetto di segno su un asse solo passa inosservato su un
+        // cranio, che è quasi simmetrico, e salta fuori solo su un oggetto con le lettere
+        // scritte sopra. Qui l'asimmetria si vede subito: a parità di trascinamento, i due
+        // angoli devono cambiare della stessa quantità in valore assoluto e con il verso che la
+        // convenzione dichiara.
+        let horizontal = start.orbited(byDragX: 40, y: 0)
+        let vertical = start.orbited(byDragX: 0, y: 40)
+        #expect(abs(horizontal.azimuth - start.azimuth) > 0)
+        #expect(abs(vertical.elevation - start.elevation) > 0)
+        #expect(
+            abs(abs(horizontal.azimuth - start.azimuth)
+                - abs(vertical.elevation - start.elevation)) < 1e-12,
+            "stessa quantità di trascinamento, stessa quantità di rotazione")
+        // E i segni: azimut cresce trascinando a destra, elevazione cala trascinando in basso.
+        #expect(horizontal.azimuth > start.azimuth)
+        #expect(vertical.elevation < start.elevation)
+    }
+
+    @Test("Un trascinamento nullo non muove niente")
+    func noDragNoRotation() {
+        let same = start.orbited(byDragX: 0, y: 0)
+        #expect(abs(same.azimuth - start.azimuth) < 1e-12)
+        #expect(abs(same.elevation - start.elevation) < 1e-12)
+    }
+
+    @Test("Quattrocento pixel valgono mezzo giro")
+    func fourHundredPixelsIsHalfATurn() {
+        let turned = start.orbited(byDragX: 400, y: 0)
+        #expect(abs(abs(turned.azimuth) - Double.pi) < 1e-9)
+    }
+}

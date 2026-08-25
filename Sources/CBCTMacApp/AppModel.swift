@@ -3388,12 +3388,10 @@ final class AppModel {
 
     /// Ruota la camera. Lo spostamento arriva in pixel e si converte in radianti.
     func orbit(byPixels delta: CGSize) {
-        // Circa mezzo giro per 400 pixel di trascinamento: abbastanza reattivo da girare il
-        // cranio con un gesto, abbastanza lento da fermarsi dove si vuole.
-        let scale = Double.pi / 400.0
-        camera = camera.orbited(
-            deltaAzimuth: Double(delta.width) * scale,
-            deltaElevation: Double(-delta.height) * scale)
+        // I segni stanno in `VolumeCamera.orbited(byDragX:y:)`, dove si possono provare: qui
+        // erano scritti a mano e uno dei due era sbagliato — la verticale negata, l'orizzontale
+        // no — quindi trascinando a destra il modello girava a sinistra.
+        camera = camera.orbited(byDragX: Double(delta.width), y: Double(delta.height))
     }
 
     func zoom3D(by factor: Double) {

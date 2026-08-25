@@ -470,6 +470,41 @@ public struct VolumeCamera: Hashable, Sendable {
         return copy
     }
 
+    /// Quanto ruota un pixel di trascinamento.
+    ///
+    /// Circa mezzo giro ogni quattrocento pixel: abbastanza reattivo da girare il cranio con un
+    /// gesto, abbastanza lento da fermarsi dove si vuole.
+    public static let radiansPerDragPixel = Double.pi / 400
+
+    /// La camera dopo un trascinamento.
+    ///
+    /// # Perché i due segni stanno qui e non nel modello
+    ///
+    /// Perché sono una convenzione con una risposta giusta e una sbagliata, e scritti nel
+    /// modello nessuna prova li raggiunge: il bersaglio dell'applicazione non si compila fuori
+    /// da macOS. Qui invece si fissano una volta e si provano.
+    ///
+    /// La convenzione attuale è **la camera segue il dito**: portando il dito a destra la camera
+    /// gira verso la sinistra del paziente, e l'oggetto sembra girare al contrario. Vale
+    /// identica sui due assi — non c'è un asse trattato diversamente dall'altro, e le prove
+    /// accanto lo fissano perché è precisamente la cosa che si romperebbe correggendone uno
+    /// solo.
+    ///
+    /// - Parameters:
+    ///   - x: spostamento orizzontale in pixel, positivo verso destra.
+    ///   - y: spostamento verticale in pixel, **positivo verso il basso** — è la convenzione di
+    ///     `pixelDelta`, che lavora in coordinate del drawable con l'origine in alto.
+    public func orbited(byDragX x: Double, y: Double) -> VolumeCamera {
+        orbited(
+            deltaAzimuth: x * Self.radiansPerDragPixel,
+            deltaElevation: -y * Self.radiansPerDragPixel)
+    }
+
+    /// Solo la verticale, per quando l'orizzontale non serve.
+    public func orbited(byDragY y: Double) -> VolumeCamera {
+        orbited(byDragX: 0, y: y)
+    }
+
     public func orbited(deltaAzimuth: Double, deltaElevation: Double) -> VolumeCamera {
         VolumeCamera(
             azimuth: azimuth + deltaAzimuth,
