@@ -17,6 +17,17 @@ import VolumeKit
 
 // MARK: - Vista del panorex
 
+/// Se il trascinamento in corso è stato preso da qualcuno.
+///
+/// Una classe e non una variabile catturata: le chiusure che la leggono e la scrivono sono tre e
+/// vivono quanto la vista, mentre la `struct` che le costruisce viene ricreata a ogni
+/// aggiornamento di SwiftUI. Su una variabile catturata per valore la pressione scriverebbe in
+/// una copia e il trascinamento leggerebbe in un'altra.
+@MainActor
+private final class Claimed {
+    var value = false
+}
+
 struct PanoramicViewportView: NSViewRepresentable {
 
     let layout: PanoramicLayout
@@ -44,7 +55,10 @@ struct PanoramicViewportView: NSViewRepresentable {
     var onScrollVertical: (Double) -> Void = { _ in }
     /// Inizio del trascinamento, con l'ascissa premuta in **frazione di larghezza**: serve a
     /// capire se si è afferrata la linea di taglio prima che il primo movimento la sposti.
-    var onDragBegan: (Double, Double) -> Void = { _, _ in }
+    /// Pressione: restituisce **vero** se il gesto è stato preso da qualcosa — la linea di
+    /// taglio, una maniglia, un impianto. Chi non prende niente lascia che il trascinamento
+    /// scorra l'immagine.
+    var onDragBegan: (Double, Double) -> Bool = { _, _ in false }
     var onDragEnded: () -> Void = {}
     /// Esc premuto mentre il riquadro ha il fuoco.
     var onCancel: () -> Void = {}
@@ -172,26 +186,46 @@ struct PanoramicViewportView: NSViewRepresentable {
         // Il trascinamento ha due significati, e quale valga si decide alla pressione: sulla
         // linea di taglio la sposta o la ruota, altrove scorre l'immagine. Deciderlo al primo
         // movimento sarebbe tardi, perché il primo movimento è quello che sposta.
+        // # Uno dei due significati, non tutti e due
+        //
+        // Il commento qui sopra dice la regola giusta — sulla linea di taglio la si sposta,
+        // altrove si scorre l'immagine — e il codice faceva **entrambe le cose a ogni
+        // trascinamento**: `onDragMoved` per l'oggetto afferrato, e subito dopo `drag(delta)` per
+        // scorrere. Prendendo un impianto per spostarlo, la panorex gli scivolava sotto nello
+        // stesso gesto, e l'impianto finiva da tutt'altra parte rispetto a dove lo si stava
+        // portando. Da fuori si vedeva una panorex che se ne andava per conto suo.
+        //
+        // Chi ha preso qualcosa alla pressione lo dice, e da lì il trascinamento è suo.
+        let claimed = Claimed()
         view.onDragBegan = { [weak view] point in
             guard let view, view.drawableSize.width > 0, view.drawableSize.height > 0 else {
+                claimed.value = false
                 return
             }
-            onDragBegan(
+            claimed.value = onDragBegan(
                 Double(point.x) / Double(view.drawableSize.width),
                 Double(point.y) / Double(view.drawableSize.height))
         }
-        view.onDragEnded = onDragEnded
+        view.onDragEnded = {
+            claimed.value = false
+            onDragEnded()
+        }
         view.onCancel = onCancel
 
         view.onDrag = { [weak view] point, delta in
             guard let view, view.drawableSize.width > 0, view.drawableSize.height > 0 else {
                 return
             }
+            guard claimed.value else {
+                drag(delta)
+                return
+            }
             onDragMoved(
                 Double(point.x) / Double(view.drawableSize.width),
                 Double(point.y) / Double(view.drawableSize.height))
-            drag(delta)
         }
+        // ⌥ e il tasto centrale scorrono sempre: sono il gesto dichiaratamente di panoramica, e
+        // non passano dalla pressione che afferra.
         view.onPan = drag
 
         view.onZoom = { [weak view] factor, anchor in
@@ -352,7 +386,10 @@ struct PanoramicWorkspace: View {
     /// Quanto in alto arriva la maniglia di rotazione, in frazione dell'altezza.
     private let cutHandleFraction = 0.24
 
-    private func beginPanoramicDrag(atFractionX x: Double, y: Double) {
+    /// - Returns: vero se il gesto è stato preso. Chi non prende niente lascia scorrere
+    ///   l'immagine, che è l'altro significato del trascinamento sulla panorex.
+    @discardableResult
+    private func beginPanoramicDrag(atFractionX x: Double, y: Double) -> Bool {
         cutLineDrag = nil
 
         // La linea di taglio ha la precedenza: è l'oggetto più usato della panorex, e afferrare
@@ -374,7 +411,7 @@ struct PanoramicWorkspace: View {
                 // Afferrata la linea, torna piena: si sta scegliendo dove tagliare, ed è il
                 // momento in cui serve vederla bene. Stessa regola delle tracce del mirino.
                 model.setDraggingCutLines(true)
-                return
+                return true
             }
         }
 
@@ -382,15 +419,17 @@ struct PanoramicWorkspace: View {
         // sulla panorex, deve anche potersi prendere: un oggetto disegnato e non afferrabile è
         // la stessa mezza funzione dell'oggetto afferrabile e non disegnato, letta dall'altro
         // verso.
-        guard !NSEvent.modifierFlags.contains(.option) else { return }
-        guard let patient = panoramicPatientPoint(atFractionX: x, y: y) else { return }
-        if model.beginHandleDrag(at: patient, toleranceMM: panoramicGrabToleranceMM) { return }
+        guard !NSEvent.modifierFlags.contains(.option) else { return false }
+        guard let patient = panoramicPatientPoint(atFractionX: x, y: y) else { return false }
+        if model.beginHandleDrag(at: patient, toleranceMM: panoramicGrabToleranceMM) {
+            return true
+        }
         guard model.activeTool == .navigate || model.activeTool == .implant
             || model.activeTool == .prostheticTooth
-        else { return }
-        // Il risultato dice se ha afferrato qualcosa, e qui non serve: se non afferra niente il
-        // trascinamento non fa nulla, che è il comportamento voluto.
-        _ = model.beginObjectDrag(at: patient, toleranceMM: panoramicGrabToleranceMM)
+        else { return false }
+        // Il risultato adesso **serve**: dice se il trascinamento appartiene a un oggetto o se
+        // deve scorrere l'immagine. Prima si scartava, e si facevano tutte e due le cose.
+        return model.beginObjectDrag(at: patient, toleranceMM: panoramicGrabToleranceMM)
     }
 
     /// Il punto Patient sotto una frazione del riquadro panoramico.
