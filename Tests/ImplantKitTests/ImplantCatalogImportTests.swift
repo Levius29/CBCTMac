@@ -166,3 +166,85 @@ struct ImplantCatalogImportTests {
         #expect(result.models.count == 2)
     }
 }
+
+// Leggere una libreria `.impl` dai nomi dei file.
+//
+// Il contenuto di quei file è geometria cifrata, e non serve: `ImplantModel` costruisce la sagoma
+// dalle misure. Le misure stanno nel nome — `1010_ICE_3.75_10.impl` è codice 1010, linea ICE,
+// diametro 3,75, lunghezza 10 — che è lo stesso codice stampato sulla scatola.
+
+@Suite("Libreria dai nomi dei file")
+struct ImplantLibraryNameTests {
+
+    @Test("Legge il nome vero di un file Alpha-Bio")
+    func readsARealFilename() {
+        let result = ImplantCatalogImport.models(
+            fromImplantFilenames: ["1010_ICE_3.75_10.impl"])
+        #expect(result.problems.isEmpty)
+        let model = result.models.first
+        #expect(abs((model?.diameterMM ?? 0) - 3.75) < 1e-9)
+        #expect(abs((model?.lengthMM ?? 0) - 10) < 1e-9)
+        #expect(model?.line.contains("1010") == true)
+        #expect(model?.line.contains("ICE") == true)
+    }
+
+    @Test("Il percorso completo va bene quanto il solo nome")
+    func fullPathsWork() {
+        let result = ImplantCatalogImport.models(
+            fromImplantFilenames: [
+                "/Users/x/Implant Library/AlphaBiotec/1010_ICE_3.75_10.impl"
+            ])
+        #expect(result.models.count == 1)
+        #expect(result.problems.isEmpty)
+    }
+
+    @Test("Diametro e lunghezza sono gli **ultimi** due numeri, non il secondo e il terzo")
+    func measuresAreTheLastTwoTokens() {
+        // Una linea con più parole nel nome sposterebbe le misure se le si cercasse per
+        // posizione dall'inizio. È il caso che rompe l'implementazione ingenua.
+        let result = ImplantCatalogImport.models(
+            fromImplantFilenames: ["2050_MULTI_NEO_4.2_11.5.impl"])
+        let model = result.models.first
+        #expect(abs((model?.diameterMM ?? 0) - 4.2) < 1e-9)
+        #expect(abs((model?.lengthMM ?? 0) - 11.5) < 1e-9)
+        #expect(model?.manufacturer == "MULTI NEO")
+    }
+
+    @Test("Il filtro per linea prende solo quel che si è chiesto")
+    func theLineFilterSelects() {
+        let names = [
+            "1010_ICE_3.75_10.impl",
+            "2050_MULTI_NEO_4.2_11.5.impl",
+            "2051_MULTI_NEO_3.75_13.impl",
+            "3010_SPI_4_10.impl",
+        ]
+        let result = ImplantCatalogImport.models(
+            fromImplantFilenames: names, includingLines: ["multi neo"])
+        #expect(result.models.count == 2)
+        #expect(result.models.allSatisfy { $0.manufacturer == "MULTI NEO" })
+        // Gli scartati dal filtro non sono problemi: non li si voleva.
+        #expect(result.problems.isEmpty)
+    }
+
+    @Test("Un nome che non segue lo schema si dice, non si salta")
+    func unparsableNamesAreReported() {
+        let result = ImplantCatalogImport.models(
+            fromImplantFilenames: [
+                "1010_ICE_3.75_10.impl",
+                "leggimi.txt",
+                "2050_MULTI_NEO_abc_11.impl",
+                "1011_ICE_3.75_13.impl",
+            ])
+        #expect(result.models.count == 2)
+        #expect(result.problems.count == 2)
+        #expect(result.problems.map(\.line) == [2, 3])
+    }
+
+    @Test("Misure implausibili nel nome non entrano nel catalogo")
+    func implausibleMeasuresAreRejected() {
+        let result = ImplantCatalogImport.models(
+            fromImplantFilenames: ["9999_TEST_400_10.impl", "9998_TEST_4_900.impl"])
+        #expect(result.models.isEmpty)
+        #expect(result.problems.count == 2)
+    }
+}

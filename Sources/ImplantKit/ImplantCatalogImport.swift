@@ -160,6 +160,85 @@ public enum ImplantCatalogImport: Sendable {
         return Result(models: models, problems: problems)
     }
 
+    /// Costruisce i modelli dai **nomi** dei file `.impl` di una libreria.
+    ///
+    /// # Perché dai nomi e non dal contenuto
+    ///
+    /// Perché il contenuto è geometria cifrata — la libreria di un altro programma la protegge —
+    /// e a questo programma non serve: `ImplantModel` costruisce la sagoma dalle misure, non da
+    /// una mesh. E le misure stanno nel nome, che è esattamente il codice stampato sulla scatola:
+    /// `1010_ICE_3.75_10.impl` è codice 1010, linea ICE, diametro 3,75, lunghezza 10. Leggere il
+    /// nome dà quel che serve senza aprire — né dover aprire — niente di protetto.
+    ///
+    /// Lo schema atteso, separato da trattini bassi: `codice_linea_diametro_lunghezza`. La linea
+    /// può contenere più parole; diametro e lunghezza sono gli **ultimi due** numeri, così un
+    /// nome di linea che contiene un trattino basso non li sposta.
+    ///
+    /// - Parameter includingLines: se non vuoto, tiene solo le linee il cui nome contiene una di
+    ///   queste voci, senza distinguere maiuscole. È il modo di prendere «solo i Multi-NeO» da
+    ///   una libreria che ne ha dieci.
+    ///
+    /// Come per la lettura da CSV, un nome che non segue lo schema **non si salta in silenzio**:
+    /// torna fra i problemi col suo testo, perché un catalogo a cui manca un impianto senza
+    /// dirlo è peggio di uno che si sa incompleto.
+    public static func models(
+        fromImplantFilenames filenames: [String],
+        includingLines: [String] = []
+    ) -> Result {
+        let wanted = includingLines.map { normalised($0) }
+        var models: [ImplantModel] = []
+        var problems: [Problem] = []
+
+        for (offset, filename) in filenames.enumerated() {
+            let number = offset + 1
+            let base = filename
+                .split(separator: "/").last.map(String.init) ?? filename
+            let stem =
+                base.lowercased().hasSuffix(".impl") ? String(base.dropLast(5)) : base
+
+            let tokens = stem.split(separator: "_").map(String.init)
+            guard tokens.count >= 4 else {
+                problems.append(
+                    Problem(line: number, reason: "il nome non ha codice, linea, diametro, lunghezza", text: base))
+                continue
+            }
+
+            guard let length = decimal(tokens[tokens.count - 1]),
+                let diameter = decimal(tokens[tokens.count - 2])
+            else {
+                problems.append(
+                    Problem(line: number, reason: "diametro o lunghezza non numerici nel nome", text: base))
+                continue
+            }
+            guard diameter > 0, diameter < 20, length > 0, length < 60 else {
+                problems.append(
+                    Problem(line: number, reason: "misure fuori da ogni intervallo plausibile", text: base))
+                continue
+            }
+
+            let code = tokens[0]
+            let line = tokens[1..<(tokens.count - 2)].joined(separator: " ")
+            guard !line.isEmpty else {
+                problems.append(
+                    Problem(line: number, reason: "manca il nome della linea", text: base))
+                continue
+            }
+
+            if !wanted.isEmpty {
+                let haystack = normalised(line)
+                guard wanted.contains(where: { haystack.contains($0) }) else { continue }
+            }
+
+            models.append(
+                ImplantModel(
+                    manufacturer: line,
+                    line: "\(code) \(line)",
+                    diameterMM: diameter,
+                    lengthMM: length))
+        }
+        return Result(models: models, problems: problems)
+    }
+
     /// Riscrive un catalogo nello stesso formato, così un'importazione si può rileggere.
     public static func write(_ models: [ImplantModel]) -> String {
         var lines = ["produttore,linea,diametro,lunghezza,piattaforma,apice"]
