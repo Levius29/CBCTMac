@@ -17,17 +17,6 @@ import VolumeKit
 
 // MARK: - Vista del panorex
 
-/// Se il trascinamento in corso è stato preso da qualcuno.
-///
-/// Una classe e non una variabile catturata: le chiusure che la leggono e la scrivono sono tre e
-/// vivono quanto la vista, mentre la `struct` che le costruisce viene ricreata a ogni
-/// aggiornamento di SwiftUI. Su una variabile catturata per valore la pressione scriverebbe in
-/// una copia e il trascinamento leggerebbe in un'altra.
-@MainActor
-private final class Claimed {
-    var value = false
-}
-
 struct PanoramicViewportView: NSViewRepresentable {
 
     let layout: PanoramicLayout
@@ -87,7 +76,7 @@ struct PanoramicViewportView: NSViewRepresentable {
         view.delegate = context.coordinator
         context.coordinator.configure(device: view.device)
         context.coordinator.onDrawableSize = onDrawableSize
-        attachHandlers(to: view)
+        attachHandlers(to: view, coordinator: context.coordinator)
         return view
     }
 
@@ -97,11 +86,11 @@ struct PanoramicViewportView: NSViewRepresentable {
         context.coordinator.renderer = renderer
         context.coordinator.windowLevel = windowLevel
         context.coordinator.onDrawableSize = onDrawableSize
-        attachHandlers(to: view)
+        attachHandlers(to: view, coordinator: context.coordinator)
         view.setNeedsDisplay(view.bounds)
     }
 
-    private func attachHandlers(to view: InteractiveMetalView) {
+    private func attachHandlers(to view: InteractiveMetalView, coordinator: Coordinator) {
         let layout = self.layout
 
         // La coordinata orizzontale del panorex **è** la lunghezza d'arco, per costruzione: è la
@@ -195,19 +184,20 @@ struct PanoramicViewportView: NSViewRepresentable {
         // stesso gesto, e l'impianto finiva da tutt'altra parte rispetto a dove lo si stava
         // portando. Da fuori si vedeva una panorex che se ne andava per conto suo.
         //
-        // Chi ha preso qualcosa alla pressione lo dice, e da lì il trascinamento è suo.
-        let claimed = Claimed()
+        // Chi ha preso qualcosa alla pressione lo dice, e da lì il trascinamento è suo. Il
+        // flag vive sul coordinatore: vedi `Coordinator.dragClaimed` per il motivo, che non è
+        // un dettaglio di stile — messo altrove la correzione non funziona affatto.
         view.onDragBegan = { [weak view] point in
             guard let view, view.drawableSize.width > 0, view.drawableSize.height > 0 else {
-                claimed.value = false
+                coordinator.dragClaimed = false
                 return
             }
-            claimed.value = onDragBegan(
+            coordinator.dragClaimed = onDragBegan(
                 Double(point.x) / Double(view.drawableSize.width),
                 Double(point.y) / Double(view.drawableSize.height))
         }
         view.onDragEnded = {
-            claimed.value = false
+            coordinator.dragClaimed = false
             onDragEnded()
         }
         view.onCancel = onCancel
@@ -216,7 +206,7 @@ struct PanoramicViewportView: NSViewRepresentable {
             guard let view, view.drawableSize.width > 0, view.drawableSize.height > 0 else {
                 return
             }
-            guard claimed.value else {
+            guard coordinator.dragClaimed else {
                 drag(delta)
                 return
             }
@@ -236,6 +226,22 @@ struct PanoramicViewportView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, MTKViewDelegate {
+
+        /// Se il trascinamento in corso è stato preso da qualcuno alla pressione.
+        ///
+        /// # Perché sta qui e non in una variabile catturata dai richiami
+        ///
+        /// Perché `attachHandlers` gira **anche in `updateNSView`**, cioè a ogni aggiornamento
+        /// di SwiftUI. Trascinando un impianto cambia il modello, il modello aggiorna la vista,
+        /// e una variabile creata lì dentro rinasce a `falso` in mezzo al gesto: il primo
+        /// movimento apparteneva all'impianto e tutti i successivi tornavano a scorrere
+        /// l'immagine. Da fuori si vedeva esattamente il difetto che si voleva togliere, e la
+        /// correzione sembrava non aver funzionato.
+        ///
+        /// Il coordinatore invece nasce una volta e vive quanto la vista, che è la proprietà
+        /// che serve a un pezzo di stato di un gesto.
+        var dragClaimed = false
+
 
         var layout: PanoramicLayout?
         var volumeTexture: VolumeTexture?
