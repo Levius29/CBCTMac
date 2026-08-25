@@ -3,6 +3,29 @@
 Tutti i lotti rimanenti del [piano di lavoro](work-plan.md), in ordine, ciascuno pronto da
 incollare. Uno per volta: ogni consegna viene compilata e verificata prima della successiva.
 
+## Da incollare a mano non serve più
+
+Questo documento è nato quando Codex, da dentro la sessione, non si raggiungeva: il token OAuth
+in `CODEX_AUTH_JSON` era scaduto con il refresh già consumato, e il login interattivo vuole un
+browser che qui non c'è. Da lì la modalità copia-e-incolla, e i blocchi delimitati da marcatori
+perché fossero autosufficienti.
+
+**Il 25 agosto 2026 la credenziale è stata rinnovata e Codex risponde direttamente.** Verificato
+con una chiamata vera, non con il solo stato del login — che l'altra volta diceva «autenticato»
+mentre ogni richiesta moriva con 401.
+
+Resta una cosa da sapere: il contenitore è effimero, e `~/.codex/auth.json` non sopravvive a un
+riavvio. La credenziale sì, perché sta nelle variabili d'ambiente. Per rimetterla:
+
+```
+mkdir -p ~/.codex && printenv CODEX_AUTH_JSON > ~/.codex/auth.json && chmod 600 ~/.codex/auth.json
+```
+
+Metterla nello script di avvio dell'ambiente la renderebbe automatica.
+
+I blocchi qui sotto restano validi e restano autosufficienti: servono comunque a delimitare un
+lotto per volta, che è la ragione vera per cui esistono. Cambia solo che non li si incolla più.
+
 **Il messaggio da mandare, ogni volta:**
 
 ```
