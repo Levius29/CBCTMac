@@ -718,7 +718,11 @@ struct ViewportContainer: View {
         if model.activeTool == .navigate || model.activeTool == .implant
             || model.activeTool == .prostheticTooth,
             let patient = patientPoint(atPixel: pixelPoint),
-            model.beginObjectDrag(at: patient, toleranceMM: grabToleranceMM)
+            let plane = adjustedPlane,
+            model.beginObjectDrag(
+                at: patient, toleranceMM: grabToleranceMM, on: plane,
+                pixelPoint: pixelPoint,
+                pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
         {
             model.focusedSlot = slot
             return true

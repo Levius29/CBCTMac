@@ -110,6 +110,11 @@ def strip_comments_and_strings(text: str) -> str:
                 if text[i] == "\\" and i + 1 < n:
                     if text[i + 1] == "(":
                         # Interpolazione: si copia il contenuto fra parentesi.
+                        # Le parentesi si copiano insieme al resto. Toglierle incolla fra loro
+                        # pezzi che nel codice sono separati: `f(a: b).c` diventerebbe
+                        # `fa: b.c`, dove compare una catena `b.c` che nessuno ha scritto — ed
+                        # è così che il controllo ha segnalato un membro inesistente su un
+                        # tipo che non c'entrava.
                         depth = 1
                         i += 2
                         while i < n and depth > 0:
@@ -119,8 +124,7 @@ def strip_comments_and_strings(text: str) -> str:
                                 depth -= 1
                                 if depth == 0:
                                     break
-                            else:
-                                out.append(text[i])
+                            out.append(text[i])
                             i += 1
                         out.append(" ")
                         i += 1

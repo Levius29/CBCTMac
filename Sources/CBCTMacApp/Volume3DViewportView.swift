@@ -202,46 +202,66 @@ struct Volume3DViewportView: NSViewRepresentable {
 
 /// Indicatore di orientamento in alto a destra del riquadro 3D.
 ///
-/// Non è un vezzo: ruotando un cranio senza tessuti molli si perde rapidamente il senso di
-/// dove sia il davanti, e una faccia etichettata risolve in un colpo d'occhio quello che
-/// altrimenti richiede di riportare la vista in posizione nota.
+/// # Un cubo che gira, non un quadrato con una lettera
+///
+/// Era un quadrato con dentro la lettera della faccia rivolta verso l'osservatore. Diceva
+/// **quale faccia guardi**, e basta. Ruotando un cranio senza tessuti molli, però, la domanda
+/// che ci si pone non è quella: è «di quanto sono girato, e da che parte devo tornare». A quella
+/// risponde solo un oggetto che gira insieme al modello — si legge l'inclinazione dalle facce
+/// che si scorciano, e si sa da che parte tirare senza pensarci.
+///
+/// La geometria non è qui ma in `OrientationCubeGeometry`, dove si può provare: una faccia
+/// etichettata al contrario manda a destra chi doveva andare a sinistra, e su una pianificazione
+/// implantare non è un dettaglio estetico. Qui resta il disegno, che sbagliato si vede.
 struct OrientationCube: View {
 
     let camera: VolumeCamera
 
+    /// Lato del riquadro, in punti.
+    private let side: CGFloat = 62
+
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Palette.chromeElevated.opacity(0.85))
-                .frame(width: 56, height: 56)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Palette.separator, lineWidth: 1)
+        Canvas { context, size in
+            let half = Swift.min(size.width, size.height) * 0.5
+            // Il cubo va da −1 a 1 lungo ogni asse, e la sua diagonale è √3: si sta dentro
+            // qualunque sia la rotazione, senza che gli spigoli escano girando.
+            let scale = half / 1.75
+            let centre = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
+
+            func screen(_ point: (x: Double, y: Double)) -> CGPoint {
+                CGPoint(
+                    x: centre.x + CGFloat(point.x) * scale,
+                    y: centre.y + CGFloat(point.y) * scale)
+            }
+
+            for projected in OrientationCubeGeometry.visibleFaces(camera: camera) {
+                var path = Path()
+                path.move(to: screen(projected.corners[0]))
+                for corner in projected.corners.dropFirst() {
+                    path.addLine(to: screen(corner))
                 }
+                path.closeSubpath()
 
-            Text(faceLabel)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Palette.textPrimary)
+                // Più una faccia è di fronte, più è chiara: è la differenza che fa leggere il
+                // cubo come un solido invece che come un esagono piatto.
+                let shade = 0.30 + 0.45 * projected.facing
+                context.fill(path, with: .color(Palette.chromeElevated.opacity(0.92)))
+                context.fill(path, with: .color(Palette.textPrimary.opacity(shade * 0.22)))
+                context.stroke(path, with: .color(Palette.separator), lineWidth: 1)
+
+                // La lettera solo dove c'è spazio per leggerla: su una faccia molto scorciata
+                // sarebbe una macchia sopra il bordo, e confonderebbe invece di orientare.
+                guard projected.facing > 0.30 else { continue }
+                context.draw(
+                    Text(projected.face.rawValue)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.textPrimary.opacity(0.35 + 0.65 * projected.facing)),
+                    at: screen(projected.centre),
+                    anchor: .center)
+            }
         }
+        .frame(width: side, height: side)
         .allowsHitTesting(false)
-    }
-
-    /// Lettera anatomica della faccia rivolta verso l'osservatore.
-    ///
-    /// Si guarda la direzione **opposta** a quella di vista: `forward` va dalla camera verso il
-    /// paziente, quindi la faccia che vediamo è quella che punta verso di noi.
-    private var faceLabel: String {
-        let toViewer = -camera.forward
-        let x = abs(toViewer.x)
-        let y = abs(toViewer.y)
-        let z = abs(toViewer.z)
-
-        if z >= x && z >= y {
-            return toViewer.z > 0 ? "S" : "I"
-        }
-        if y >= x {
-            return toViewer.y > 0 ? "P" : "A"
-        }
-        return toViewer.x > 0 ? "L" : "R"
+        .help("Orientamento: \(OrientationCubeGeometry.frontFace(camera: camera).localizedName)")
     }
 }

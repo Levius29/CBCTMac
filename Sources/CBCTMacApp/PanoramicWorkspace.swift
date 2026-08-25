@@ -1110,7 +1110,14 @@ struct CrossSectionCell: View {
                             || model.activeTool == .prostheticTooth,
                         let patient = patientPoint(at: point)
                     else { return }
-                    _ = model.beginObjectDrag(at: patient, toleranceMM: grabToleranceMM)
+                    // Presa giudicata sulla proiezione, come nelle ortogonali: sulla sezione un
+                    // impianto poco fuori dal piano si vede e si deve poter prendere.
+                    let matched = zoomedPlane.matchingAspect(
+                        pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
+                    _ = model.beginObjectDrag(
+                        at: patient, toleranceMM: grabToleranceMM, on: matched,
+                        pixelPoint: point,
+                        pixelWidth: Int(pixelSize.width), pixelHeight: Int(pixelSize.height))
                 },
                 onDragEnded: {
                     model.endHandleDrag()

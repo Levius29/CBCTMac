@@ -66,8 +66,28 @@ def strip_comments_and_strings(text: str) -> str:
         if c == '"':
             i += 1
             while i < n and text[i] != '"':
-                if text[i] == "\\":
-                    i += 1
+                if text[i] == "\\" and i + 1 < n:
+                    if text[i + 1] == "(":
+                        # Il contenuto di un'interpolazione **è** codice, e chiama funzioni: una
+                        # API usata soltanto lì risultava chiamata da nessuno. È il difetto che
+                        # ha segnalato `frontFace` come scollegata mentre il suggerimento del cubo
+                        # la usa a ogni ridisegno.
+                        depth = 1
+                        i += 2
+                        while i < n and depth > 0:
+                            if text[i] == "(":
+                                depth += 1
+                            elif text[i] == ")":
+                                depth -= 1
+                                if depth == 0:
+                                    break
+                            out.append(text[i])
+                            i += 1
+                        out.append(" ")
+                        i += 1
+                        continue
+                    i += 2
+                    continue
                 i += 1
             i += 1
             continue

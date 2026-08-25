@@ -1926,6 +1926,66 @@ final class AppModel {
     /// mostrarlo muoversi nello stesso istante.
     private(set) var implantDrag: (id: UUID, grip: ImplantGrip, lastMM: Vec3)?
 
+    /// Afferra un impianto giudicando **sulla proiezione**, come lo vede chi clicca.
+    ///
+    /// # Perché ce n'è una seconda accanto a quella nello spazio
+    ///
+    /// Perché la presa nello spazio chiede che il clic disti dall'asse meno del raggio, e in un
+    /// riquadro 2D il clic sta per costruzione sul piano di taglio: un impianto tre millimetri
+    /// davanti al piano è disegnato — si sfuma su un diametro intero, quindi si vede benissimo —
+    /// e distava dall'asse più della presa. Si vedeva e non si prendeva, che è la stessa mezza
+    /// funzione dell'oggetto afferrabile e non disegnato, letta dall'altro verso.
+    ///
+    /// - Parameters:
+    ///   - project: come la vista porta un punto Patient sulle proprie coordinate.
+    ///   - scale: quante unità di quella vista vale un millimetro.
+    ///   - tolerance: quanto si può sbagliare, nelle unità della vista.
+    ///   - depth: quanto l'impianto dista dalla vista, per escludere quelli che non si vedono.
+    ///     Restituendo `nil` non si esclude nessuno, che è il caso del riquadro 3D.
+    @discardableResult
+    func beginProjectedImplantDrag(
+        at pointMM: Vec3,
+        projectedPoint: ImplantManipulation.PlanarPoint,
+        project: (Vec3) -> ImplantManipulation.PlanarPoint,
+        scale: Double,
+        tolerance: Double,
+        depth: ((ImplantPlacement) -> Double)? = nil
+    ) -> Bool {
+        implantDrag = nil
+        guard workMode.isEditable else { return false }
+
+        var best: (implant: ImplantPlacement, grip: ImplantGrip, distance: Double)?
+        for implant in implants where implant.isVisible {
+            // Fuori dalla fetta non si disegna, e quel che non si disegna non si afferra.
+            if let depth, depth(implant) > implant.model.diameterMM { continue }
+
+            let platform = project(implant.platformMM)
+            let apex = project(implant.apexMM)
+            guard
+                let grip = ImplantManipulation.projectedGrip(
+                    at: projectedPoint, platform: platform, apex: apex,
+                    radius: implant.model.diameterMM * 0.5 * scale, tolerance: tolerance)
+            else { continue }
+
+            // Il più vicino all'asse proiettato, come nella presa nello spazio: su due impianti
+            // vicini le zone di presa si sovrappongono, e prendere sempre il primo dell'elenco
+            // renderebbe il secondo inafferrabile.
+            let midX = (platform.x + apex.x) * 0.5
+            let midY = (platform.y + apex.y) * 0.5
+            let dx = projectedPoint.x - midX
+            let dy = projectedPoint.y - midY
+            let distance = (dx * dx + dy * dy).squareRoot()
+            if best == nil || distance < best!.distance {
+                best = (implant, grip, distance)
+            }
+        }
+
+        guard let best else { return false }
+        implantDrag = (best.implant.id, best.grip, pointMM)
+        selectedImplantID = best.implant.id
+        return true
+    }
+
     /// Prova ad afferrare un impianto in un punto.
     ///
     /// - Parameter toleranceMM: quanto lontano dalla superficie si può premere, commisurato a
@@ -2040,6 +2100,53 @@ final class AppModel {
         return beginImplantDrag(at: pointMM, toleranceMM: toleranceMM)
     }
 
+    /// La stessa precedenza, ma con la presa dell'impianto giudicata sulla proiezione del piano.
+    ///
+    /// È la via che usano i riquadri 2D. Vedi `beginProjectedImplantDrag`: sul piano la presa
+    /// nello spazio escludeva ogni impianto che non stesse quasi esattamente sulla fetta, cioè
+    /// quasi tutti quelli che si vedono.
+    func beginObjectDrag(
+        at pointMM: Vec3,
+        toleranceMM: Double,
+        on plane: MPRPlane,
+        pixelPoint: CGPoint,
+        pixelWidth: Int,
+        pixelHeight: Int
+    ) -> Bool {
+        if beginToothDrag(at: pointMM, toleranceMM: toleranceMM) { return true }
+
+        guard plane.widthMM > 0, pixelWidth > 0 else {
+            return beginImplantDrag(at: pointMM, toleranceMM: toleranceMM)
+        }
+        let scale = Double(pixelWidth) / plane.widthMM
+
+        func project(_ point: Vec3) -> ImplantManipulation.PlanarPoint {
+            let projected = plane.pixelPosition(
+                ofPatient: point, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+            return ImplantManipulation.PlanarPoint(x: projected.x, y: projected.y)
+        }
+
+        return beginProjectedImplantDrag(
+            at: pointMM,
+            projectedPoint: ImplantManipulation.PlanarPoint(
+                x: Double(pixelPoint.x), y: Double(pixelPoint.y)),
+            project: project,
+            scale: scale,
+            tolerance: toleranceMM * scale,
+            depth: { implant in
+                let platform = plane.pixelPosition(
+                    ofPatient: implant.platformMM,
+                    pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+                let apex = plane.pixelPosition(
+                    ofPatient: implant.apexMM,
+                    pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+                // La stessa distanza con cui la sovraimpressione decide se disegnarlo: zero
+                // finché il piano lo attraversa. Vedi `PlaneProximity`.
+                return PlaneProximity.distanceMM(
+                    from: platform.distanceMM, to: apex.distanceMM)
+            })
+    }
+
     /// Continua il trascinamento in corso, qualunque sia l'oggetto.
     func dragObject(toMM pointMM: Vec3) {
         if toothDrag != nil {
@@ -2121,13 +2228,36 @@ final class AppModel {
                 self?.beginToothDrag(at: probe, toleranceMM: toleranceMM) ?? false
             }
         }
+        // La presa dell'impianto si giudica **sulla proiezione**, non alla profondità del suo
+        // centro: la sonda stava sul piano che passa per la mezzeria, e su un impianto inclinato
+        // gli estremi ne distano qualche millimetro. Si afferrava in mezzo e non alle estremità,
+        // che sono proprio le maniglie con cui lo si inclina.
+        let pixelsPerMM = Double(pixelSize.height) / Swift.max(camera.halfHeightMM * 2, 1e-9)
+        let pointer2D = ImplantManipulation.PlanarPoint(
+            x: Double(point.x), y: Double(point.y))
+        func projectToScreen(_ position: Vec3) -> ImplantManipulation.PlanarPoint {
+            let projected = projector.project(position)
+            return ImplantManipulation.PlanarPoint(x: projected.x, y: projected.y)
+        }
+
         for implant in implants where implant.isVisible {
             let centre = implant.platformMM + implant.axis * (implant.model.lengthMM * 0.5)
-            let probe = pointer(at: centre)
-            guard ImplantManipulation.grip(at: probe, of: implant, toleranceMM: toleranceMM) != nil
+            guard
+                ImplantManipulation.projectedGrip(
+                    at: pointer2D,
+                    platform: projectToScreen(implant.platformMM),
+                    apex: projectToScreen(implant.apexMM),
+                    radius: implant.model.diameterMM * 0.5 * pixelsPerMM,
+                    tolerance: toleranceMM * pixelsPerMM) != nil
             else { continue }
+            let probe = pointer(at: centre)
             consider(centre) { [weak self] in
-                self?.beginImplantDrag(at: probe, toleranceMM: toleranceMM) ?? false
+                self?.beginProjectedImplantDrag(
+                    at: probe,
+                    projectedPoint: pointer2D,
+                    project: projectToScreen,
+                    scale: pixelsPerMM,
+                    tolerance: toleranceMM * pixelsPerMM) ?? false
             }
         }
 

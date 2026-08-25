@@ -67,6 +67,83 @@ public enum ImplantManipulation {
         return .body
     }
 
+    /// Un punto su una vista, in unità della vista: pixel o punti dello schermo.
+    public struct PlanarPoint: Hashable, Sendable {
+        public var x: Double
+        public var y: Double
+        public init(x: Double, y: Double) {
+            self.x = x
+            self.y = y
+        }
+    }
+
+    /// Quale parte dell'impianto cade sotto il puntatore, giudicando **sulla proiezione**.
+    ///
+    /// # Perché non basta la presa nello spazio
+    ///
+    /// Perché chi afferra mira a ciò che vede, e ciò che vede è una proiezione. `grip(at:of:...)`
+    /// misura la distanza dall'asse **in tre dimensioni**, e in un riquadro 2D il clic sta per
+    /// costruzione sul piano di taglio: un impianto che sta tre millimetri davanti al piano è
+    /// disegnato — la sovraimpressione lo sfuma su un diametro intero, quindi si vede benissimo —
+    /// e ha una distanza dall'asse di tre millimetri, cioè più della presa. Si vedeva e non si
+    /// prendeva.
+    ///
+    /// Nel riquadro 3D lo stesso, per un'altra strada: il punto di sonda sta alla profondità del
+    /// **centro** dell'impianto, e su un impianto inclinato gli estremi stanno a qualche
+    /// millimetro da quella profondità. Si afferrava in mezzo e non alle estremità, che sono
+    /// proprio le maniglie con cui lo si inclina.
+    ///
+    /// Qui la domanda è quella giusta: il puntatore cade dentro la sagoma disegnata? Chi chiama
+    /// proietta con il proprio proiettore — il piano nel 2D, la camera nel 3D — e questa funzione
+    /// non ha bisogno di sapere quale dei due sia.
+    ///
+    /// - Parameters:
+    ///   - radius: il raggio dell'impianto **nelle unità della vista**, cioè già moltiplicato per
+    ///     la scala. Serve perché si afferra il pezzo, non la linea che lo attraversa.
+    ///   - tolerance: quanto si può sbagliare, nelle stesse unità. Qualche pixel.
+    /// - Returns: `nil` se il puntatore cade fuori dalla sagoma.
+    public static func projectedGrip(
+        at point: PlanarPoint,
+        platform: PlanarPoint,
+        apex: PlanarPoint,
+        radius: Double,
+        tolerance: Double
+    ) -> ImplantGrip? {
+        let axisX = apex.x - platform.x
+        let axisY = apex.y - platform.y
+        let lengthSquared = axisX * axisX + axisY * axisY
+        let reach = Swift.max(radius, 0) + Swift.max(tolerance, 0)
+
+        // Asse visto **di punta**: la sagoma degenera in un cerchio, e non c'è un lungo da
+        // percorrere. Si afferra il corpo, che è la presa che trasla — inclinare un impianto
+        // guardandolo dal suo asse non si può fare comunque, perché la direzione in cui lo si
+        // inclinerebbe non è rappresentata sullo schermo.
+        guard lengthSquared > 1e-9 else {
+            let dx = point.x - platform.x
+            let dy = point.y - platform.y
+            return (dx * dx + dy * dy).squareRoot() <= reach ? .body : nil
+        }
+
+        // Posizione lungo l'asse proiettato, da zero alla piattaforma a uno all'apice. Si
+        // consente di uscire dagli estremi quanto la tolleranza, non di più.
+        let t = ((point.x - platform.x) * axisX + (point.y - platform.y) * axisY) / lengthSquared
+        let length = lengthSquared.squareRoot()
+        let overshoot = tolerance / length
+        guard t >= -overshoot, t <= 1 + overshoot else { return nil }
+
+        // Distanza dal segmento, misurata sulla proiezione.
+        let clamped = Swift.min(Swift.max(t, 0), 1)
+        let nearestX = platform.x + axisX * clamped
+        let nearestY = platform.y + axisY * clamped
+        let dx = point.x - nearestX
+        let dy = point.y - nearestY
+        guard (dx * dx + dy * dy).squareRoot() <= reach else { return nil }
+
+        if t <= handleFraction { return .head }
+        if t >= 1 - handleFraction { return .apex }
+        return .body
+    }
+
     /// Trasla l'impianto rigidamente.
     public static func moved(_ implant: ImplantPlacement, byMM offset: Vec3) -> ImplantPlacement {
         guard offset.isFinite else { return implant }
