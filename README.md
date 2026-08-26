@@ -14,7 +14,7 @@ misurazioni, annotazioni e pianificazione implantare.
 
 ## Stato
 
-I moduli condivisi compilano e sono verificati da 921 test. L'applicazione SwiftUI compila su
+I moduli condivisi compilano e sono verificati da 1036 prove. L'applicazione SwiftUI compila su
 macOS; l'interfaccia non è ancora stata percorsa a mano.
 
 | Fase | Contenuto | Stato |
@@ -69,12 +69,19 @@ All'avvio l'applicazione genera un **fantoccio sintetico**: un cubo da 20,00 mm 
 densità note. Serve a verificare le misure contro valori esatti senza toccare dati di pazienti,
 e resta utile anche ora che si aprono studi veri.
 
-> **Stato della verifica.** `swift test` copre i moduli condivisi: 921 test in 111 suite,
-> tutti verdi — l'ultima esecuzione su Swift 6.1.2 per Linux. Il target dell'applicazione è condizionale a macOS e non entra in quella
-> suite, perché importa SwiftUI, AppKit e Metal; le sue chiamate verso i moduli sono però
-> verificate da `AppContractTests` e da ventisei controlli statici in `Tools/`.
+> **Stato della verifica.** `swift test` copre i moduli condivisi. La suite dichiara **953 prove
+> in 116 gruppi** con `swift-testing`, più **83 prove `XCTest`** in dieci file: 1036 in tutto.
 >
-> **Su macOS `swift test` richiede Xcode**, non bastano i Command Line Tools: sette file di test
+> L'ultima esecuzione registrata — 921 prove in 111 gruppi, tutte verdi, su Swift 6.1.2 per Linux
+> — è **anteriore** alle prove della crescita confinata e della mesh stampabile, entrate in `main`
+> dopo. Quelle sono scritte e aspettano una corsa: finché non la si fa, il numero verde è 921 e
+> non 1036.
+>
+> Il target dell'applicazione è condizionale a macOS e non entra in quella suite, perché importa
+> SwiftUI, AppKit e Metal; le sue chiamate verso i moduli sono però verificate da
+> `AppContractTests` e da ventisei controlli statici in `Tools/`.
+>
+> **Su macOS `swift test` richiede Xcode**, non bastano i Command Line Tools: dieci file di test
 > importano `XCTest`, che su macOS vive dentro Xcode e non nella toolchain da riga di comando.
 > `swift build` e `swift run 3DMED` invece non compilano i test e funzionano anche con i soli
 > Command Line Tools.

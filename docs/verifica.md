@@ -21,16 +21,29 @@ Due mosse, in ordine di resa.
 risposta giusta e una sbagliata, va in una libreria, dove `swift test` la
 raggiunge. Non è purezza architetturale: è l'unico modo di provarla. Ne sono
 nati `PlaneProximity`, `RayCompositing`, `ClipBox`, `OrientationCubeGeometry`,
-`CompetitiveGrowth`, `ImplantManipulation.projectedGrip` — tutti estratti da
-dentro una vista dopo che un difetto ci si era nascosto.
+`CompetitiveGrowth`, `GrowthRestriction`, `ImplantManipulation.projectedGrip` —
+tutti estratti da dentro una vista dopo che un difetto ci si era nascosto.
 
 **Secondo: controlli mirati su classi di difetto.** In `Tools/` ce ne sono
-ventitré, ciascuno nato da un difetto vero e verificato rimettendolo al suo
+**ventisei**, ciascuno nato da un difetto vero e verificato rimettendolo al suo
 posto. Non cercano «bug» in generale: ciascuno conosce una forma precisa.
-`check-call-sites.py` confronta 3204 costruzioni contro le firme dichiarate;
-`check-exhaustive-switches.py` elenca i casi da completare quando si aggiunge una
-voce a un enum; `check-unreachable-members.py` trova le capacità scritte, provate
-e mai collegate a un gesto — che in questo progetto è la classe più frequente.
+`check-call-sites.py` confronta le costruzioni dei 457 tipi del progetto contro
+le firme dichiarate; `check-exhaustive-switches.py` elenca i casi da completare
+quando si aggiunge una voce a un enum; `check-unreachable-members.py` trova le
+capacità scritte, provate e mai collegate a un gesto — che in questo progetto è
+la classe più frequente.
+
+I sedici arrivati dopo i primi dieci hanno spostato il bersaglio: non più
+soltanto errori che il compilatore del Mac troverebbe un giro dopo, ma difetti
+che **compilano benissimo e restano invisibili**. `check-plan-snapshot.py`
+sorveglia i quattro posti che devono restare d'accordo sull'istantanea del piano;
+`check-project-document.py` trova i campi che il documento salva e non rilegge
+mai; `check-undoable-plan.py` le modifiche che «annulla» non riporta indietro;
+`check-uniform-layout.py` gli `struct` di uniform la cui sequenza di campi diverge
+fra Swift e Metal — dove il disallineamento non dà errori, dà pixel sbagliati.
+Nessuno di questi produce un messaggio del compilatore, su nessuna piattaforma.
+L'elenco completo, con l'origine di ciascuno, sta in
+[`work-plan.md`](work-plan.md#3-ter-i-ventisei-controlli-che-girano-prima-di-ogni-consegna).
 
 Sono euristiche, e coprono per classi invece che per costruzione. In cambio si
 scrivono in un'ora e restano leggibili.
@@ -68,7 +81,10 @@ una macchina macOS — che è un cambiamento di ambiente, non di codice.
 
 ## Dove sta il resto della verifica
 
-- `swift test` — 890 prove sulle librerie, eseguibili ovunque.
+- `swift test` — 1036 prove sulle librerie, eseguibili ovunque: 953 in 116
+  gruppi con `swift-testing`, 83 con `XCTest` in dieci file. L'ultima corsa
+  registrata ne contava 921 verdi, prima che entrassero quelle della crescita
+  confinata e della mesh stampabile; il resto è scritto e attende una corsa.
 - Le prove nascono con una **mutazione**: si reintroduce il difetto e si
   controlla che cadano. Una prova che non è mai caduta non ha dimostrato niente.
 - Il fantoccio sintetico, con i suoi numeri noti — spigolo di 20,000 mm, densità

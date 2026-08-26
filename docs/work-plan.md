@@ -265,11 +265,13 @@ aggiunta dopo.
 
 ---
 
-## 3-ter. I dieci controlli che girano prima di ogni consegna
+## 3-ter. I ventisei controlli che girano prima di ogni consegna
 
 Su questo progetto la stessa classe di errore si è ripetuta, e ogni volta è costata un giro
-completo — pull, build sul Mac, incolla degli errori, correzione, ripush. Da qui dieci controlli
-in `Tools/`, ognuno nato da un errore vero e **verificato rimettendo l'errore che lo ha generato**:
+completo — pull, build sul Mac, incolla degli errori, correzione, ripush. Da qui i controlli in
+`Tools/`, ognuno nato da un errore vero e **verificato rimettendo l'errore che lo ha generato**.
+
+Oggi sono ventisei. I primi dieci sono questi:
 
 | Controllo | Trova | Nato da |
 |---|---|---|
@@ -312,6 +314,43 @@ la funzione c'è e nessuno la trova.
 Nessuno dei dieci è un compilatore e nessuno pretende di esserlo. Ognuno prende una classe di
 errore che `swiftc -parse` non vede — perché `-parse` guarda la sintassi e questi sono errori di
 tipo — e che qui costerebbe un giro sul Mac.
+
+### I sedici arrivati dopo
+
+I dieci di sopra inseguono errori che **il compilatore del Mac troverebbe comunque**, solo un giro
+più tardi: il loro guadagno è di tempo. I sedici che sono venuti dopo hanno spostato il bersaglio,
+e vale la pena dire dove. Cercano difetti che **compilano benissimo su ogni piattaforma e non
+danno nessun messaggio a nessuno** — un campo salvato e mai riletto, un'operazione scritta e
+provata che nessun gesto raggiunge, una sequenza di campi che diverge fra Swift e Metal e produce
+pixel sbagliati invece di un errore. Per questa classe non esiste un giro sul Mac che li scopra:
+o li trova un controllo, o li trova chi usa il programma.
+
+| Controllo | Trova |
+|---|---|
+| `check-call-sites.py` | costruzioni di tipi che non corrispondono alle firme dichiarate |
+| `check-member-names.py` | nomi quasi-sinonimi chiamati sul tipo sbagliato |
+| `check-unreachable-api.py` | tipi pubblici che nessun cammino collega all'applicazione |
+| `check-unreachable-members.py` | operazioni pubbliche che nessuno chiama |
+| `check-unreachable-actions.py` | azioni del modello che nessuna vista richiama |
+| `check-dangling-references.py` | riferimenti a oggetti del piano che possono restare appesi |
+| `check-project-document.py` | campi del piano salvati e mai riletti |
+| `check-plan-snapshot.py` | i quattro posti dell'istantanea del piano che divergono |
+| `check-undoable-plan.py` | modifiche al piano che «annulla» non riporta indietro |
+| `check-view-only-state.py` | stato di sola visualizzazione finito nel piano o in archivio |
+| `check-uniform-layout.py` | blocchi di uniform con la sequenza di campi diversa fra Swift e Metal |
+| `check-3d-parity.py` | oggetti del piano disegnati in 2D e non nel 3D |
+| `check-overlay-parity.py` | sovraimpressioni che la griglia disegna e le sezioni trasversali no |
+| `check-modal-routes.py` | finestre modali che non passano da una strada sola |
+| `check-panel-exits.py` | stati che si accendono e non si possono spegnere |
+| `check-inspector-routes.py` | l'ispettore che sceglie con catene di `else` invece che con elenchi |
+
+Gli ultimi tre nascono da un difetto solo, e da una frase sola di chi provava il programma: «se
+apro una cosa, poi non posso più aprirne altre». Le *Regole trasversali* di
+[`architecture.md`](architecture.md) scrivono la regola; questi tre la sorvegliano.
+
+Ciascuno porta nella propria intestazione il difetto da cui è nato — si legge in testa al file,
+ed è la parte che conta più del codice sotto: un controllo di cui non si sa più a che cosa
+serviva è il primo che qualcuno disattiva.
 
 ---
 
