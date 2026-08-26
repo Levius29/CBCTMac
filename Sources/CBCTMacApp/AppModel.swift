@@ -3068,6 +3068,12 @@ final class AppModel {
         segmentationSectionContour = []
         segmentationStatistics = nil
         segmentationMessage = nil
+        tissueSeeds = []
+        tissueMeshes = [:]
+        tissueIntegrity = [:]
+        tissueContours = [:]
+        tissueMessage = nil
+        pendingTissueKind = .bone
 
         // La cronologia riparte: annullare fin dentro il caso precedente non ha senso, e su dati
         // clinici sarebbe pericoloso — riporterebbe nell'immagine di questo paziente gli impianti
@@ -3705,6 +3711,7 @@ final class AppModel {
     func rebuildDerivedContours() {
         rebuildScanContours()
         rebuildSegmentationContours()
+        rebuildTissueContours()
     }
 
     /// Ricalcola il contorno della scansione su ogni riquadro ortogonale.
@@ -4322,10 +4329,52 @@ final class AppModel {
     /// L'etichetta riservata all'osso: la prima, e quella che i denti lasciano indietro.
     static let boneLabel: SegmentLabel = 1
 
+    /// Che cosa marca il prossimo clic.
+    ///
+    /// Prima era implicito — il primo marcatore era l'osso e tutti gli altri denti — e quella
+    /// regola rendeva **impossibile marcare l'osso in più di un punto**. Il motore lo accetta da
+    /// sempre (semi con la stessa etichetta formano una regione sola), ed è il modo con cui si
+    /// tiene indietro il fronte del dente lungo tutta la mandibola invece che in un angolo solo.
+    /// Averlo lasciato implicito è costato la funzione: c'era e non si raggiungeva.
+    enum TissueSeedKind: Hashable, Sendable {
+        case bone
+        case tooth
+    }
+
+    var pendingTissueKind: TissueSeedKind = .bone
+
     var tissueSeeds: [TissueSeed] = []
     private(set) var tissueMeshes: [SegmentLabel: Mesh] = [:]
+    private(set) var tissueIntegrity: [SegmentLabel: MeshIntegrity] = [:]
+    private(set) var tissueContours: [ViewportSlot: [TissueContour]] = [:]
     private(set) var isSeparatingTissues = false
     private(set) var tissueMessage: String?
+
+    /// Un contorno da disegnare su un riquadro, col colore del tessuto da cui viene.
+    struct TissueContour: Identifiable, Sendable {
+        var id: SegmentLabel
+        var colorHex: String
+        var loops: [[Vec3]]
+    }
+
+    /// Confinare la separazione al riquadro di lettura.
+    ///
+    /// Acceso di suo, e non è un'impostazione qualunque: dove radice e osso si toccano alla
+    /// stessa densità non c'è, nel dato, nessun confine da trovare, e il fronte del dente esce e
+    /// si prende la mandibola. Il riquadro è l'unico limite che valga **per costruzione**, e per
+    /// giunta è ciò che rende l'operazione istantanea invece che lenta, perché il costo sta nel
+    /// numero di voxel toccati. Vedi `GrowthRestriction` in SegmentKit.
+    var tissueConfinesToClipBox = true
+
+    /// Passate di lisciatura sulla superficie estratta. Zero le disattiva.
+    ///
+    /// Marching cubes esce a gradini di voxel, e i gradini si sentono col dito sul modello
+    /// stampato. Taubin li toglie senza assottigliare il dente — è il punto per cui alterna due
+    /// passi invece di uno solo.
+    var tissueSmoothingPasses: Double = 8
+
+    /// Tetto di triangoli per tessuto, in migliaia. Zero lascia la superficie com'è.
+    var tissueTriangleBudgetThousands: Double = 0
 
     /// La fascia entro cui si compete. Comprende dentina e corticale **insieme**: separarle è
     /// compito della competizione, non della soglia, ed è il punto di tutta la faccenda.
@@ -4336,20 +4385,27 @@ final class AppModel {
     /// Il numero FDI del prossimo dente marcato. Il primo marcatore però è l'osso.
     var pendingTissueToothNumber: Int = 46
 
-    /// Vero finché l'osso non è stato marcato: è il marcatore che deve venire per primo.
-    var needsBoneSeed: Bool {
-        !tissueSeeds.contains { $0.label == Self.boneLabel }
-    }
-
     func addTissueSeed(at pointMM: Vec3) {
-        if needsBoneSeed {
+        if pendingTissueKind == .bone {
+            let existing = tissueSeeds.filter { $0.label == Self.boneLabel }.count
             tissueSeeds.append(
                 TissueSeed(
-                    pointMM: pointMM, label: Self.boneLabel, name: "Osso",
+                    pointMM: pointMM, label: Self.boneLabel,
+                    name: existing == 0 ? "Osso" : "Osso \(existing + 1)",
                     colorHex: "#E8DCC8"))
-            lastActionMessage =
-                "Osso marcato. Adesso un clic dentro ogni dente da separare — al centro della "
-                + "corona, non sullo smalto del bordo."
+            // Il primo marcatore passa la mano ai denti, che è la sequenza di gran lunga più
+            // frequente; dal secondo in poi resta sull'osso, perché chi ne mette due ne sta
+            // mettendo quattro. In entrambi i casi lo si cambia dal pannello.
+            if existing == 0 {
+                pendingTissueKind = .tooth
+                lastActionMessage =
+                    "Osso marcato. Adesso un clic dentro ogni dente da separare — al centro "
+                    + "della corona, non sullo smalto del bordo."
+            } else {
+                lastActionMessage =
+                    "Osso marcato in \(existing + 1) punti. Più punti tengono indietro il "
+                    + "fronte del dente lungo tutta l'arcata."
+            }
             return
         }
 
@@ -4370,62 +4426,98 @@ final class AppModel {
 
     func removeTissueSeed(_ id: UUID) {
         tissueSeeds.removeAll { $0.id == id }
-        tissueMeshes = [:]
+        clearTissueResults()
     }
 
     func clearTissueSeeds() {
         tissueSeeds = []
-        tissueMeshes = [:]
+        clearTissueResults()
         tissueMessage = nil
     }
 
-    /// Fa competere le regioni e ne estrae una superficie ciascuna.
+    /// Butta via i risultati ma non i marcatori: si chiama quando i marcatori cambiano.
+    private func clearTissueResults() {
+        tissueMeshes = [:]
+        tissueIntegrity = [:]
+        tissueContours = [:]
+    }
+
+    /// Fa competere le regioni, ne estrae una superficie ciascuna e la porta a solido.
     ///
     /// Fuori dal main actor come la segmentazione a soglia, e per la stessa ragione: la
-    /// competizione tocca ogni voxel sopra soglia, e marching cubes altrettanti per ogni
+    /// competizione tocca ogni voxel della regione, e marching cubes altrettanti per ogni
     /// etichetta.
+    ///
+    /// # Che cosa è cambiato rispetto alla prima stesura, e perché
+    ///
+    /// Tre cose, tutte e tre nate dal fatto che il prodotto non arrivava alla stampante.
+    ///
+    /// La prima è il **confinamento**: la crescita si limita al riquadro di lettura quando è
+    /// acceso. Senza, dove radice e osso si toccano il dente si prende la mandibola, e non per
+    /// un difetto dell'algoritmo — sotto l'apice non c'è niente di più scuro, quindi non c'è
+    /// nessun confine da trovare.
+    ///
+    /// La seconda è la **finitura**: quel che esce da marching cubes è a gradini di voxel e ha
+    /// tanti triangoli quanti la griglia ne consente. Lisciato, ridotto al guscio maggiore,
+    /// portato al bilancio di triangoli e con le normali all'esterno, diventa un file che uno
+    /// slicer apre.
+    ///
+    /// La terza è il **referto**: `MeshIntegrity` dice se il solido è chiuso *prima* di
+    /// mandarlo in stampa, invece che dopo, quando lo slicer lo rifiuta senza spiegare perché.
     func separateTissues() async {
         guard let volume, !isSeparatingTissues else { return }
-        guard !needsBoneSeed else {
-            tissueMessage = "Manca il marcatore dell'osso: è il primo che va messo."
-            return
-        }
-        guard tissueSeeds.count >= 2 else {
-            tissueMessage =
-                "Serve almeno un dente oltre all'osso: con un marcatore solo non c'è niente da "
-                + "separare."
+        guard !tissueSeeds.isEmpty else {
+            tissueMessage = "Nessun marcatore: prendi il marcatore e fai clic dentro un tessuto."
             return
         }
 
         isSeparatingTissues = true
         tissueMessage = nil
         let seeds = tissueSeeds.map { (seedMM: $0.pointMM, label: $0.label) }
-        let names = Dictionary(uniqueKeysWithValues: tissueSeeds.map { ($0.label, $0.name) })
+        // `uniquingKeysWith` e non `uniqueKeysWithValues`: più marcatori possono condividere la
+        // stessa etichetta — è tutto il senso di poter marcare l'osso in più punti — e
+        // l'inizializzatore che pretende chiavi uniche va in trap sul secondo. Era una trappola
+        // armata: non poteva scattare finché l'interfaccia impediva il caso che la fa scattare.
+        let names = Dictionary(
+            tissueSeeds.map { ($0.label, $0.name) }, uniquingKeysWith: { first, _ in first })
+        let colours = Dictionary(
+            tissueSeeds.map { ($0.label, $0.colorHex) }, uniquingKeysWith: { first, _ in first })
         let lower = Swift.min(tissueLowerGV, tissueUpperGV)
         let upper = Swift.max(tissueLowerGV, tissueUpperGV)
         let spacing = tissueSpacingMM
+        let region = tissueConfinesToClipBox ? activeClipBox : nil
+        let boxMM = region.map { BoxMM(minMM: $0.minMM, maxMM: $0.maxMM) }
+        let passes = Int(tissueSmoothingPasses.rounded())
+        let budget = Int(tissueTriangleBudgetThousands.rounded()) * 1_000
+        let onlyOneTissue = Set(tissueSeeds.map(\.label)).count < 2
 
         struct Outcome: Sendable {
             var meshes: [SegmentLabel: Mesh] = [:]
+            var integrity: [SegmentLabel: MeshIntegrity] = [:]
             var message: String?
         }
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> Outcome in
             do {
                 let mask = try CompetitiveGrowth.grow(
-                    in: volume, seeds: seeds, densityRange: lower...upper)
+                    in: volume, seeds: seeds, densityRange: lower...upper, within: boxMM)
                 var meshes: [SegmentLabel: Mesh] = [:]
+                var integrity: [SegmentLabel: MeshIntegrity] = [:]
                 var empties: [String] = []
                 for (label, name) in names.sorted(by: { $0.key < $1.key }) {
                     guard !MaskSurface.isEmpty(mask, label: label) else {
                         empties.append(name)
                         continue
                     }
-                    if let mesh = MaskSurface.mesh(
-                        of: mask, label: label, spacingMM: spacing, name: name)
-                    {
-                        meshes[label] = mesh
-                    }
+                    guard
+                        let raw = MaskSurface.mesh(
+                            of: mask, label: label, spacingMM: spacing, name: name)
+                    else { continue }
+                    let solid = Self.finished(
+                        raw, keepingLargestShell: true, smoothingPasses: passes,
+                        triangleBudget: budget)
+                    meshes[label] = solid
+                    integrity[label] = MeshRepair.integrity(of: solid)
                 }
                 var message: String?
                 if !empties.isEmpty {
@@ -4433,7 +4525,7 @@ final class AppModel {
                         "Senza voxel: \(empties.joined(separator: ", ")). "
                         + "Il marcatore è finito fuori dalla fascia di densità?"
                 }
-                return Outcome(meshes: meshes, message: message)
+                return Outcome(meshes: meshes, integrity: integrity, message: message)
             } catch {
                 return Outcome(
                     message: (error as? LocalizedError)?.errorDescription
@@ -4443,27 +4535,120 @@ final class AppModel {
 
         isSeparatingTissues = false
         tissueMeshes = outcome.meshes
+        tissueIntegrity = outcome.integrity
         tissueMessage = outcome.message
+        rebuildTissueContours(colours: colours)
+
         if outcome.message == nil, !outcome.meshes.isEmpty {
             let triangles = outcome.meshes.values.reduce(0) { $0 + $1.triangles.count }
-            lastActionMessage =
+            var note =
                 "\(outcome.meshes.count) tessuti separati, \(triangles) triangoli in tutto. "
                 + "Esportali uno per uno dal pannello."
+            // Detto adesso e non nel manuale: con un'etichetta sola non c'è competizione, quindi
+            // la regione prende tutto ciò che le è connesso dentro la fascia — che è ciò che si
+            // vuole per un'arcata dentro il riquadro, e non è ciò che si vuole per un dente.
+            if onlyOneTissue {
+                note +=
+                    " Un tessuto solo non ha contendenti: prende tutto ciò che gli è connesso "
+                    + (boxMM == nil
+                        ? "nel volume. Accendi il riquadro di lettura, o marca anche l'osso."
+                        : "dentro il riquadro.")
+            }
+            lastActionMessage = note
         }
     }
 
-    /// Scrive un tessuto come STL binario.
-    func exportTissue(label: SegmentLabel) {
+    /// Da superficie a solido: un guscio, lisciato, al bilancio richiesto, normali all'esterno.
+    ///
+    /// L'ordine non è indifferente. Il guscio maggiore **per primo**, perché le isole di rumore
+    /// costano lisciatura e decimazione senza finire nel modello. L'orientamento **per ultimo**,
+    /// perché è l'unico passo che guarda i triangoli finali: raddrizzarli prima di decimare
+    /// significherebbe raddrizzare triangoli che poi non esistono più.
+    private nonisolated static func finished(
+        _ mesh: Mesh, keepingLargestShell keepLargest: Bool, smoothingPasses: Int,
+        triangleBudget: Int
+    ) -> Mesh {
+        // Il guscio si tiene **solo se lo si è chiesto**. Per un tessuto separato è sempre così,
+        // perché un dente è un pezzo solo e il resto è rumore; per la soglia no, e imporlo lì
+        // renderebbe muta la casella «tieni solo il pezzo più grande» quando è spenta — un
+        // comando che c'è, si vede, e non fa niente.
+        var result = keepLargest ? MeshRepair.largestShell(of: mesh) : mesh
+        if smoothingPasses > 0 {
+            result = MeshSmoothing.taubin(result, iterations: smoothingPasses)
+        }
+        if triangleBudget > 0, result.triangleCount > triangleBudget {
+            result = MeshDecimation.simplified(result, targetTriangleCount: triangleBudget)
+        }
+        return MeshRepair.orientedOutward(result)
+    }
+
+    /// Ricalcola i contorni dei tessuti sui riquadri ortogonali.
+    ///
+    /// Stessa struttura di `rebuildSegmentationContours`, e per la stessa ragione: intersecare
+    /// centomila triangoli con un piano costa millisecondi, trascurabili una volta per movimento
+    /// del mirino e insostenibili sessanta volte al secondo.
+    ///
+    /// Che i tessuti separati si vedano **sulle viste** non è un abbellimento. Prima uscivano
+    /// come un conteggio di triangoli in un pannello, e nessuno poteva dire se il dente fosse il
+    /// dente prima di aprire il file altrove — cioè dopo aver deciso di fidarsi.
+    func rebuildTissueContours(colours: [SegmentLabel: String]? = nil) {
+        let palette = colours ?? Dictionary(
+            tissueSeeds.map { ($0.label, $0.colorHex) }, uniquingKeysWith: { first, _ in first })
+        guard !tissueMeshes.isEmpty else {
+            tissueContours = [:]
+            return
+        }
+        var contours: [ViewportSlot: [TissueContour]] = [:]
+        for (slot, plane) in planes where slot.anatomicalPlane != nil {
+            var drawn: [TissueContour] = []
+            for (label, mesh) in tissueMeshes.sorted(by: { $0.key < $1.key }) {
+                let contour = MeshSlicer.contour(
+                    of: mesh, planeOriginMM: plane.centerMM, planeNormalMM: plane.normalMM,
+                    toleranceMM: 1e-4)
+                guard !contour.loops.isEmpty else { continue }
+                drawn.append(
+                    TissueContour(
+                        id: label, colorHex: palette[label] ?? "#7FD4F0", loops: contour.loops))
+            }
+            if !drawn.isEmpty { contours[slot] = drawn }
+        }
+        tissueContours = contours
+    }
+
+    /// Scrive un tessuto nel formato scelto.
+    ///
+    /// Il formato lo sceglie chi salva, e i due che compaiono nel menu sono quelli che servono:
+    /// **STL** perché è ciò che ogni slicer apre, **OBJ** perché conserva gli indici dei vertici
+    /// e quindi regge un giro di andata e ritorno in un modellatore senza gonfiare il file di
+    /// vertici ripetuti. L'ASCII e il PLY restano fuori dal menu di proposito: chi non sa già
+    /// perché gli servono sceglierebbe il formato sbagliato.
+    func exportTissue(label: SegmentLabel, format: MeshFormat) {
         guard let mesh = tissueMeshes[label] else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue =
-            mesh.name.replacingOccurrences(of: " ", with: "-").lowercased() + ".stl"
+            mesh.name.replacingOccurrences(of: " ", with: "-").lowercased()
+            + Self.fileExtension(for: format)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try MeshIO.exportSTLBinary(mesh).write(to: url)
-            lastActionMessage = "\(mesh.name) esportato in \(url.lastPathComponent)."
+            try MeshIO.export(mesh, as: format).write(to: url)
+            let report = tissueIntegrity[label]
+            var note = "\(mesh.name) esportato in \(url.lastPathComponent)."
+            // L'avvertenza sta qui, sul salvataggio, e non solo nel pannello: è l'ultimo momento
+            // in cui serve, ed è l'unico che chi esporta guarda davvero.
+            if let report, !report.isWatertight {
+                note += " Attenzione: il solido non è chiuso, lo slicer potrebbe rifiutarlo."
+            }
+            lastActionMessage = note
         } catch {
             lastActionMessage = String(describing: error)
+        }
+    }
+
+    private nonisolated static func fileExtension(for format: MeshFormat) -> String {
+        switch format {
+        case .stlBinary, .stlASCII: return ".stl"
+        case .obj: return ".obj"
+        case .ply: return ".ply"
         }
     }
 
@@ -4496,6 +4681,23 @@ final class AppModel {
     /// Passo di campionamento della superficie. Più grosso costa meno e perde dettaglio.
     var segmentationSpacingMM: Double = 0.6
 
+    /// Confinare la soglia al riquadro di lettura.
+    ///
+    /// È ciò che rende utile «tieni il pezzo più grande». Senza riquadro, su una CBCT una soglia
+    /// da osso comprende colonna, mento e otturazioni, e il pezzo più grande di quell'insieme è
+    /// mezzo cranio; stretto il riquadro attorno alla mandibola, lo stesso comando restituisce
+    /// la mandibola — che è il modello che si voleva stampare.
+    var segmentationConfinesToClipBox = true
+
+    /// Finitura della superficie, con lo stesso significato che ha per i tessuti separati.
+    ///
+    /// Applicata qui e non solo al salvataggio, di proposito: il contorno viola sulle viste deve
+    /// mostrare **la stessa superficie** che finisce nel file. Lisciare solo in uscita darebbe un
+    /// modello diverso da quello che si è guardato per decidere di esportarlo.
+    var segmentationSmoothingPasses: Double = 8
+    var segmentationTriangleBudgetThousands: Double = 0
+    private(set) var segmentationIntegrity: MeshIntegrity?
+
     /// Soglia, componente più grande, superficie. In quest'ordine e fuori dal main actor.
     ///
     /// Non è lavoro da fare mentre l'interfaccia aspetta: su un volume da 512³ la sola soglia
@@ -4510,18 +4712,24 @@ final class AppModel {
         let upper = Swift.max(segmentationLowerGV, segmentationUpperGV)
         let largestOnly = segmentationKeepsLargest
         let spacing = segmentationSpacingMM
+        let boxMM = segmentationConfinesToClipBox
+            ? activeClipBox.map { BoxMM(minMM: $0.minMM, maxMM: $0.maxMM) } : nil
+        let passes = Int(segmentationSmoothingPasses.rounded())
+        let budget = Int(segmentationTriangleBudgetThousands.rounded()) * 1_000
 
         struct Outcome: Sendable {
             var mask: VolumeMask?
             var mesh: Mesh?
             var statistics: MaskStatistics?
+            var integrity: MeshIntegrity?
             var message: String?
         }
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> Outcome in
             do {
                 var mask = try ThresholdSegmentation.segment(
-                    volume, densityRange: lower...upper, label: 1, within: nil)
+                    volume, densityRange: lower...upper, label: 1, within: nil,
+                    insideBoxMM: boxMM)
                 if largestOnly {
                     mask = try ConnectedComponents.keepingLargest(mask, count: 1)
                 }
@@ -4540,25 +4748,57 @@ final class AppModel {
                         message: "Regione troppo estesa per questo passo. Aumenta il passo di "
                             + "campionamento.")
                 }
-                return Outcome(mask: mask, mesh: mesh, statistics: statistics)
+                let solid = Self.finished(
+                    mesh, keepingLargestShell: largestOnly, smoothingPasses: passes,
+                    triangleBudget: budget)
+                return Outcome(
+                    mask: mask, mesh: solid, statistics: statistics,
+                    integrity: MeshRepair.integrity(of: solid))
             } catch {
-                return Outcome(message: String(describing: error))
+                return Outcome(
+                    message: (error as? LocalizedError)?.errorDescription
+                        ?? String(describing: error))
             }
         }.value
 
         segmentationMask = outcome.mask
         segmentationMesh = outcome.mesh
         segmentationStatistics = outcome.statistics
+        segmentationIntegrity = outcome.integrity
         segmentationMessage = outcome.message
         isSegmenting = false
         rebuildSegmentationContours()
         syncRegistry()
     }
 
+    /// Scrive la segmentazione a soglia nel formato scelto.
+    ///
+    /// Esisteva la superficie, se ne vedeva il contorno, se ne leggeva il volume, e **non c'era
+    /// modo di tirarla fuori**: né qui né in `exportPlanGeometry`, che esporta impianti, denti e
+    /// barre e non la segmentazione. Per il caso che più conta — un'arcata da stampare come
+    /// modello — il programma arrivava fino all'ultimo passo e lì si fermava.
+    func exportSegmentation(format: MeshFormat) {
+        guard let mesh = segmentationMesh else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "segmentazione" + Self.fileExtension(for: format)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try MeshIO.export(mesh, as: format).write(to: url, options: .atomic)
+            var note = "Segmentazione esportata in \(url.lastPathComponent)."
+            if let report = segmentationIntegrity, !report.isWatertight {
+                note += " Attenzione: il solido non è chiuso, lo slicer potrebbe rifiutarlo."
+            }
+            lastActionMessage = note
+        } catch {
+            lastActionMessage = "Esportazione non riuscita: \(error.localizedDescription)"
+        }
+    }
+
     func clearSegmentation() {
         segmentationMask = nil
         segmentationMesh = nil
         segmentationStatistics = nil
+        segmentationIntegrity = nil
         segmentationMessage = nil
         segmentationContours = [:]
         segmentationSectionContour = []

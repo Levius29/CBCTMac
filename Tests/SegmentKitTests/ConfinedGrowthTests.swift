@@ -339,4 +339,58 @@ struct ConfinedGrowthTests {
         }
         #expect(strays == 0)
     }
+
+    @Test("La soglia dentro il riquadro dà l'arcata invece del pezzo più grosso che c'è")
+    func thresholdInsideTheBoxGivesTheArch() throws {
+        // Due blocchi densi separati: l'arcata, più piccola, e qualcosa di più voluminoso
+        // altrove — che su una CBCT vera è la colonna, o il mento appoggiato al mentoniera.
+        // «Tieni il pezzo più grande» da solo restituisce il secondo, ed è esattamente il modo
+        // in cui questo comando delude chi voleva stampare la mandibola.
+        let side = 48
+        let spacing = 0.4
+        let orientation = try #require(
+            SliceOrientation(columnDirection: Vec3(1, 0, 0), rowDirection: Vec3(0, 1, 0)))
+        let geometry = try VolumeGeometry(
+            columnCount: side, rowCount: side, sliceCount: side,
+            columnSpacingMM: spacing, rowSpacingMM: spacing, sliceSpacingMM: spacing,
+            orientation: orientation, originMM: Vec3(0, 0, 0))
+
+        var samples = [Int16](repeating: 0, count: side * side * side)
+        var archVoxels = 0, spineVoxels = 0
+        for k in 0..<side {
+            for j in 0..<side {
+                for i in 0..<side {
+                    let index = (k * side + j) * side + i
+                    if (5..<15).contains(k), (4..<44).contains(i), (4..<18).contains(j) {
+                        samples[index] = 1200
+                        archVoxels += 1
+                    }
+                    if (5..<40).contains(k), (10..<38).contains(i), (28..<44).contains(j) {
+                        samples[index] = 1500
+                        spineVoxels += 1
+                    }
+                }
+            }
+        }
+        #expect(spineVoxels > archVoxels)
+
+        let volume = try Volume(
+            geometry: geometry, samples: samples, rescaleSlope: 1, rescaleIntercept: 0,
+            densityUnit: .greyValue)
+
+        let unbounded = try ConnectedComponents.keepingLargest(
+            try ThresholdSegmentation.segment(
+                volume, densityRange: 900...4000, label: 1, within: nil),
+            count: 1)
+        #expect((unbounded.voxelCounts()[1] ?? 0) == spineVoxels)
+
+        let archBox = BoxMM(
+            minMM: geometry.patientPoint(i: 3, j: 3, k: 4),
+            maxMM: geometry.patientPoint(i: 44, j: 20, k: 16))
+        let bounded = try ConnectedComponents.keepingLargest(
+            try ThresholdSegmentation.segment(
+                volume, densityRange: 900...4000, label: 1, within: nil, insideBoxMM: archBox),
+            count: 1)
+        #expect((bounded.voxelCounts()[1] ?? 0) == archVoxels)
+    }
 }

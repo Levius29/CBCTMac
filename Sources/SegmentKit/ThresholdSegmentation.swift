@@ -77,20 +77,60 @@ public struct ThresholdPreset: Hashable, Sendable, Identifiable {
 
 public enum ThresholdSegmentation: Sendable {
     /// Etichetta i voxel la cui densità cade nell'intervallo, eventualmente solo dentro una maschera.
+    ///
+    /// - Parameters:
+    ///   - region: una maschera già calcolata dentro cui restare, oppure `nil`.
+    ///   - box: un riquadro Patient dentro cui restare, oppure `nil`. È un secondo parametro e
+    ///     non un secondo significato del primo perché i due si usano insieme: si limita al
+    ///     riquadro *e* a ciò che una maschera precedente aveva selezionato.
+    ///
+    ///     Serve per la stessa ragione per cui serve alla crescita, e il caso è quello
+    ///     dell'arcata: una soglia da osso, su una CBCT, prende la colonna vertebrale, il mento
+    ///     e ogni otturazione: «tieni il pezzo più grande» allora restituisce mezzo cranio.
+    ///     Stretto il riquadro attorno alla mandibola, lo stesso comando restituisce la
+    ///     mandibola. Vedi `GrowthRestriction` per come il riquadro si applica.
     public static func segment(
         _ volume: Volume,
         densityRange: ClosedRange<Double>,
         label: SegmentLabel,
-        within region: VolumeMask?
+        within region: VolumeMask?,
+        insideBoxMM box: BoxMM? = nil
     ) throws -> VolumeMask {
         guard label != VolumeMask.background else { throw SegmentKitError.backgroundLabelNotAllowed }
         if let region, region.geometry != volume.geometry {
             throw SegmentKitError.incompatibleGeometry
         }
+        var restriction: GrowthRestriction?
+        if let box {
+            guard let built = GrowthRestriction(box: box, geometry: volume.geometry) else {
+                throw SegmentKitError.cropOutsideVolume
+            }
+            restriction = built
+        }
 
         let rawInterval = try RawDensityInterval(volume: volume, densityRange: densityRange)
         guard var mask = VolumeMask(geometry: volume.geometry) else {
             throw SegmentKitError.maskAllocationFailed
+        }
+
+        // Col riquadro si percorrono solo i suoi indici invece di tutti i voxel del volume: su
+        // un FOV grande sono due ordini di grandezza di differenza, e il ciclo è O(voxel) per
+        // definizione.
+        if let restriction {
+            let geometry = volume.geometry
+            for k in restriction.minimumK...restriction.maximumK {
+                for j in restriction.minimumJ...restriction.maximumJ {
+                    for i in restriction.minimumI...restriction.maximumI {
+                        guard restriction.allows(i: i, j: j, k: k) else { continue }
+                        let index = (k * geometry.rowCount + j) * geometry.columnCount + i
+                        if let region, region.labels[index] == VolumeMask.background { continue }
+                        if rawInterval.contains(volume.samples[index]) {
+                            mask.setLabel(label, i: i, j: j, k: k)
+                        }
+                    }
+                }
+            }
+            return mask
         }
 
         for index in volume.samples.indices {

@@ -1,4 +1,5 @@
 import DICOMCore
+import MeshKit
 import SegmentKit
 import SwiftUI
 
@@ -44,6 +45,8 @@ struct SegmentationSheet: View {
 
             thresholds
             options
+            confinement
+            finishing
 
             if let statistics = model.segmentationStatistics {
                 Divider().overlay(Palette.separator)
@@ -61,6 +64,13 @@ struct SegmentationSheet: View {
                 Button("Chiudi") { dismiss() }
                 if model.segmentationMesh != nil {
                     Button("Cancella") { model.clearSegmentation() }
+                    Menu("Esporta") {
+                        Button("STL…") { model.exportSegmentation(format: .stlBinary) }
+                        Button("OBJ…") { model.exportSegmentation(format: .obj) }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Salva la superficie come STL o OBJ, pronta per lo slicer.")
                 }
                 Spacer()
                 if model.isSegmenting {
@@ -158,6 +168,61 @@ struct SegmentationSheet: View {
         }
     }
 
+    /// Il riquadro di lettura come limite della soglia.
+    private var confinement: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
+            Toggle("Limita al riquadro di lettura", isOn: $model.segmentationConfinesToClipBox)
+                .font(Typography.body)
+                .toggleStyle(.checkbox)
+
+            // Questo testo è il motivo per cui la casella esiste, e va letto prima di premere
+            // «Segmenta»: senza riquadro «tieni il pezzo più grande» restituisce mezzo cranio,
+            // e chi lo vede conclude che la funzione è rotta invece che mal delimitata.
+            if model.segmentationConfinesToClipBox && model.activeClipBox == nil {
+                HStack(spacing: Metrics.spacingSmall) {
+                    Text("Il riquadro è spento: la soglia prende tutto il volume.")
+                        .font(Typography.label)
+                        .foregroundStyle(Palette.warning)
+                    Button("Accendilo") { model.beginClipping() }
+                        .buttonStyle(.link)
+                        .font(Typography.label)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            } else if model.segmentationConfinesToClipBox {
+                Text(
+                    "Stringi il riquadro attorno alla mandibola trascinandone i lati sulle "
+                    + "viste: è ciò che fa la differenza fra «l'osso più denso di tutta la "
+                    + "testa» e «questa arcata»."
+                )
+                .font(Typography.label)
+                .foregroundStyle(Palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var finishing: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
+            SectionHeader("FINITURA PER LA STAMPA")
+
+            LabeledSlider(
+                label: "Lisciatura", value: $model.segmentationSmoothingPasses,
+                range: 0...20, format: "%.0f passate")
+            LabeledSlider(
+                label: "Tetto △", value: $model.segmentationTriangleBudgetThousands,
+                range: 0...500, format: "%.0f mila")
+
+            Text(
+                "La lisciatura toglie i gradini dei voxel senza assottigliare il modello, e "
+                + "vale anche per il contorno che vedi sulle viste: quel che guardi è quel che "
+                + "esporti."
+            )
+            .font(Typography.label)
+            .foregroundStyle(Palette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private func summary(_ statistics: MaskStatistics) -> some View {
         VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
             SectionHeader("RISULTATO")
@@ -176,6 +241,14 @@ struct SegmentationSheet: View {
                     statistics.maximumDensity, statistics.densityUnitSymbol))
             if let mesh = model.segmentationMesh {
                 row("Triangoli", "\(mesh.triangles.count)")
+            }
+            // Chiuso o no, detto qui e non scoperto dallo slicer: è la sola cosa che decida se
+            // il file si può stampare, e costa una riga.
+            if let report = model.segmentationIntegrity {
+                row(
+                    "Solido",
+                    report.isWatertight
+                        ? "chiuso" : "aperto: \(report.openEdgeCount) bordi")
             }
 
             // Il volume è la somma dei voxel selezionati, e la selezione dipende dalla soglia:
