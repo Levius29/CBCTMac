@@ -205,10 +205,13 @@ Se l'applicazione mostra numeri diversi, l'errore è nella catena delle coordina
 
 ## Documentazione
 
-- [`docs/architecture.md`](docs/architecture.md) — **normativo.** I quattro contratti che
+- [`docs/architecture.md`](docs/architecture.md) — **normativo.** I cinque contratti che
   reggono il progetto: sistemi di coordinate, ordinamento delle slice, doppia rappresentazione
-  del volume, terminologia dei valori di densità. Da leggere prima di scrivere qualunque codice.
+  del volume, terminologia dei valori di densità, cifre significative. Da leggere prima di
+  scrivere qualunque codice.
 - [`docs/ui-spec.md`](docs/ui-spec.md) — specifica grafica e prompt per generare anteprime.
+- [`CLAUDE.md`](CLAUDE.md) — come si lavora sul repository: la regola dei rami (tutto
+  converge su `main`), il cancello di verifica prima di fondere, la lingua di commit e commenti.
 
 ## Una nota sui valori di densità
 
