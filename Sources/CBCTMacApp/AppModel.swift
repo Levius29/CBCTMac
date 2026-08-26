@@ -4890,6 +4890,87 @@ final class AppModel {
         }
     }
 
+    // MARK: - Catalogo degli impianti
+
+    /// Carica un catalogo da un file di testo, sostituendo quello in uso.
+    ///
+    /// # Perché sostituisce invece di aggiungere
+    ///
+    /// Perché il catalogo predefinito è **generato**: cinque diametri per quattro lunghezze di un
+    /// «Generico / Conico» che non esiste in commercio. Serve a provare il programma, non a
+    /// pianificare — si sceglie un impianto per ordinarlo, e uno che non esiste non si ordina.
+    /// Tenerlo accanto a un catalogo vero significherebbe lasciare nel menu venti voci che non
+    /// vanno mai scelte, in mezzo a quelle che vanno scelte sempre.
+    func importImplantCatalog() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Importa"
+        panel.message =
+            "Scegli un file di testo con le colonne produttore, linea, diametro, lunghezza"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let result = try ImplantCatalogImport.read(text)
+            guard !result.models.isEmpty else {
+                lastActionMessage =
+                    "Nessun impianto leggibile in «\(url.lastPathComponent)»: "
+                    + "\(result.problems.count) righe rifiutate."
+                return
+            }
+            implantCatalog = result.models
+            // Il modello scelto per il prossimo impianto veniva dal catalogo di prima: se non è
+            // più fra questi, resterebbe una misura che il menu non offre.
+            if !result.models.contains(where: { $0.id == pendingImplantModel.id }) {
+                pendingImplantModel = result.models[0]
+            }
+
+            // Le righe rifiutate si dicono, non si tacciono. Un catalogo importato a metà è la
+            // cosa peggiore che possa uscire di qui: si sceglie l'impianto dal menu, si
+            // pianifica, si ordina, e la misura che manca era quella che serviva.
+            if result.problems.isEmpty {
+                lastActionMessage =
+                    "\(result.models.count) impianti importati da «\(url.lastPathComponent)»."
+            } else {
+                let first = result.problems.prefix(3)
+                    .map { "riga \($0.line): \($0.reason)" }
+                    .joined(separator: "; ")
+                lastActionMessage =
+                    "\(result.models.count) impianti importati, "
+                    + "\(result.problems.count) righe rifiutate — \(first)"
+                    + (result.problems.count > 3 ? "; e altre." : ".")
+            }
+        } catch {
+            lastActionMessage =
+                (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    /// Rimette il catalogo generato, per tornare a provare senza un file sotto mano.
+    func resetImplantCatalog() {
+        implantCatalog = ImplantModel.genericCatalog()
+        pendingImplantModel = .default
+        lastActionMessage = "Catalogo riportato a quello generico."
+    }
+
+    /// Scrive un modello di file da riempire, così non si indovina il formato.
+    func exportImplantCatalogTemplate() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "catalogo-impianti.csv"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            // Il catalogo **in uso**, non un esempio astratto: chi lo apre vede subito la forma
+            // giusta con dentro dati che riconosce, e lo corregge invece di ricominciare.
+            try ImplantCatalogImport.write(implantCatalog)
+                .write(to: url, atomically: true, encoding: .utf8)
+            lastActionMessage = "Modello scritto in \(url.lastPathComponent)."
+        } catch {
+            lastActionMessage = String(describing: error)
+        }
+    }
+
     /// Esporta la dima in STL, con accanto il suo manifest.
     ///
     /// # Perché il manifest esce insieme, e non a richiesta

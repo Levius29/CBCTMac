@@ -107,6 +107,17 @@ struct CBCTMacApp: App {
 
                 Divider()
 
+                // Il catalogo degli impianti. Senza un file, quello in uso è generato — misure
+                // plausibili di un impianto che non esiste in commercio: buono per provare, non
+                // per ordinare.
+                Button("Importa catalogo impianti…") { model.importImplantCatalog() }
+                Button("Scrivi un modello di catalogo…") {
+                    model.exportImplantCatalogTemplate()
+                }
+                Button("Torna al catalogo generico") { model.resetImplantCatalog() }
+
+                Divider()
+
                 Button("Importa scansione intraorale…") { importScan() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
                     .disabled(model.volume == nil)
