@@ -129,7 +129,9 @@ struct InspectorSectionsTests {
         #expect(ViewportLayout.single.drawnSlots(focused: .sagittal) == [.sagittal])
         #expect(ViewportLayout.grid2x2.drawnSlots(focused: .axial) == ViewportSlot.allCases)
         #expect(ViewportLayout.onePlusThree.drawnSlots(focused: .axial) == ViewportSlot.allCases)
-        #expect(ViewportLayout.panoramic.drawnSlots(focused: .axial).isEmpty)
+        // La panorex disegna l'assiale — è lì che si posa la curva — e nessuno degli altri tre.
+        #expect(ViewportLayout.panoramic.drawnSlots(focused: .axial) == [.axial])
+        #expect(!ViewportLayout.panoramic.draws(.volume3D, focused: .axial))
 
         #expect(!ViewportLayout.single.draws(.axial, focused: .coronal))
         #expect(ViewportLayout.single.draws(.coronal, focused: .coronal))

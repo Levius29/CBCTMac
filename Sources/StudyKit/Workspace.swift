@@ -109,9 +109,11 @@ public enum ViewportLayout: String, CaseIterable, Hashable, Sendable, Codable {
         switch self {
         case .single: return [focused]
         case .grid2x2, .onePlusThree: return ViewportSlot.allCases
-        // La panorex ha una scrivania tutta sua — assiale con la curva, striscia panoramica,
-        // sezioni trasversali — e nessuno dei quattro riquadri canonici.
-        case .panoramic: return []
+        // La panorex ha una scrivania quasi tutta sua — striscia panoramica e sezioni
+        // trasversali — ma l'assiale è un riquadro canonico a tutti gli effetti: è lì che si
+        // disegna la curva, e ha i suoi comandi di spessore e proiezione come gli altri. Gli
+        // altri tre non ci sono.
+        case .panoramic: return [.axial]
         }
     }
 
@@ -121,13 +123,31 @@ public enum ViewportLayout: String, CaseIterable, Hashable, Sendable, Codable {
 
     /// Vero se a schermo c'è almeno un'immagine governata dalla finestra di densità.
     ///
-    /// Vale anche per la panorex: la striscia e le sezioni trasversali sono immagini 2D, e la
-    /// finestra le governa come governa le tre viste ortogonali. L'unico caso in cui non c'è
-    /// niente da governare è la disposizione «singolo» con il 3D dentro, dove al posto della
+    /// Nella panorex lo sono l'assiale, la striscia e le sezioni trasversali: sono tutte immagini
+    /// 2D, e la finestra le governa come governa le tre viste ortogonali. L'unico caso in cui non
+    /// c'è niente da governare è la disposizione «singolo» con il 3D dentro, dove al posto della
     /// finestra conta la transfer function.
     public func showsWindowedImages(focused: ViewportSlot) -> Bool {
-        if self == .panoramic { return true }
-        return drawnSlots(focused: focused).contains { $0.anatomicalPlane != nil }
+        drawnSlots(focused: focused).contains { $0.anatomicalPlane != nil }
+    }
+
+    /// Il riquadro a fuoco che questa disposizione può davvero mostrare.
+    ///
+    /// # Perché il fuoco va corretto invece che creduto
+    ///
+    /// Il fuoco e la disposizione si scelgono per vie diverse — un clic dentro un riquadro, una
+    /// voce di menu — e sopravvivono l'uno all'altra. Chi lavorava sul sagittale e passa alla
+    /// panorex si porta dietro un fuoco che lì non è disegnato, e da quel momento tutto ciò che
+    /// parla del «riquadro attivo» parla di una vista che non si vede: l'istantanea, la stampa,
+    /// l'esportazione dell'immagine. Non danno errore — danno **l'immagine sbagliata**, che è la
+    /// forma peggiore di questo difetto perché il file esce e sembra buono.
+    ///
+    /// Correggerlo in lettura, e non riscrivere ciò che è memorizzato, ha una conseguenza voluta:
+    /// tornando a una disposizione che disegna il sagittale, il fuoco è di nuovo il sagittale.
+    /// La preferenza sopravvive, il valore effettivo resta sempre lecito.
+    public func focusFitting(_ slot: ViewportSlot) -> ViewportSlot {
+        let drawn = drawnSlots(focused: slot)
+        return drawn.contains(slot) ? slot : (drawn.first ?? slot)
     }
 }
 
@@ -267,8 +287,12 @@ public struct WorkspaceSession: Hashable, Sendable, Codable {
         set { layouts[mode] = newValue }
     }
 
+    /// Il riquadro a fuoco, **sempre** uno che la disposizione corrente disegna.
+    ///
+    /// La correzione sta in lettura: si memorizza ciò che l'utente ha scelto, si restituisce ciò
+    /// che si può mostrare. Vedi `ViewportLayout.focusFitting(_:)`.
     public var focusedSlot: ViewportSlot {
-        get { focuses[mode] ?? mode.defaultFocus }
+        get { layout.focusFitting(focuses[mode] ?? mode.defaultFocus) }
         set { focuses[mode] = newValue }
     }
 

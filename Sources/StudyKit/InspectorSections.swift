@@ -90,6 +90,11 @@ public enum InspectorSections {
         // in mano, quindi i loro controlli mentirebbero.
         if mode == .review { return [.review] }
 
+        // Il fuoco si corregge anche qui, e non per diffidenza verso chi chiama: rende la
+        // funzione totale, così i test possono percorrere tutte le combinazioni comprese quelle
+        // che la sessione non produce.
+        let focusedSlot = layout.focusFitting(focusedSlot)
+
         var result: [InspectorSection] = []
 
         // Finestra e livello governano **tutte** le immagini 2D a schermo, comprese la panorex e

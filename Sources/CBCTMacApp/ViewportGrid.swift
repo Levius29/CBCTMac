@@ -822,8 +822,20 @@ struct ViewportContainer: View {
     }
 
     /// Vero quando questo riquadro è quello su cui si disegna l'arcata.
+    ///
+    /// # Perché l'interruttore vale solo dove si vede
+    ///
+    /// `model.isEditingArch` è il pulsante «Disegna» della scrivania panoramica. Valeva ovunque,
+    /// e restava acceso passando a un'altra disposizione: l'assiale continuava a mangiarsi i clic
+    /// di qualunque strumento — impianto, misure, piano occlusale — e il comando per smettere non
+    /// era da nessuna parte, perché quel pulsante fuori dalla panorex non è disegnato.
+    ///
+    /// Lo strumento arcata invece vale ovunque: è in mano, si vede nella palette, e lasciarlo è
+    /// un clic.
     private var isEditingArch: Bool {
-        slot == .axial && (model.isEditingArch || model.activeTool == .archCurve)
+        guard slot == .axial else { return false }
+        return model.activeTool == .archCurve
+            || (model.isEditingArch && model.layout == .panoramic)
     }
 
     private func handleDrag(_ point: CGPoint, _ delta: CGSize) {

@@ -530,27 +530,17 @@ struct TiltControls: View {
                 .foregroundStyle(Palette.accent)
                 .help("Riporta i piani agli assi della macchina")
             }
-            .disabled(model.volume == nil || !canTilt)
+            .disabled(model.volume == nil || model.focusedSlot.anatomicalPlane == nil)
         }
-    }
-
-    /// Vero se c'è davvero un taglio da inclinare: un riquadro con un piano, **e** a schermo.
-    ///
-    /// La seconda metà mancava. Il riquadro a fuoco sopravvive al cambio di disposizione, e nella
-    /// panorex non è disegnato nessuno dei quattro: i pulsanti erano accesi e inclinavano una
-    /// vista che non si vedeva. Un comando che risponde altrove è peggio di uno spento, perché
-    /// spende un gesto e non dice che l'ha speso.
-    private var canTilt: Bool {
-        model.focusedSlot.anatomicalPlane != nil
-            && model.layout.draws(model.focusedSlot, focused: model.focusedSlot)
     }
 
     /// Su che cosa agiscono i pulsanti, oppure perché adesso non agiscono su niente.
+    ///
+    /// La seconda metà mancava: con il 3D a fuoco i pulsanti si spegnevano e nessuno diceva
+    /// perché, e uno strumento che non risponde senza spiegazione sembra un difetto del
+    /// programma. Che il riquadro a fuoco sia a schermo non serve più verificarlo qui: lo
+    /// garantisce `WorkspaceSession`.
     private var targetNote: String {
-        guard model.layout.draws(model.focusedSlot, focused: model.focusedSlot) else {
-            return "La disposizione panorex non disegna i piani della macchina: per inclinarli "
-                + "passa a una disposizione che li mostri."
-        }
         guard model.focusedSlot.anatomicalPlane != nil else {
             return "Il riquadro 3D non ha un taglio da inclinare: fai clic su una vista 2D."
         }

@@ -74,15 +74,6 @@ struct InspectorPanel: View {
                 || model.selectedImplant != nil)
     }
 
-    /// Vero se il riquadro a fuoco è davvero disegnato dalla disposizione corrente.
-    ///
-    /// Nella disposizione panorex non lo è nessuno dei quattro: la scrivania ha viste tutte sue.
-    /// I comandi che parlano al riquadro a fuoco — spessore, proiezione — lì non hanno un
-    /// destinatario visibile, e mostrarli sarebbe offrire cursori che non cambiano niente.
-    private var focusIsOnScreen: Bool {
-        model.layout.draws(model.focusedSlot, focused: model.focusedSlot)
-    }
-
     @ViewBuilder
     private func sectionView(_ section: InspectorSection) -> some View {
         switch section {
@@ -180,37 +171,36 @@ struct InspectorPanel: View {
                 .menuStyle(.borderlessButton)
             }
 
-            // Spessore e proiezione parlano al **riquadro a fuoco**, e compaiono solo se quel
-            // riquadro è a schermo. Nella disposizione panorex non lo è: i due comandi c'erano
-            // lo stesso e muoverli non cambiava niente di visibile, perché agivano su una vista
-            // che la disposizione non disegna. Gli stessi due parametri, per la panorex, stanno
-            // qui sotto nella sezione PANOREX, dove hanno un'immagine su cui agire.
-            if focusIsOnScreen {
-                LabeledControl("Spessore") {
-                    Menu(slabLabel) {
-                        ForEach(slabOptions, id: \.self) { thickness in
-                            Button(slabLabel(for: thickness)) {
-                                model.setSlabThickness(thickness, for: model.focusedSlot)
-                            }
+            // Spessore e proiezione parlano al **riquadro a fuoco**, e non hanno bisogno di una
+            // guardia: `WorkspaceSession` garantisce che il riquadro a fuoco sia sempre uno che
+            // la disposizione disegna — nella panorex è l'assiale. Prima non era garantito, e
+            // questi due comandi potevano agire su una vista che nessuno vedeva. Lo spessore e
+            // la proiezione **della striscia panoramica** sono un'altra cosa e stanno nella
+            // sezione PANOREX, dove si legge accanto all'immagine che governano.
+            LabeledControl("Spessore") {
+                Menu(slabLabel) {
+                    ForEach(slabOptions, id: \.self) { thickness in
+                        Button(slabLabel(for: thickness)) {
+                            model.setSlabThickness(thickness, for: model.focusedSlot)
                         }
                     }
-                    .menuStyle(.borderlessButton)
                 }
+                .menuStyle(.borderlessButton)
+            }
 
-                LabeledControl("Proiezione") {
-                    Menu(model.projection(for: model.focusedSlot).localizedName) {
-                        ForEach(SlabProjection.allCases, id: \.self) { projection in
-                            Button(projection.localizedName) {
-                                model.setProjection(projection, for: model.focusedSlot)
-                            }
+            LabeledControl("Proiezione") {
+                Menu(model.projection(for: model.focusedSlot).localizedName) {
+                    ForEach(SlabProjection.allCases, id: \.self) { projection in
+                        Button(projection.localizedName) {
+                            model.setProjection(projection, for: model.focusedSlot)
                         }
                     }
-                    .menuStyle(.borderlessButton)
-                    // Con una slice singola la proiezione non ha nulla da combinare: disabilitare
-                    // dice all'utente che il controllo dipende dallo spessore, invece di lasciarlo
-                    // sperimentare senza vedere cambiamenti.
-                    .disabled(model.slabThickness(for: model.focusedSlot) <= 0)
                 }
+                .menuStyle(.borderlessButton)
+                // Con una slice singola la proiezione non ha nulla da combinare: disabilitare
+                // dice all'utente che il controllo dipende dallo spessore, invece di lasciarlo
+                // sperimentare senza vedere cambiamenti.
+                .disabled(model.slabThickness(for: model.focusedSlot) <= 0)
             }
         }
     }
@@ -499,7 +489,40 @@ struct InspectorPanel: View {
             }
 
             Divider().overlay(Palette.separator)
-            SectionHeader("BARRA PROTESICA")
+
+            // # Perché il titolo porta una via d'uscita e il comando non si nasconde
+            //
+            // `addProstheticBar()` seleziona sempre la barra appena fatta, e il pulsante che le
+            // costruisce stava dietro all'`else`: creata la prima, il comando spariva, e per
+            // farne una seconda bisognava **cancellare** quella selezionata. Come per l'impianto
+            // e per il dente, l'uscita è deselezionare, non distruggere.
+            HStack(spacing: Metrics.spacingSmall) {
+                SectionHeader("BARRA PROTESICA")
+                Spacer(minLength: 0)
+                if model.selectedBarID != nil {
+                    Button {
+                        model.selectedBarID = nil
+                    } label: {
+                        Label("Deseleziona", systemImage: "xmark.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.textSecondary)
+                    .help("Smetti di lavorare su questa barra. Non la cancella.")
+                }
+            }
+
+            Button {
+                model.addProstheticBar()
+            } label: {
+                Label(
+                    model.bars.isEmpty
+                        ? "Unisci gli impianti con una barra"
+                        : "Un'altra barra sugli impianti visibili",
+                    systemImage: "link")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(model.implants.filter(\.isVisible).count < 2)
 
             if let bar = model.selectedBar {
                 LabeledControl("Diametro") {
@@ -538,14 +561,12 @@ struct InspectorPanel: View {
                 } label: {
                     Label("Elimina barra", systemImage: "trash").frame(maxWidth: .infinity)
                 }
-            } else {
-                Button {
-                    model.addProstheticBar()
-                } label: {
-                    Label("Unisci gli impianti con una barra", systemImage: "link")
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(model.implants.filter(\.isVisible).count < 2)
+            } else if !model.bars.isEmpty {
+                Text("Nessuna barra scelta: fai clic su una barra nell'elenco degli oggetti per "
+                    + "regolarne diametro e altezza.")
+                    .font(Typography.label)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider().overlay(Palette.separator)

@@ -311,6 +311,15 @@ final class AppModel {
             // pulsante perché gli strumenti si attivano anche da tastiera e dal menu, e tre vie
             // allo stesso stato vogliono un solo controllo.
             if !session.mode.isEditable, activeTool != .navigate { activeTool = .navigate }
+
+            // # Prendere un altro strumento chiude il disegno dell'arcata
+            //
+            // `suggestArchCurve()` accende `isEditingArch`, e nient'altro lo spegneva. Da lì in
+            // poi ogni clic sull'assiale posava un punto d'arcata: si prendeva l'impianto, si
+            // cliccava sulla cresta, e compariva un punto della curva. Lo strumento sembrava
+            // rotto, e l'unico interruttore che lo liberava — «Disegna» — si vede solo nella
+            // scrivania panoramica, cioè non dove il difetto si manifestava.
+            if activeTool != .archCurve { isEditingArch = false }
         }
     }
 
@@ -1087,6 +1096,16 @@ final class AppModel {
             selectedToothID = id
             return
         }
+        // La barra mancava, e l'elenco degli oggetti la mostrava lo stesso: cliccarla non la
+        // selezionava, quindi con più barre nel piano quelle diverse dalla prima non avevano
+        // nessun modo di essere regolate.
+        if let bar = bars.first(where: { $0.id == id }) {
+            selectedBarID = id
+            if let head = implants.first(where: { bar.implantIDs.contains($0.id) }) {
+                moveCrosshair(to: head.platformMM)
+            }
+            return
+        }
         if let nerve = nerveCanals.first(where: { $0.id == id }), let first = nerve.nodes.first {
             moveCrosshair(to: first.positionMM)
             return
@@ -1485,7 +1504,6 @@ final class AppModel {
         recordUndo("Togli \(landmark.localizedName.lowercased())")
     }
 
-    /// Cancella il tracciato.
     /// Chiude la cefalometria: il pannello se ne va e lo strumento torna in mano alla
     /// navigazione.
     ///
@@ -1496,6 +1514,7 @@ final class AppModel {
         if activeTool == .cephalometry { activeTool = .navigate }
     }
 
+    /// Cancella il tracciato.
     func clearCephTracing() {
         guard !cephTracing.isEmpty else { return }
         cephTracing = CephTracing()
@@ -4226,6 +4245,11 @@ final class AppModel {
         aligned.slabThicknessMM = reference?.slabThicknessMM ?? 0
         aligned.projection = reference?.projection ?? .average
         planes[target] = aligned
+        // Il taglio appena posato deve **vedersi**. La panorex disegna il solo assiale: allinearvi
+        // il coronale significava scrivere un piano in una vista che quella disposizione non
+        // mostra, e il messaggio qui sotto annunciava un risultato invisibile. Si passa alla
+        // griglia, dove i riquadri ci sono tutti.
+        if !layout.draws(target, focused: target) { layout = .grid2x2 }
         focusedSlot = target
         // Il mirino **dopo** il piano: il suo osservatore riallinea ogni riquadro alla propria
         // normale, e il taglio appena posato deve sopravvivere a quel passaggio — sopravvive,

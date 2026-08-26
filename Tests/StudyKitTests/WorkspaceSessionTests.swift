@@ -46,6 +46,40 @@ struct WorkspaceSessionTests {
         #expect(session.layout == .onePlusThree)
     }
 
+    @Test("Il riquadro a fuoco è sempre uno che la disposizione disegna")
+    func theFocusIsAlwaysDrawn() {
+        // Il fuoco e la disposizione si scelgono per vie diverse e sopravvivono l'uno all'altra:
+        // chi lavorava sul sagittale e passa alla panorex si portava dietro un fuoco che lì non
+        // è disegnato, e da quel momento l'istantanea, la stampa e l'esportazione riguardavano
+        // una vista che non si vedeva.
+        for mode in WorkMode.allCases {
+            for layout in ViewportLayout.allCases {
+                for slot in ViewportSlot.allCases {
+                    var session = WorkspaceSession(mode: mode)
+                    session.layout = layout
+                    session.focusedSlot = slot
+                    let focus = session.focusedSlot
+                    #expect(layout.drawnSlots(focused: focus).contains(focus))
+                }
+            }
+        }
+    }
+
+    @Test("La panorex mette a fuoco l'assiale, e restituisce il resto uscendo")
+    func panoramicFocusesTheAxialAndGivesItBack() {
+        var session = WorkspaceSession()
+        session.layout = .grid2x2
+        session.focusedSlot = .sagittal
+
+        session.layout = .panoramic
+        #expect(session.focusedSlot == .axial)
+
+        // La preferenza non è stata riscritta: si corregge in lettura, quindi tornando indietro
+        // si ritrova il riquadro su cui si stava lavorando.
+        session.layout = .grid2x2
+        #expect(session.focusedSlot == .sagittal)
+    }
+
     @Test("Attivare il modo già attivo non tocca nulla")
     func activatingTheCurrentModeIsInert() {
         var session = WorkspaceSession()
