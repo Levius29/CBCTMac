@@ -44,10 +44,11 @@ struct CBCTMacApp: App {
 
     var body: some Scene {
         Window(AppIcon.displayName, id: "main") {
+            // La finestra di ritaglio stava qui, con un `.sheet` suo: una modale presentata a
+            // un piano diverso dalle altre otto, cioè la ricetta per averne due aperte insieme e
+            // per non poterne più aprire nessuna. Adesso passa dalla strada comune — vedi
+            // `ContentView.sheetContent` — e questa scena non presenta più niente da sé.
             ContentView(model: model)
-                .sheet(isPresented: $model.isShowingReformat) {
-                    ReformatSheet(model: model)
-                }
                 .frame(minWidth: 1100, minHeight: 700)
                 .preferredColorScheme(.dark)
                 .task {

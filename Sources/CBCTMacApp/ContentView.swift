@@ -43,18 +43,43 @@ struct ContentView: View {
         .background(Palette.chrome)
         .toolbar { toolbarContent }
         .overlay { loadingOverlay }
-        .sheet(isPresented: $model.isShowingShortcuts) { ShortcutsSheet() }
-        .sheet(isPresented: $model.isShowingArtifact) { ArtifactSheet(model: model) }
-        .sheet(isPresented: $model.isShowingVerification) { VerificationSheet(model: model) }
-        .sheet(isPresented: $model.isShowingScanRegistration) {
-            ScanRegistrationSheet(model: model)
+        // # Un solo `.sheet`, e perché
+        //
+        // Ce n'erano nove impilati qui e uno nella scena. SwiftUI ne presenta **uno** per volta:
+        // il secondo che chiedeva di aprirsi veniva lasciato cadere con il proprio interruttore
+        // rimasto acceso, e da quel momento la sua voce di menu non apriva più niente. È il
+        // difetto che si descrive con «se apro una cosa, poi non posso più aprirne altre».
+        //
+        // Uno solo, guidato da `activeSheet`: aperta una modale per volta per costruzione, e la
+        // richiesta arrivata a schermo occupato aspetta il turno invece di sparire. `onDismiss`
+        // la promuove a chiusura avvenuta — non prima, perché SwiftUI non presenta mentre
+        // smonta.
+        .sheet(item: $model.activeSheet, onDismiss: { model.presentQueuedSheet() }) { sheet in
+            sheetContent(sheet)
         }
-        .sheet(isPresented: $model.isShowingGuide) { GuideSheet(model: model) }
-        .sheet(isPresented: $model.isShowingSegmentation) { SegmentationSheet(model: model) }
-        .sheet(isPresented: $model.isShowingArchive) { ArchiveSheet(model: model) }
-        .sheet(isPresented: $model.isAskingToArchive) { ArchivePromptSheet(model: model) }
         .navigationTitle(windowTitle)
         .navigationSubtitle(windowSubtitle)
+    }
+
+    /// Che cosa presenta ciascuna modale.
+    ///
+    /// Uno `switch` esaustivo, e non è un dettaglio di stile: `Tools/check-exhaustive-switches.py`
+    /// obbliga chi aggiunge una `SheetRoute` a dire anche quale vista la disegna, così una
+    /// modale dichiarata e mai presentata — l'altra metà del difetto — smette di essere
+    /// possibile.
+    @ViewBuilder
+    private func sheetContent(_ sheet: SheetRoute) -> some View {
+        switch sheet {
+        case .shortcuts: ShortcutsSheet()
+        case .reformat: ReformatSheet(model: model)
+        case .artifact: ArtifactSheet(model: model)
+        case .verification: VerificationSheet(model: model)
+        case .scanRegistration: ScanRegistrationSheet(model: model)
+        case .guideBuilder: GuideSheet(model: model)
+        case .segmentation: SegmentationSheet(model: model)
+        case .archive: ArchiveSheet(model: model)
+        case .archivePrompt: ArchivePromptSheet(model: model)
+        }
     }
 
     private var workspace: some View {

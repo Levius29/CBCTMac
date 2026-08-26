@@ -92,6 +92,43 @@ public enum ViewportLayout: String, CaseIterable, Hashable, Sendable, Codable {
         case .panoramic: return "rectangle.grid.1x2"
         }
     }
+
+    /// I riquadri che questa disposizione disegna davvero.
+    ///
+    /// # Perché una disposizione deve saperlo dire
+    ///
+    /// Perché metà dei comandi dell'ispettore parlano a **un** riquadro — lo spessore dello slab,
+    /// la proiezione, l'inclinazione del taglio — e li prendono dal riquadro a fuoco. Il fuoco
+    /// però sopravvive al cambio di disposizione: si lavora sul sagittale, si passa alla panorex,
+    /// e da lì in poi quei comandi agiscono su un riquadro che non è più a schermo. Non danno
+    /// errore: danno il silenzio, che è peggio, perché si prova a muovere un cursore e non
+    /// succede niente di visibile.
+    ///
+    /// - Parameter focused: il riquadro a fuoco, che in «singolo» è anche l'unico disegnato.
+    public func drawnSlots(focused: ViewportSlot) -> [ViewportSlot] {
+        switch self {
+        case .single: return [focused]
+        case .grid2x2, .onePlusThree: return ViewportSlot.allCases
+        // La panorex ha una scrivania tutta sua — assiale con la curva, striscia panoramica,
+        // sezioni trasversali — e nessuno dei quattro riquadri canonici.
+        case .panoramic: return []
+        }
+    }
+
+    public func draws(_ slot: ViewportSlot, focused: ViewportSlot) -> Bool {
+        drawnSlots(focused: focused).contains(slot)
+    }
+
+    /// Vero se a schermo c'è almeno un'immagine governata dalla finestra di densità.
+    ///
+    /// Vale anche per la panorex: la striscia e le sezioni trasversali sono immagini 2D, e la
+    /// finestra le governa come governa le tre viste ortogonali. L'unico caso in cui non c'è
+    /// niente da governare è la disposizione «singolo» con il 3D dentro, dove al posto della
+    /// finestra conta la transfer function.
+    public func showsWindowedImages(focused: ViewportSlot) -> Bool {
+        if self == .panoramic { return true }
+        return drawnSlots(focused: focused).contains { $0.anatomicalPlane != nil }
+    }
 }
 
 // MARK: - Modi

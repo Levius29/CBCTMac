@@ -504,9 +504,10 @@ struct TiltControls: View {
                 .font(Typography.sectionHeader)
                 .foregroundStyle(Palette.textSecondary)
 
-            Text("Agisce sul riquadro attivo: \(model.focusedSlot.localizedName.lowercased()).")
+            Text(targetNote)
                 .font(Typography.label)
                 .foregroundStyle(Palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 5) {
                 stepButton("rotate.left", degrees: -stepDegrees, help: "Inclina di 5° a sinistra")
@@ -529,8 +530,31 @@ struct TiltControls: View {
                 .foregroundStyle(Palette.accent)
                 .help("Riporta i piani agli assi della macchina")
             }
-            .disabled(model.volume == nil || model.focusedSlot.anatomicalPlane == nil)
+            .disabled(model.volume == nil || !canTilt)
         }
+    }
+
+    /// Vero se c'è davvero un taglio da inclinare: un riquadro con un piano, **e** a schermo.
+    ///
+    /// La seconda metà mancava. Il riquadro a fuoco sopravvive al cambio di disposizione, e nella
+    /// panorex non è disegnato nessuno dei quattro: i pulsanti erano accesi e inclinavano una
+    /// vista che non si vedeva. Un comando che risponde altrove è peggio di uno spento, perché
+    /// spende un gesto e non dice che l'ha speso.
+    private var canTilt: Bool {
+        model.focusedSlot.anatomicalPlane != nil
+            && model.layout.draws(model.focusedSlot, focused: model.focusedSlot)
+    }
+
+    /// Su che cosa agiscono i pulsanti, oppure perché adesso non agiscono su niente.
+    private var targetNote: String {
+        guard model.layout.draws(model.focusedSlot, focused: model.focusedSlot) else {
+            return "La disposizione panorex non disegna i piani della macchina: per inclinarli "
+                + "passa a una disposizione che li mostri."
+        }
+        guard model.focusedSlot.anatomicalPlane != nil else {
+            return "Il riquadro 3D non ha un taglio da inclinare: fai clic su una vista 2D."
+        }
+        return "Agisce sul riquadro attivo: \(model.focusedSlot.localizedName.lowercased())."
     }
 
     /// Inclina il **taglio**: ruota i due piani perpendicolari a quello mostrato.

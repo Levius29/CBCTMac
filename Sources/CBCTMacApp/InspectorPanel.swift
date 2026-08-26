@@ -21,31 +21,32 @@ struct InspectorPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Metrics.spacingLarge) {
-                if model.workMode == .review {
-                    // In rilettura l'ispettore non è un pannello di comandi: è il piano.
-                    ReviewPanel(model: model)
-                } else {
-                    // # Contesto **più** visualizzazione, non contesto **al posto di**
-                    //
-                    // Era una catena di `else if`, quindi compariva una sezione sola: con un
-                    // impianto selezionato, finestra e livello sparivano del tutto. Non erano
-                    // coperti — erano assenti, e l'unico modo di riaverli era deselezionare
-                    // l'impianto, cosa per cui non c'era un comando. Da fuori l'unica via
-                    // d'uscita sembrava cancellarlo.
-                    //
-                    // La correzione non è allungare la catena: è che le due cose non stanno
-                    // sullo stesso piano. Finestra e livello si regolano **mentre** si lavora su
-                    // un impianto — anzi, proprio allora, per giudicare la corticale — quindi
-                    // non possono essere alternativi a nulla. Il timore che li teneva esclusivi,
-                    // «riempirebbe l'ispettore di comandi inerti», vale per i comandi che non
-                    // fanno niente in quel contesto: questi ne fanno sempre.
-                    if hasContextualSection {
-                        contextualSection
+                // # Due elenchi, e nessuna catena di `else`
+                //
+                // Prima erano due catene di `if`/`else if`: una per il contesto, una per i
+                // comandi di visualizzazione. Una catena mostra **una** voce, e le altre non
+                // sono coperte: sono assenti, senza niente che dica perché o come riaverle.
+                // Costava due difetti che si vedevano da fuori come lo stesso:
+                //
+                // - aperta la cefalometria dal menu, il pannello dell'impianto non tornava più,
+                //   perché stava dietro a un `else` e la cefalometria non si spegneva;
+                // - un clic sul riquadro 3D portava via finestra e livello alle tre viste 2D
+                //   rimaste a schermo, che è proprio quando servono per giudicare la corticale.
+                //
+                // Adesso i contesti attivi si mostrano **tutti**, e le sezioni le decide una
+                // funzione pura in StudyKit che i test percorrono per intero: non esiste una
+                // combinazione di scheda, disposizione e riquadro a fuoco che lasci l'ispettore
+                // senza i comandi di ciò che si sta guardando.
+                ForEach(activeContexts) { context in
+                    contextCard(context)
+                    Divider().overlay(Palette.separator)
+                }
+
+                ForEach(sections) { section in
+                    if section != sections.first {
                         Divider().overlay(Palette.separator)
                     }
-                    viewingSection
-                    Divider().overlay(Palette.separator)
-                    measurementsSection
+                    sectionView(section)
                 }
             }
             .padding(Metrics.spacingLarge)
@@ -53,32 +54,57 @@ struct InspectorPanel: View {
         .background(Palette.chrome)
     }
 
-    /// Vero se c'è qualcosa su cui si sta lavorando adesso.
+    /// Le sezioni da mostrare adesso.
     ///
-    /// Tenuto accanto a `contextualSection` e con le stesse condizioni: due elenchi che
-    /// divergono darebbero un separatore senza niente sopra, o una sezione senza separatore.
-    private var hasContextualSection: Bool {
-        model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty
-            || model.activeTool == .cephalometry || model.isShowingCephalometry
-            || model.activeTool == .prostheticTooth || model.selectedTooth != nil
-            || model.activeTool == .implant || model.activeTool == .nerve
-            || model.selectedImplant != nil
+    /// La decisione sta in `InspectorSections`, in StudyKit, dove si prova senza schermo. Qui
+    /// resta il disegno, che è l'unica cosa che ha bisogno di SwiftUI.
+    private var sections: [InspectorSection] {
+        InspectorSections.sections(
+            mode: model.workMode, layout: model.layout, focusedSlot: model.focusedSlot)
     }
 
-    /// Ciò su cui si sta lavorando: si posa, si sceglie, si corregge.
+    /// Ciò su cui si sta lavorando adesso: zero, uno o più contesti insieme.
+    private var activeContexts: [InspectorContext] {
+        InspectorSections.contexts(
+            occlusalPlane: model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty,
+            cephalometry: model.activeTool == .cephalometry || model.isShowingCephalometry,
+            prostheticTooth: model.activeTool == .prostheticTooth || model.selectedTooth != nil,
+            implant: model.activeTool == .implant || model.activeTool == .nerve
+                || model.selectedImplant != nil)
+    }
+
+    /// Vero se il riquadro a fuoco è davvero disegnato dalla disposizione corrente.
+    ///
+    /// Nella disposizione panorex non lo è nessuno dei quattro: la scrivania ha viste tutte sue.
+    /// I comandi che parlano al riquadro a fuoco — spessore, proiezione — lì non hanno un
+    /// destinatario visibile, e mostrarli sarebbe offrire cursori che non cambiano niente.
+    private var focusIsOnScreen: Bool {
+        model.layout.draws(model.focusedSlot, focused: model.focusedSlot)
+    }
+
     @ViewBuilder
-    private var contextualSection: some View {
-        if model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty {
-            // Come la cefalometria: i punti si posano facendo clic sui riquadri, quindi il
-            // pannello deve stare accanto alle immagini e non sopra.
-            OcclusalPlanePanel(model: model)
-        } else if model.activeTool == .cephalometry || model.isShowingCephalometry {
-            CephalometryPanel(model: model)
-        } else if model.activeTool == .prostheticTooth || model.selectedTooth != nil {
-            prostheticSection
-        } else if model.activeTool == .implant || model.activeTool == .nerve
-            || model.selectedImplant != nil
-        {
+    private func sectionView(_ section: InspectorSection) -> some View {
+        switch section {
+        // In rilettura l'ispettore non è un pannello di comandi: è il piano.
+        case .review: ReviewPanel(model: model)
+        case .visualization: visualizationSection
+        case .arch: archSection
+        case .rendering: renderingSection
+        case .orientation: orientationSection
+        case .scrolling: scrollSection
+        case .measurements: measurementsSection
+        }
+    }
+
+    @ViewBuilder
+    private func contextCard(_ context: InspectorContext) -> some View {
+        switch context {
+        // Come la cefalometria: i punti si posano facendo clic sui riquadri, quindi il pannello
+        // deve stare accanto alle immagini e non sopra.
+        case .occlusalPlane: OcclusalPlanePanel(model: model)
+        case .cephalometry: CephalometryPanel(model: model)
+        case .prostheticTooth: prostheticSection
+        case .implant:
             implantSection
             Divider().overlay(Palette.separator)
             ProstheticVerdict(model: model)
@@ -86,28 +112,6 @@ struct InspectorPanel: View {
             SafetyPanel(
                 report: model.selectedImplantID.flatMap { model.safetyReports[$0] },
                 implant: model.selectedImplant)
-        }
-    }
-
-    /// Come si guarda: sempre raggiungibile, qualunque cosa si stia facendo.
-    ///
-    /// Quali comandi, però, dipende dal riquadro attivo: finestra e livello non hanno senso sul
-    /// 3D, dove conta la transfer function, e viceversa. Quella distinzione resta — è fra comandi
-    /// che agiscono e comandi inerti, non fra guardare e lavorare.
-    @ViewBuilder
-    private var viewingSection: some View {
-        if model.layout == .panoramic {
-            visualizationSection
-            Divider().overlay(Palette.separator)
-            archSection
-        } else if model.focusedSlot == .volume3D {
-            renderingSection
-            Divider().overlay(Palette.separator)
-            orientationSection
-        } else {
-            visualizationSection
-            Divider().overlay(Palette.separator)
-            scrollSection
         }
     }
 
@@ -175,30 +179,37 @@ struct InspectorPanel: View {
                 .menuStyle(.borderlessButton)
             }
 
-            LabeledControl("Spessore") {
-                Menu(slabLabel) {
-                    ForEach(slabOptions, id: \.self) { thickness in
-                        Button(slabLabel(for: thickness)) {
-                            model.setSlabThickness(thickness, for: model.focusedSlot)
+            // Spessore e proiezione parlano al **riquadro a fuoco**, e compaiono solo se quel
+            // riquadro è a schermo. Nella disposizione panorex non lo è: i due comandi c'erano
+            // lo stesso e muoverli non cambiava niente di visibile, perché agivano su una vista
+            // che la disposizione non disegna. Gli stessi due parametri, per la panorex, stanno
+            // qui sotto nella sezione PANOREX, dove hanno un'immagine su cui agire.
+            if focusIsOnScreen {
+                LabeledControl("Spessore") {
+                    Menu(slabLabel) {
+                        ForEach(slabOptions, id: \.self) { thickness in
+                            Button(slabLabel(for: thickness)) {
+                                model.setSlabThickness(thickness, for: model.focusedSlot)
+                            }
                         }
                     }
+                    .menuStyle(.borderlessButton)
                 }
-                .menuStyle(.borderlessButton)
-            }
 
-            LabeledControl("Proiezione") {
-                Menu(model.projection(for: model.focusedSlot).localizedName) {
-                    ForEach(SlabProjection.allCases, id: \.self) { projection in
-                        Button(projection.localizedName) {
-                            model.setProjection(projection, for: model.focusedSlot)
+                LabeledControl("Proiezione") {
+                    Menu(model.projection(for: model.focusedSlot).localizedName) {
+                        ForEach(SlabProjection.allCases, id: \.self) { projection in
+                            Button(projection.localizedName) {
+                                model.setProjection(projection, for: model.focusedSlot)
+                            }
                         }
                     }
+                    .menuStyle(.borderlessButton)
+                    // Con una slice singola la proiezione non ha nulla da combinare: disabilitare
+                    // dice all'utente che il controllo dipende dallo spessore, invece di lasciarlo
+                    // sperimentare senza vedere cambiamenti.
+                    .disabled(model.slabThickness(for: model.focusedSlot) <= 0)
                 }
-                .menuStyle(.borderlessButton)
-                // Con una slice singola la proiezione non ha nulla da combinare: disabilitare
-                // dice all'utente che il controllo dipende dallo spessore, invece di lasciarlo
-                // sperimentare senza vedere cambiamenti.
-                .disabled(model.slabThickness(for: model.focusedSlot) <= 0)
             }
         }
     }

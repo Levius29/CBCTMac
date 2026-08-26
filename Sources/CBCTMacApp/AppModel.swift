@@ -391,14 +391,61 @@ final class AppModel {
         set { archCurves[activeArch] = newValue }
     }
 
+    // MARK: Finestre modali
+
+    // # Una sola strada, e perché
+    //
+    // Ce n'erano nove: nove booleani indipendenti e nove `.sheet(isPresented:)` impilati sulla
+    // stessa vista. SwiftUI ne presenta una per volta, e la seconda richiesta veniva lasciata
+    // cadere **lasciando acceso il suo interruttore**: da lì in poi quel comando non apriva più
+    // niente, perché rimettere a `true` un valore già `true` non presenta nulla. È il difetto che
+    // si descrive con «se apro una cosa, poi non posso più aprirne altre».
+    //
+    // Adesso quale modale sia aperta è un valore solo — vedi `ModalRouter` in StudyKit, dove si
+    // prova senza schermo — e i booleani restano come **facciata**: le voci di menu continuano a
+    // scrivere `model.isShowingArchive = true`, ma non esiste più uno stato acceso e invisibile.
+
+    /// Quale modale è aperta, e quale aspetta il suo turno.
+    private var sheets = ModalRouter()
+
+    /// La modale da presentare: l'**unico** `.sheet` dell'applicazione. Vedi `ContentView`.
+    var activeSheet: SheetRoute? {
+        get { sheets.presented }
+        set {
+            if let newValue {
+                sheets.request(newValue)
+            } else {
+                sheets.dismiss()
+            }
+        }
+    }
+
+    /// Apre la modale rimasta in attesa.
+    ///
+    /// Si chiama a chiusura **avvenuta** — da `onDismiss` — e non nell'istante in cui si chiude:
+    /// SwiftUI non presenta una modale mentre ne sta smontando un'altra, e chiederglielo lì
+    /// significa perdere la richiesta, che è il difetto da cui è nato tutto questo.
+    func presentQueuedSheet() {
+        sheets.promoteQueued()
+    }
+
     /// Vero quando è aperta la finestra di ritaglio e ricampionamento.
-    var isShowingReformat = false
+    var isShowingReformat: Bool {
+        get { sheets.isPresenting(.reformat) }
+        set { sheets.setPresented(.reformat, newValue) }
+    }
 
     /// Legenda dei comandi. Vedi `ShortcutsSheet`.
-    var isShowingShortcuts = false
+    var isShowingShortcuts: Bool {
+        get { sheets.isPresenting(.shortcuts) }
+        set { sheets.setPresented(.shortcuts, newValue) }
+    }
 
     /// Finestra di riduzione delle strie. Vedi `ArtifactSheet`.
-    var isShowingArtifact = false
+    var isShowingArtifact: Bool {
+        get { sheets.isPresenting(.artifact) }
+        set { sheets.setPresented(.artifact, newValue) }
+    }
 
     /// Vero mentre l'utente sta disegnando o correggendo la curva sull'assiale.
     var isEditingArch = false
@@ -1347,6 +1394,19 @@ final class AppModel {
     /// significano la stessa cosa: vedi il Contratto 4.
     var faceProfileThresholdGV: Double = FaceProfileExtractor.defaultThresholdGV
 
+    /// Vero quando il pannello cefalometrico è in cima all'ispettore.
+    ///
+    /// # Perché ha bisogno di un comando che lo spenga
+    ///
+    /// Lo accendeva la voce di menu e non lo spegneva nessuno. Il pannello restava in cima
+    /// all'ispettore per il resto della sessione e, finché ci stava, gli altri contesti — dente
+    /// protesico, impianto, nervo — non comparivano più: erano dietro a un `else`. Chi apriva la
+    /// cefalometria per curiosità perdeva il pannello dell'impianto senza un modo di riaverlo,
+    /// e senza niente che dicesse perché.
+    ///
+    /// Adesso i contesti si mostrano tutti insieme — vedi `InspectorSections.contexts` — e questo
+    /// resta acceso solo finché serve, perché `closeCephalometry()` lo spegne dal pannello
+    /// stesso.
     var isShowingCephalometry = false
 
     /// Le misure calcolate. Si aggiornano quando cambia il tracciato, e non a ogni lettura.
@@ -1426,6 +1486,16 @@ final class AppModel {
     }
 
     /// Cancella il tracciato.
+    /// Chiude la cefalometria: il pannello se ne va e lo strumento torna in mano alla
+    /// navigazione.
+    ///
+    /// Non cancella il tracciato. Chiudere e cancellare sono due cose diverse, e un comando che
+    /// le facesse insieme sarebbe usato una volta sola.
+    func closeCephalometry() {
+        isShowingCephalometry = false
+        if activeTool == .cephalometry { activeTool = .navigate }
+    }
+
     func clearCephTracing() {
         guard !cephTracing.isEmpty else { return }
         cephTracing = CephTracing()
@@ -2666,6 +2736,14 @@ final class AppModel {
     /// toccare dati di pazienti. Vedi `SyntheticVolume`.
     func loadSyntheticPhantom() async {
         loadingMessage = "Generazione del fantoccio sintetico…"
+        // # Il velo si toglie da sé
+        //
+        // La schermata di attesa copre tutta la finestra: finché c'è, non si può premere niente.
+        // Spegnerla a mano in ciascun ramo funziona finché i rami sono due e nessuno ne aggiunge
+        // un terzo — e il giorno che ne resta uno scoperto l'applicazione non si blocca: si
+        // *vela*, che è peggio, perché sembra occupata a fare qualcosa e invece ha finito.
+        // Con `defer` il velo cade all'uscita comunque si esca.
+        defer { loadingMessage = nil }
         loadIssues = []
 
         // Fuori dal main actor: sono quattordici milioni di voxel, e bloccare la UI mentre si
@@ -2684,12 +2762,10 @@ final class AppModel {
 
         switch outcome {
         case .failed(let message):
-            loadingMessage = nil
             loadIssues = ["Generazione del fantoccio fallita: \(message)"]
         case .loaded(let volume):
             openStudy(volume: volume, named: "Fantoccio sintetico", provenance: .synthetic)
             clearIdentity(examTitle: "Fantoccio sintetico")
-            loadingMessage = nil
         }
     }
 
@@ -2704,6 +2780,7 @@ final class AppModel {
     /// cartelle da migliaia di file; i pixel si leggono solo per la serie scelta.
     func loadStudy(from directory: URL) async {
         loadingMessage = "Scansione della cartella…"
+        defer { loadingMessage = nil }
         loadIssues = []
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> StudyOutcome in
@@ -2752,7 +2829,6 @@ final class AppModel {
 
         switch outcome {
         case .failed(let message):
-            loadingMessage = nil
             loadIssues = [message]
         case .loaded(let volume, let messages, let name, let identity, let sourcePath):
             openStudy(volume: volume, named: name, provenance: .imported)
@@ -2760,7 +2836,6 @@ final class AppModel {
             // sparirebbero proprio quando servono. Vale anche per l'identità.
             adoptIdentity(identity, sourcePath: sourcePath, volume: volume)
             loadIssues = messages
-            loadingMessage = nil
             offerToArchive()
         }
     }
@@ -3820,9 +3895,19 @@ final class AppModel {
     private(set) var archiveBytes = 0
     private(set) var archiveMessage: String?
     private(set) var isArchiving = false
-    var isShowingArchive = false
+    var isShowingArchive: Bool {
+        get { sheets.isPresenting(.archive) }
+        set { sheets.setPresented(.archive, newValue) }
+    }
     /// La domanda «lo archivio?» dopo l'apertura di un esame nuovo.
-    var isAskingToArchive = false
+    ///
+    /// Arriva sempre a schermo occupato — l'esame lo si è appena scelto nel pannello
+    /// dell'archivio, che si sta chiudendo — ed è il caso che il vecchio impianto a nove
+    /// booleani perdeva per intero.
+    var isAskingToArchive: Bool {
+        get { sheets.isPresenting(.archivePrompt) }
+        set { sheets.setPresented(.archivePrompt, newValue) }
+    }
     var archiveSearchText = ""
 
     /// Prende i metadati dopo il caricamento di uno studio.
@@ -4014,6 +4099,7 @@ final class AppModel {
         // dal troppo, non dal troppo tardi, e questo è il momento in cui è troppo tardi.
         if hasUnsavedPlanChanges { await saveArchivedPlan() }
         loadingMessage = "Apertura dall'archivio…"
+        defer { loadingMessage = nil }
         let store = archive
         let id = entry.id
 
@@ -4031,7 +4117,6 @@ final class AppModel {
             } catch { return .failure(error) }
         }.value
 
-        loadingMessage = nil
         switch outcome {
         case .failure(let error):
             loadIssues = [error.localizedDescription]
@@ -4480,7 +4565,10 @@ final class AppModel {
     private(set) var isSegmenting = false
     private(set) var segmentationMessage: String?
 
-    var isShowingSegmentation = false
+    var isShowingSegmentation: Bool {
+        get { sheets.isPresenting(.segmentation) }
+        set { sheets.setPresented(.segmentation, newValue) }
+    }
 
     var isSegmentationVisible = true {
         didSet { rebuildSegmentationContours() }
@@ -4606,7 +4694,10 @@ final class AppModel {
     /// diversa da quella del pezzo sarebbe peggio di nessun riepilogo.
     private(set) var guideConfiguration: GuideConfiguration?
     private(set) var isBuildingGuide = false
-    var isShowingGuide = false
+    var isShowingGuide: Bool {
+        get { sheets.isPresenting(.guideBuilder) }
+        set { sheets.setPresented(.guideBuilder, newValue) }
+    }
 
     /// Costruisce la dima sugli impianti pianificati.
     ///
@@ -5188,9 +5279,15 @@ final class AppModel {
     }
 
     /// Finestra della verifica di accuratezza. Vedi `VerificationSheet`.
-    var isShowingVerification = false
+    var isShowingVerification: Bool {
+        get { sheets.isPresenting(.verification) }
+        set { sheets.setPresented(.verification, newValue) }
+    }
     /// Finestra della registrazione della scansione. Vedi `ScanRegistrationSheet`.
-    var isShowingScanRegistration = false
+    var isShowingScanRegistration: Bool {
+        get { sheets.isPresenting(.scanRegistration) }
+        set { sheets.setPresented(.scanRegistration, newValue) }
+    }
 
     /// Come si sta misurando adesso: voxel, spessore attraversato, natura della vista.
     ///

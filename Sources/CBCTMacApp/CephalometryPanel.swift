@@ -49,6 +49,24 @@ struct CephalometryPanel: View {
                 Text("\(placedCount)/\(CephLandmark.allCases.count)")
                     .font(Typography.numericSmall)
                     .foregroundStyle(Palette.textSecondary)
+                // # La via d'uscita, che non c'era
+                //
+                // Il pannello lo accendeva la voce di menu e non lo spegneva nessuno: restava in
+                // cima all'ispettore per il resto della sessione. Finché ci stava copriva gli
+                // altri contesti, e chi l'aveva aperto per curiosità si ritrovava senza il
+                // pannello dell'impianto e senza un modo di riaverlo.
+                //
+                // Chiudere non cancella: «Cancella il tracciato» è il comando accanto, e sono due
+                // gesti diversi. Uno che li facesse insieme non verrebbe premuto mai.
+                Button {
+                    model.closeCephalometry()
+                } label: {
+                    Label("Chiudi", systemImage: "xmark.circle")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.textSecondary)
+                .help("Chiude la cefalometria. Il tracciato resta dov'è.")
             }
             Text(
                 "Gli angoli si calcolano sulla proiezione dei reperi sul piano sagittale mediano. "

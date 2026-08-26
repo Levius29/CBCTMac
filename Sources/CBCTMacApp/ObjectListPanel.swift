@@ -80,7 +80,12 @@ struct ObjectListPanel: View {
             ForEach(shownKinds, id: \.self) { candidate in
                 let count = model.registry.objects(of: candidate).count
                 Button {
-                    pinnedKind = candidate
+                    // Ripremendo la scheda già scelta si torna a seguire il contesto. Senza,
+                    // `pinnedKind` era un vicolo cieco silenzioso: una volta fissata una scheda
+                    // il pannello smetteva per sempre di seguire lo strumento in mano, e non
+                    // c'era niente che dicesse che quel comportamento si era spento né come
+                    // riaverlo.
+                    pinnedKind = pinnedKind == candidate ? nil : candidate
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: icon(for: candidate)).font(.system(size: 10))
