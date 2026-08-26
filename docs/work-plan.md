@@ -317,13 +317,30 @@ tipo — e che qui costerebbe un giro sul Mac.
 
 ## 3-bis. Il difetto ricorrente: motore senza comando
 
-Tre volte su questo progetto è successa la stessa cosa. Un modulo funzionante, con i suoi test,
-non raggiungibile da nessun punto dell'interfaccia: il ritaglio del volume, il riorientamento,
-e la riduzione delle strie da metallo. Ogni volta l'utente ha riferito la funzione come
-**mancante**, che dal suo punto di vista è esatto.
+Cinque volte su questo progetto è successa la stessa cosa. Le prime tre erano moduli interi: un
+modulo funzionante, con i suoi test, non raggiungibile da nessun punto dell'interfaccia — il
+ritaglio del volume, il riorientamento, e la riduzione delle strie da metallo. Ogni volta
+l'utente ha riferito la funzione come **mancante**, che dal suo punto di vista è esatto.
 
 Da qui la regola: un lotto non è finito quando il nucleo passa i test. È finito quando esiste un
 punto dell'interfaccia da cui si raggiunge, e quel punto è elencato qui.
+
+La quarta e la quinta volta sono arrivate insieme, sulla separazione dei tessuti, e sono le due
+più istruttive perché nessuna delle due era un modulo intero: erano **un parametro** e **una
+riga di menu**.
+
+`CompetitiveGrowth` accetta da sempre più semi con la stessa etichetta — nel brief c'è scritto
+che è «il modo di marcare l'osso in più punti» — e l'interfaccia lo rendeva impossibile, perché
+il tipo del marcatore era implicito nell'ordine: il primo clic era l'osso, tutti gli altri denti.
+Una regola comoda che toglieva la funzione. E `MeshFormat.obj` esisteva solo in lettura: si
+importava un OBJ e non lo si poteva riesportare, mentre la segmentazione a soglia — la via con
+cui si ricava un'arcata — non aveva **nessuna** esportazione, né qui né in `exportPlanGeometry`.
+
+Da lì una seconda regola, più stretta della prima: un tipo pubblico che enumera dei casi va
+verificato **caso per caso** contro i punti dell'interfaccia che lo consumano, e un parametro che
+il brief descrive come «il modo di fare X» va cercato nella UI prima di dire che X si può fare.
+La prima regola guarda i moduli; questa guarda dentro i moduli, dove il buco è più piccolo e
+quindi più facile da non vedere.
 
 Una variante più insidiosa è il comando che c'è ma agisce **altrove** da dove ci si aspetta. I
 preset di resa dei tessuti stavano in un pannello chiamato «Regolazioni» e governavano il solo

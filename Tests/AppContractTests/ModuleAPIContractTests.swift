@@ -1172,4 +1172,69 @@ struct ModuleAPIContractTests {
         // Il valore predefinito è «visibili e a riposo»: aprendo un esame le linee ci sono.
         #expect(CutLineVisibility().opacity == CutLineVisibility.restingOpacity)
     }
+
+    // MARK: TissueSeparationPanel: separare i tessuti e portarli a solido stampabile
+
+    @Test("Le API che il pannello dei tessuti usa, dalla competizione al file")
+    func tissueSeparationAPI() throws {
+        let volume = try makeVolume()
+        let geometry = volume.geometry
+        // Due punti dentro il cubo del fantoccio, non nell'aria attorno: la crescita rifiuta
+        // un seme fuori dalla fascia di densità, ed è giusto che lo faccia.
+        let toothSeedMM = geometry.centerMM
+        let boneSeedMM = geometry.centerMM + Vec3(5, 0, 0)
+
+        // Il riquadro di lettura arriva qui come `BoxMM`, che è come `AppModel` lo converte da
+        // `ClipBox` prima di passarlo alla crescita.
+        let clip = ClipBox.wholeVolume(geometry)
+        let regionMM = BoxMM(minMM: clip.minMM, maxMM: clip.maxMM)
+
+        let mask = try CompetitiveGrowth.grow(
+            in: volume,
+            seeds: [(seedMM: boneSeedMM, label: 1), (seedMM: toothSeedMM, label: 2)],
+            densityRange: -1024...4000,
+            within: regionMM
+        )
+        _ = MaskSurface.isEmpty(mask, label: 1)
+
+        // Il riempimento semplice accetta lo stesso riquadro, con la stessa etichetta di
+        // argomento: se le due firme divergessero, l'app chiamerebbe l'una credendo l'altra.
+        _ = try RegionGrowing.grow(
+            in: volume, fromSeedMM: toothSeedMM, densityRange: -1024...4000, within: regionMM)
+
+        let raw = try #require(
+            MaskSurface.mesh(of: mask, label: 2, spacingMM: 1.0, name: "Dente 46"))
+
+        // La finitura, nello stesso ordine in cui `AppModel.finished(_:...)` la applica.
+        var solid = MeshRepair.largestShell(of: raw)
+        solid = MeshSmoothing.taubin(solid, iterations: 8)
+        solid = MeshDecimation.simplified(solid, targetTriangleCount: 20_000)
+        solid = MeshRepair.orientedOutward(solid)
+
+        let report: MeshIntegrity = MeshRepair.integrity(of: solid)
+        _ = report.isWatertight
+        _ = report.openEdgeCount
+        _ = report.nonManifoldEdgeCount
+        _ = report.shellCount
+        _ = report.volumeMM3
+
+        // I due formati che compaiono nel menu di salvataggio, per la stessa porta.
+        _ = MeshIO.export(solid, as: .stlBinary)
+        _ = MeshIO.export(solid, as: .obj)
+
+        // La soglia con lo stesso riquadro, che è la via dell'arcata: `within:` resta la
+        // maschera e il riquadro entra come parametro proprio, così i due si possono usare
+        // insieme e nessuna chiamata esistente cambia significato.
+        var arch = try ThresholdSegmentation.segment(
+            volume, densityRange: 200...4000, label: 1, within: nil, insideBoxMM: regionMM)
+        arch = try ConnectedComponents.keepingLargest(arch, count: 1)
+        _ = try MaskAnalysis.statistics(of: volume, within: arch, label: 1)
+        _ = MaskSurface.mesh(of: arch, label: 1, spacingMM: 1.0, name: "Segmentazione")
+
+        // E il contorno con cui i tessuti si disegnano sui riquadri.
+        _ = MeshSlicer.contour(
+            of: solid, planeOriginMM: geometry.centerMM, planeNormalMM: Vec3(0, 0, 1),
+            toleranceMM: 1e-4
+        ).loops
+    }
 }

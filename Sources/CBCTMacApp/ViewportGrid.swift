@@ -245,6 +245,21 @@ struct ViewportContainer: View {
                             colourOverride: Palette.segmentation)
                     }
 
+                    // I tessuti separati, ciascuno col colore del suo marcatore. Senza questi
+                    // contorni il dente separato esisteva solo come conteggio di triangoli in
+                    // un pannello, e per sapere se era il dente bisognava esportarlo e aprirlo
+                    // altrove — cioè dopo aver già deciso di fidarsi.
+                    if let tissues = model.tissueContours[slot] {
+                        ForEach(tissues) { tissue in
+                            MeshContourOverlay(
+                                model: model,
+                                explicitLoops: tissue.loops,
+                                explicitPlane: model.planes[slot],
+                                colourOverride: Color(hexString: tissue.colorHex)
+                                    ?? Palette.segmentation)
+                        }
+                    }
+
                     // I reperi cefalometrici e il profilo del viso, sopra i contorni: sono
                     // punti da centrare, e un contorno che ci passa sopra nasconde proprio ciò
                     // che si sta cercando di collocare.

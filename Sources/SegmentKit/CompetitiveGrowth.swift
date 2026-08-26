@@ -56,17 +56,29 @@ public enum CompetitiveGrowth: Sendable {
     ///   - densityRange: la fascia entro cui si compete. Fuori da essa non si assegna niente:
     ///     è ciò che tiene fuori l'aria e i tessuti molli, e va scelta perché comprenda dentina
     ///     e corticale insieme — separarle è compito della competizione, non della soglia.
+    ///   - regionMM: il riquadro Patient fuori dal quale non si assegna nulla, oppure `nil` per
+    ///     competere su tutto il volume. È il solo limite superiore che questa procedura abbia:
+    ///     vedi `GrowthRestriction` per i numeri che lo rendono necessario, e per il taglio netto
+    ///     che produce sulle facce.
     /// - Returns: la maschera, con un'etichetta per regione e sfondo altrove.
     public static func grow(
         in volume: Volume,
         seeds: [(seedMM: Vec3, label: SegmentLabel)],
         densityRange: ClosedRange<Double>,
+        within regionMM: BoxMM? = nil,
         connectivity: Connectivity = .faces,
         bucketCount: Int = defaultBucketCount
     ) throws -> VolumeMask {
         guard !seeds.isEmpty else { throw SegmentKitError.emptyMask }
         let buckets = Swift.max(bucketCount, 2)
         let interval = try RawDensityInterval(volume: volume, densityRange: densityRange)
+        var restriction: GrowthRestriction?
+        if let regionMM {
+            guard let built = GrowthRestriction(box: regionMM, geometry: volume.geometry) else {
+                throw SegmentKitError.cropOutsideVolume
+            }
+            restriction = built
+        }
         guard var mask = VolumeMask(geometry: volume.geometry) else {
             throw SegmentKitError.maskAllocationFailed
         }
@@ -97,6 +109,17 @@ public enum CompetitiveGrowth: Sendable {
                 throw SegmentKitError.backgroundLabelNotAllowed
             }
             let index = try seedIndex(seed.seedMM, geometry: geometry)
+            // Il seme fuori dal riquadro è un errore e non un avviso: la sua regione non
+            // crescerebbe di un voxel, e restituire una maschera vuota lascerebbe credere che a
+            // mancare sia il dato invece della scatola disegnata troppo stretta.
+            if let restriction {
+                let i = index % columns
+                let j = (index / columns) % rows
+                let k = index / planeSize
+                guard restriction.allows(i: i, j: j, k: k) else {
+                    throw SegmentKitError.seedOutsideRestriction
+                }
+            }
             guard interval.contains(volume.samples[index]) else {
                 throw SegmentKitError.seedOutsideDensityRange
             }
@@ -151,6 +174,7 @@ public enum CompetitiveGrowth: Sendable {
                     guard abs(ni - i) <= 1, abs(nj - j) <= 1, abs(nk - k) <= 1 else { continue }
 
                     guard mask.labels[neighbour] == VolumeMask.background else { continue }
+                    if let restriction, !restriction.allows(i: ni, j: nj, k: nk) { continue }
                     let sample = volume.samples[neighbour]
                     guard interval.contains(sample) else { continue }
 

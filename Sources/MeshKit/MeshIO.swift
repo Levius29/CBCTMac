@@ -126,8 +126,7 @@ public enum MeshIO: Sendable {
     /// Esporta una mesh come STL ASCII.
     public static func exportSTLASCII(_ mesh: Mesh) -> String {
         let validTriangles = exportableTriangles(in: mesh)
-        let safeName = mesh.name.replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
+        let safeName = safeObjectName(mesh.name)
         var lines = [String]()
         lines.reserveCapacity(2 + validTriangles.count * 7)
         lines.append("solid \(safeName)")
@@ -147,6 +146,80 @@ public enum MeshIO: Sendable {
         }
         lines.append("endsolid \(safeName)")
         return lines.joined(separator: "\n")
+    }
+
+    /// Esporta come Wavefront OBJ.
+    public static func exportOBJ(_ mesh: Mesh) -> String {
+        let geometry = compactExportGeometry(in: mesh)
+        var lines = [String]()
+        lines.reserveCapacity(1 + geometry.vertices.count + geometry.triangles.count)
+        lines.append("o \(safeObjectName(mesh.name))")
+        for vertex: Vec3 in geometry.vertices {
+            // La forma decimale più breve che torna allo stesso Double conserva il dettaglio
+            // submillimetrico senza gonfiare il file con cifre prive di informazione.
+            lines.append("v \(vertex.x) \(vertex.y) \(vertex.z)")
+        }
+        for triangle: Triangle in geometry.triangles {
+            // OBJ riserva lo zero e interpreta gli indici negativi rispetto alla fine del file;
+            // gli indici assoluti a base uno non dipendono invece dal punto in cui sono letti.
+            lines.append("f \(triangle.a + 1) \(triangle.b + 1) \(triangle.c + 1)")
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Esporta come PLY binario little-endian.
+    public static func exportPLYBinary(_ mesh: Mesh) -> Data {
+        let geometry = compactExportGeometry(in: mesh)
+        guard let faceCount = UInt32(exactly: geometry.triangles.count),
+              geometry.vertices.count <= Int(Int32.max)
+        else { return Data() }
+
+        let header = [
+            "ply",
+            "format binary_little_endian 1.0",
+            "comment CBCTMac MeshKit",
+            "element vertex \(geometry.vertices.count)",
+            "property double x",
+            "property double y",
+            "property double z",
+            "element face \(faceCount)",
+            "property list uchar int vertex_indices",
+            "end_header",
+            "",
+        ].joined(separator: "\n")
+
+        var writer = MeshDataWriter()
+        writer.appendBytes(Array(header.utf8))
+        for vertex: Vec3 in geometry.vertices {
+            writer.appendFloat64(vertex.x)
+            writer.appendFloat64(vertex.y)
+            writer.appendFloat64(vertex.z)
+        }
+        for triangle: Triangle in geometry.triangles {
+            guard let a = Int32(exactly: triangle.a),
+                  let b = Int32(exactly: triangle.b),
+                  let c = Int32(exactly: triangle.c)
+            else { return Data() }
+            writer.appendUInt8(3)
+            writer.appendInt32(a)
+            writer.appendInt32(b)
+            writer.appendInt32(c)
+        }
+        return writer.data
+    }
+
+    /// Esporta nel formato richiesto.
+    public static func export(_ mesh: Mesh, as format: MeshFormat) -> Data {
+        switch format {
+        case .stlBinary:
+            return exportSTLBinary(mesh)
+        case .stlASCII:
+            return Data(exportSTLASCII(mesh).utf8)
+        case .ply:
+            return exportPLYBinary(mesh)
+        case .obj:
+            return Data(exportOBJ(mesh).utf8)
+        }
     }
 
     private static func loadBinarySTL(
@@ -1043,9 +1116,53 @@ public enum MeshIO: Sendable {
                   isRepresentableAsFiniteFloat(mesh.verticesMM[triangle.b]),
                   isRepresentableAsFiniteFloat(mesh.verticesMM[triangle.c])
             else { continue }
+            guard triangle.a != triangle.b,
+                  triangle.a != triangle.c,
+                  triangle.b != triangle.c
+            else { continue }
+            let a = mesh.verticesMM[triangle.a]
+            let b = mesh.verticesMM[triangle.b]
+            let c = mesh.verticesMM[triangle.c]
+            let cross = (b - a).cross(c - a)
+            guard cross.isFinite, cross.lengthSquared > 0 else { continue }
             result.append(triangle)
         }
         return result
+    }
+
+    private static func compactExportGeometry(
+        in mesh: Mesh
+    ) -> (vertices: [Vec3], triangles: [Triangle]) {
+        let validTriangles = exportableTriangles(in: mesh)
+        var used = [Bool](repeating: false, count: mesh.verticesMM.count)
+        for triangle: Triangle in validTriangles {
+            used[triangle.a] = true
+            used[triangle.b] = true
+            used[triangle.c] = true
+        }
+
+        var mapping = [Int](repeating: -1, count: mesh.verticesMM.count)
+        var vertices = [Vec3]()
+        vertices.reserveCapacity(mesh.verticesMM.count)
+        for index in mesh.verticesMM.indices where used[index] {
+            mapping[index] = vertices.count
+            vertices.append(mesh.verticesMM[index])
+        }
+
+        var triangles = [Triangle]()
+        triangles.reserveCapacity(validTriangles.count)
+        for triangle: Triangle in validTriangles {
+            triangles.append(
+                Triangle(a: mapping[triangle.a], b: mapping[triangle.b], c: mapping[triangle.c])
+            )
+        }
+        return (vertices, triangles)
+    }
+
+    private static func safeObjectName(_ name: String) -> String {
+        String(name.unicodeScalars.map { scalar in
+            CharacterSet.controlCharacters.contains(scalar) ? " " : String(scalar)
+        }.joined())
     }
 
     private static func isRepresentableAsFiniteFloat(_ point: Vec3) -> Bool {
@@ -1268,6 +1385,10 @@ private struct MeshDataWriter {
         bytes.append(contentsOf: [UInt8](repeating: 0, count: count))
     }
 
+    mutating func appendUInt8(_ value: UInt8) {
+        bytes.append(value)
+    }
+
     mutating func appendUInt16(_ value: UInt16) {
         bytes.append(UInt8(truncatingIfNeeded: value))
         bytes.append(UInt8(truncatingIfNeeded: value >> 8))
@@ -1280,8 +1401,27 @@ private struct MeshDataWriter {
         bytes.append(UInt8(truncatingIfNeeded: value >> 24))
     }
 
+    mutating func appendUInt64(_ value: UInt64) {
+        bytes.append(UInt8(truncatingIfNeeded: value))
+        bytes.append(UInt8(truncatingIfNeeded: value >> 8))
+        bytes.append(UInt8(truncatingIfNeeded: value >> 16))
+        bytes.append(UInt8(truncatingIfNeeded: value >> 24))
+        bytes.append(UInt8(truncatingIfNeeded: value >> 32))
+        bytes.append(UInt8(truncatingIfNeeded: value >> 40))
+        bytes.append(UInt8(truncatingIfNeeded: value >> 48))
+        bytes.append(UInt8(truncatingIfNeeded: value >> 56))
+    }
+
+    mutating func appendInt32(_ value: Int32) {
+        appendUInt32(UInt32(bitPattern: value))
+    }
+
     mutating func appendFloat32(_ value: Double) {
         appendUInt32(Float(value).bitPattern)
+    }
+
+    mutating func appendFloat64(_ value: Double) {
+        appendUInt64(value.bitPattern)
     }
 
     mutating func appendVec3Float32(_ value: Vec3) {

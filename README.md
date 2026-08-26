@@ -14,7 +14,7 @@ misurazioni, annotazioni e pianificazione implantare.
 
 ## Stato
 
-I moduli condivisi compilano e sono verificati da 181 test. L'applicazione SwiftUI compila su
+I moduli condivisi compilano e sono verificati da 921 test. L'applicazione SwiftUI compila su
 macOS; l'interfaccia non è ancora stata percorsa a mano.
 
 | Fase | Contenuto | Stato |
@@ -25,6 +25,7 @@ macOS; l'interfaccia non è ancora stata percorsa a mano.
 | 3 | Nervo alveolare, pianificazione implantare, allarmi di prossimità | compila, da provare a mano |
 | 4 | Import mesh STL/PLY/OBJ e registrazione rigida | **compilata e verificata** |
 | 5 | Dime chirurgiche ed endodontiche per stampa 3D | **modulo verificato**, manca la UI |
+| 5b | Separazione di denti e arcate, uscita STL/OBJ stampabile | **moduli verificati**, UI collegata e da compilare sul Mac |
 | 6 | Segmentazione AI on-device (Core ML) | da fare |
 
 ## Requisiti
@@ -42,7 +43,9 @@ Sources/
   VolumeKit/    Metal: MPR, slab, raycasting 3D, transfer function
   DentalKit/    curva d'arcata, panorex, sezioni trasversali
   ImplantKit/   canale alveolare, impianti, allarmi di prossimità, densità ossea
-  MeshKit/      import STL/PLY/OBJ, registrazione con Horn, affinamento ICP
+  MeshKit/      import ed export STL/PLY/OBJ, registrazione con Horn, affinamento ICP,
+                referto d'integrità, lisciatura di Taubin, decimazione a quadriche
+  SegmentKit/   ritaglio, soglie, crescita di regione e competitiva, morfologia, componenti
   GuideKit/     campi scalari, marching cubes, dime chirurgiche ed endodontiche
   CBCTMacApp/   applicazione SwiftUI
 Tools/          generatore e verificatore di fantocci, in Python senza dipendenze
@@ -66,8 +69,8 @@ All'avvio l'applicazione genera un **fantoccio sintetico**: un cubo da 20,00 mm 
 densità note. Serve a verificare le misure contro valori esatti senza toccare dati di pazienti,
 e resta utile anche ora che si aprono studi veri.
 
-> **Stato della verifica.** `swift test` copre i moduli condivisi: 605 test in 74 suite, tutti
-> verdi su Swift 6.2. Il target dell'applicazione è condizionale a macOS e non entra in quella
+> **Stato della verifica.** `swift test` copre i moduli condivisi: 921 test in 111 suite,
+> tutti verdi — l'ultima esecuzione su Swift 6.1.2 per Linux. Il target dell'applicazione è condizionale a macOS e non entra in quella
 > suite, perché importa SwiftUI, AppKit e Metal; le sue chiamate verso i moduli sono però
 > verificate da `AppContractTests` e da ventisei controlli statici in `Tools/`.
 >
@@ -152,6 +155,41 @@ Il pulsante **Apri** chiede una **cartella**, non un file: una serie CBCT è un 
 lo scanner li ordina proiettandone la posizione sulla normale del piano — mai per
 `InstanceNumber`, che su alcuni apparecchi è semplicemente sbagliato. Sono supportate le sintassi
 native (Explicit e Implicit VR, Little e Big Endian), RLE Lossless e JPEG Lossless.
+
+### Stampare un pezzo dell'esame
+
+Due strade, e la differenza è quale delle due cose si vuole.
+
+**Un dente solo** — pannello «Separa i tessuti», nella colonna di sinistra.
+
+1. Accendi il **riquadro di lettura** e stringilo attorno al dente trascinandone i lati sulle
+   viste. È il passo che conta di più: dove radice e osso si toccano alla stessa densità non
+   c'è, nei voxel, nessun confine da trovare, e senza un limite esterno il dente si tira dietro
+   la mandibola. Il riquadro è l'unico limite che valga per costruzione — ed è anche ciò che
+   rende l'operazione immediata invece che lenta.
+2. Prendi il marcatore e fai clic **dentro l'osso**, di fianco alla radice e dentro il riquadro.
+   Marcalo pure in più punti: più punti tengono indietro il fronte del dente.
+3. Cambia il marcatore in **Dente**, scegli il numero FDI e fai clic al centro della corona.
+4. **Separa.** I contorni compaiono sulle viste, ciascuno col colore del suo marcatore: è lì che
+   si giudica il risultato, prima di esportarlo.
+5. Il pallino accanto al nome dice se il solido è **chiuso**. Poi l'icona di salvataggio, **STL**
+   o **OBJ**.
+
+**Un'arcata** — menu «Segmentazione per soglia».
+
+1. Stringi il riquadro di lettura attorno alla mandibola o alla mascella. Senza, «tieni il pezzo
+   più grande» restituisce mezzo cranio: una soglia da osso comprende colonna, mento e
+   otturazioni.
+2. Scegli il preset dell'osso e correggilo guardando l'istogramma di *questa* acquisizione — le
+   soglie di letteratura sono in unità Hounsfield e su una CBCT non valgono.
+3. **Segmenta**, poi **Esporta** in STL o OBJ.
+
+In entrambi i casi la sezione **Finitura per la stampa** governa due cose: la *lisciatura*, che
+toglie i gradini dei voxel senza assottigliare il modello, e il *tetto di triangoli*, da alzare
+se lo slicer fatica ad aprire il file. Quel che si vede sulle viste è quel che esce nel file.
+
+> Dove una corona metallica ha bruciato il dato, il modello resta incompleto: lì non c'è nulla da
+> segmentare, e nessun algoritmo lo inventa.
 
 ### Verificare le misure
 
