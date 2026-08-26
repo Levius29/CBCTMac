@@ -112,15 +112,18 @@ struct OrientationCubeTests {
     }
 }
 
-// Il verso in cui gira quando si trascina, fissato per iscritto.
+// Il verso in cui gira il modello quando si trascina.
 //
-// Non c'è un asse trattato diversamente dall'altro: la camera segue il dito su entrambi. Queste
-// prove servono a **non** poterne correggere uno solo — è la forma che un difetto del genere
-// prende, e da fuori si vede come «sopra-sotto va bene, destra-sinistra no».
+// **Si trascina il modello, non la camera**: il punto che sta sotto il dito va dove va il dito.
+// Erano sbagliati tutti e due i segni, e l'asimmetria del codice — uno negato e l'altro no —
+// faceva pensare che uno fosse già a posto. Non lo era: quella negazione compensava soltanto il
+// verso delle coordinate del drawable, dove y cresce verso il basso.
 //
-// Che questa sia la convenzione **giusta** è un'altra questione, e non si decide da qui: si
-// decide guardando lo schermo. Se va cambiata, si cambia in un punto solo e queste prove lo
-// dicono subito.
+// È rimasto in piedi a lungo perché l'indicatore di orientamento era un quadrato piatto con una
+// lettera: sull'asse verticale non poteva mostrare niente, e su un cranio quasi simmetrico chi
+// gira corregge senza accorgersene. Le prove qui usano il **naso** — asimmetrico per
+// costruzione, e a riposo esattamente al centro dello schermo — proprio per non dipendere da un
+// osservatore che si accorga.
 
 @Suite("Verso della rotazione")
 struct OrbitDirectionTests {
@@ -128,39 +131,56 @@ struct OrbitDirectionTests {
     private let start = VolumeCamera(
         azimuth: 0, elevation: 0, halfHeightMM: 100, targetMM: .zero)
 
-    @Test("Trascinare a destra porta la camera verso la sinistra del paziente")
-    func draggingRightMovesTheCameraLeftwards() {
+    /// Il naso: anteriore, cioè y negativo in LPS. A riposo cade al centro dello schermo, quindi
+    /// il segno della sua posizione dice da che parte è andato.
+    private let nose = Vec3(0, -80, 0)
+
+    private func screen(_ point: Vec3, _ camera: VolumeCamera) -> (x: Double, y: Double) {
+        (x: point.dot(camera.right), y: point.dot(camera.down))
+    }
+
+    @Test("A riposo il naso sta al centro: è il riferimento di tutto il resto")
+    func theNoseStartsAtTheCentre() {
+        #expect(abs(screen(nose, start).x) < 1e-9)
+        #expect(abs(screen(nose, start).y) < 1e-9)
+    }
+
+    @Test("Trascinando a destra il naso va a destra")
+    func draggingRightMovesTheNoseRight() {
         let turned = start.orbited(byDragX: 40, y: 0)
-        // `forward` punta dalla camera al paziente: se la camera si sposta verso +x, guarda
-        // verso −x.
-        #expect(turned.forward.x < start.forward.x)
+        #expect(screen(nose, turned).x > 5, "va a \(screen(nose, turned).x)")
     }
 
-    @Test("Trascinare in basso porta la camera sotto")
-    func draggingDownMovesTheCameraBelow() {
+    @Test("Trascinando a sinistra il naso va a sinistra")
+    func draggingLeftMovesTheNoseLeft() {
+        let turned = start.orbited(byDragX: -40, y: 0)
+        #expect(screen(nose, turned).x < -5)
+    }
+
+    @Test("Trascinando in basso il naso scende")
+    func draggingDownMovesTheNoseDown() {
+        // Sullo schermo y cresce verso il basso.
         let turned = start.orbited(byDragX: 0, y: 40)
-        // Camera sotto: guarda verso l'alto, quindi la componente z di `forward` cresce.
-        #expect(turned.forward.z > start.forward.z)
+        #expect(screen(nose, turned).y > 5, "va a \(screen(nose, turned).y)")
     }
 
-    @Test("I due assi sono trattati allo stesso modo")
-    func bothAxesShareTheSameConvention() {
-        // È la prova che conta. Un difetto di segno su un asse solo passa inosservato su un
-        // cranio, che è quasi simmetrico, e salta fuori solo su un oggetto con le lettere
-        // scritte sopra. Qui l'asimmetria si vede subito: a parità di trascinamento, i due
-        // angoli devono cambiare della stessa quantità in valore assoluto e con il verso che la
-        // convenzione dichiara.
+    @Test("Trascinando in alto il naso sale")
+    func draggingUpMovesTheNoseUp() {
+        let turned = start.orbited(byDragX: 0, y: -40)
+        #expect(screen(nose, turned).y < -5)
+    }
+
+    @Test("I due assi seguono il dito allo stesso modo")
+    func bothAxesFollowTheFinger() {
+        // È la prova che conta, e nessuna delle precedenti la sostituisce: correggerne uno solo
+        // è esattamente lo stato da cui si è partiti, e ciascuna delle altre guarda un asse.
         let horizontal = start.orbited(byDragX: 40, y: 0)
         let vertical = start.orbited(byDragX: 0, y: 40)
-        #expect(abs(horizontal.azimuth - start.azimuth) > 0)
-        #expect(abs(vertical.elevation - start.elevation) > 0)
+        #expect(screen(nose, horizontal).x > 0)
+        #expect(screen(nose, vertical).y > 0)
         #expect(
-            abs(abs(horizontal.azimuth - start.azimuth)
-                - abs(vertical.elevation - start.elevation)) < 1e-12,
-            "stessa quantità di trascinamento, stessa quantità di rotazione")
-        // E i segni: azimut cresce trascinando a destra, elevazione cala trascinando in basso.
-        #expect(horizontal.azimuth > start.azimuth)
-        #expect(vertical.elevation < start.elevation)
+            abs(screen(nose, horizontal).x - screen(nose, vertical).y) < 1e-9,
+            "stesso trascinamento, stesso spostamento sui due assi")
     }
 
     @Test("Un trascinamento nullo non muove niente")
