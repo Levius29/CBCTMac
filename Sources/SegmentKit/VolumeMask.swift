@@ -42,6 +42,8 @@ public enum SegmentKitError: Error, Hashable, Sendable, LocalizedError {
     case maximumVoxelCountExceeded(maximum: Int)
     /// Due semi sullo stesso voxel chiedono etichette diverse.
     case seedLabelConflict(index: Int, first: SegmentLabel, second: SegmentLabel)
+    /// Il seme cade fuori dal riquadro entro cui la crescita è stata confinata.
+    case seedOutsideRestriction
     /// La slope del rescale non consente di invertire l'intervallo di densità.
     case invalidRescaleSlope(Double)
     /// Il raggio morfologico non è finito oppure è negativo.
@@ -90,6 +92,8 @@ public enum SegmentKitError: Error, Hashable, Sendable, LocalizedError {
             return "La crescita supererebbe il limite di \(maximum) voxel."
         case .seedLabelConflict(let index, let first, let second):
             return "I semi al voxel lineare \(index) richiedono le etichette \(first) e \(second)."
+        case .seedOutsideRestriction:
+            return "Il seme cade fuori dal riquadro entro cui la crescita è confinata."
         case .invalidRescaleSlope(let slope):
             return "La slope di rescale non è valida per la segmentazione: \(slope)."
         case .invalidMorphologyRadiusMM(let radius):

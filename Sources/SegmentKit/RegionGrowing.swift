@@ -16,6 +16,7 @@ public enum RegionGrowing: Sendable {
         in volume: Volume,
         fromSeedMM seed: Vec3,
         densityRange: ClosedRange<Double>,
+        within regionMM: BoxMM? = nil,
         connectivity: Connectivity = .faces,
         label: SegmentLabel = 1,
         maximumVoxels: Int? = nil
@@ -28,6 +29,7 @@ public enum RegionGrowing: Sendable {
             in: volume,
             seeds: [(seedMM: seed, label: label)],
             densityRange: densityRange,
+            within: regionMM,
             connectivity: connectivity,
             maximumVoxels: maximumVoxels
         )
@@ -38,12 +40,14 @@ public enum RegionGrowing: Sendable {
         in volume: Volume,
         seeds: [(seedMM: Vec3, label: SegmentLabel)],
         densityRange: ClosedRange<Double>,
+        within regionMM: BoxMM? = nil,
         connectivity: Connectivity = .faces
     ) throws -> VolumeMask {
         try grow(
             in: volume,
             seeds: seeds,
             densityRange: densityRange,
+            within: regionMM,
             connectivity: connectivity,
             maximumVoxels: nil
         )
@@ -53,10 +57,18 @@ public enum RegionGrowing: Sendable {
         in volume: Volume,
         seeds: [(seedMM: Vec3, label: SegmentLabel)],
         densityRange: ClosedRange<Double>,
+        within regionMM: BoxMM?,
         connectivity: Connectivity,
         maximumVoxels: Int?
     ) throws -> VolumeMask {
         let rawInterval = try RawDensityInterval(volume: volume, densityRange: densityRange)
+        var restriction: GrowthRestriction?
+        if let regionMM {
+            guard let built = GrowthRestriction(box: regionMM, geometry: volume.geometry) else {
+                throw SegmentKitError.cropOutsideVolume
+            }
+            restriction = built
+        }
         guard var mask = VolumeMask(geometry: volume.geometry) else {
             throw SegmentKitError.maskAllocationFailed
         }
@@ -73,6 +85,12 @@ public enum RegionGrowing: Sendable {
                 throw SegmentKitError.backgroundLabelNotAllowed
             }
             let index = try seedIndex(seed.seedMM, geometry: geometry)
+            if let restriction {
+                let voxel = voxelCoordinates(index: index, geometry: geometry)
+                guard restriction.allows(i: voxel.i, j: voxel.j, k: voxel.k) else {
+                    throw SegmentKitError.seedOutsideRestriction
+                }
+            }
             guard rawInterval.contains(volume.samples[index]) else {
                 throw SegmentKitError.seedOutsideDensityRange
             }
@@ -108,6 +126,7 @@ public enum RegionGrowing: Sendable {
                       j >= 0, j < geometry.rowCount,
                       k >= 0, k < geometry.sliceCount
                 else { continue }
+                if let restriction, !restriction.allows(i: i, j: j, k: k) { continue }
                 let neighbor = k * planeSize + j * geometry.columnCount + i
                 guard mask.labels[neighbor] == VolumeMask.background,
                       rawInterval.contains(volume.samples[neighbor])
