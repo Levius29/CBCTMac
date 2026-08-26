@@ -1380,7 +1380,9 @@ final class AppModel {
         // disaccordo con esso.
         recomputeSafety()
         syncRegistry()
-        if archCurve.isUsable { rebuildCrossSections() }
+        // Anche la curva diventata inutilizzabile va ricostruita: è il percorso che svuota le
+        // sezioni. Saltarlo lasciava sullo schermo le trasversali del passo precedente dopo ⌘Z.
+        rebuildCrossSections()
         scheduleArchivedPlanSave()
     }
 
@@ -2956,7 +2958,7 @@ final class AppModel {
     /// nervi e curve, quelli resterebbero attaccati al vecchio e indicherebbero tessuto sbagliato
     /// — un impianto pianificato sul 36 finirebbe da qualche parte nell'osso, e nulla lo direbbe.
     func adoptReoriented(_ reoriented: Volume, plan: ReorientationPlan) {
-        guard plan.rotation() != nil else { return }
+        guard let rotation = plan.rotation() else { return }
 
         func moved(_ point: Vec3) -> Vec3 { plan.transformed(point) ?? point }
         /// Le direzioni ruotano senza traslare: un asse è un vettore, non un punto.
@@ -2994,6 +2996,30 @@ final class AppModel {
         let movedCurves = archCurves.mapValues { curve -> ArchCurve in
             ArchCurve(controlPointsMM: curve.controlPointsMM.map(moved), upAxis: curve.upAxis)
         }
+        var movedCephTracing = cephTracing
+        movedCephTracing.points = cephTracing.points.map { point in
+            var copy = point
+            copy.positionMM = moved(point.positionMM)
+            return copy
+        }
+        let patientReorientation = Transform3D(
+            columnX: rotation.columnX,
+            columnY: rotation.columnY,
+            columnZ: rotation.columnZ,
+            origin: plan.pivotMM - rotation.apply(toPoint: plan.pivotMM))
+        let movedScanTransform = patientReorientation.concatenating(scanTransform)
+        let movedScanRegistration = scanRegistration.map { outcome in
+            ScanRegistrationOutcome(
+                transform: patientReorientation.concatenating(outcome.transform),
+                landmarkRMSMM: outcome.landmarkRMSMM,
+                surfaceRMSMM: outcome.surfaceRMSMM,
+                surfaceMaxMM: outcome.surfaceMaxMM,
+                surfacePointCount: outcome.surfacePointCount,
+                converged: outcome.converged)
+        }
+        let movedScanLandmarks = scanLandmarks.map { pair in
+            LandmarkPair(id: pair.id, scanMM: pair.scanMM, volumeMM: moved(pair.volumeMM))
+        }
 
         let parent = library.selectedID
         let name = library.uniqueName("Raddrizzato")
@@ -3011,13 +3037,22 @@ final class AppModel {
         teeth = movedTeeth
         nerveCanals = movedNerves
         archCurves = movedCurves
+        cephTracing = movedCephTracing
+        scanTransform = movedScanTransform
+        scanRegistration = movedScanRegistration
+        scanLandmarks = movedScanLandmarks
         crosshairMM = moved(crosshairMM)
         clampCrosshairToVolume()
         recomputeSafety()
         syncRegistry()
         if archCurve.isUsable { rebuildCrossSections() }
+        // I contorni già calcolati portavano ancora la trasformazione precedente: senza
+        // rifarli, la scansione ruotata restava disegnata per un fotogramma — o fino al prossimo
+        // movimento — sopra un'anatomia diversa ma plausibile.
+        rebuildScanContours()
         recordUndo("Raddrizza il volume")
-        lastActionMessage = "Volume raddrizzato; misure e impianti sono stati ruotati con esso."
+        lastActionMessage =
+            "Volume raddrizzato; piano, cefalometria e scansione sono stati ruotati con esso."
     }
 
     /// Apre uno studio letto da disco o il fantoccio: svuota la raccolta e riparte.
@@ -3193,7 +3228,15 @@ final class AppModel {
 
     /// Se le linee di taglio si disegnano. Il pulsante nella barra le toglie di mezzo.
     var areCutLinesVisible = true {
-        didSet { if !areCutLinesVisible { isCutLineFlashing = false } }
+        didSet {
+            guard !areCutLinesVisible else { return }
+            // Nascondere conclude anche il cronometro: lasciarlo vivo permetteva al lampo vecchio
+            // di spegnere quello partito dopo aver rimostrato le linee.
+            cutLineFlashTask?.cancel()
+            cutLineFlashTask = nil
+            cutLineFlashDeadline = nil
+            isCutLineFlashing = false
+        }
     }
 
     /// Vero mentre una linea del mirino è **afferrata**.
@@ -3202,6 +3245,7 @@ final class AppModel {
     private(set) var isCutLineFlashing = false
 
     private var cutLineFlashDeadline: Date?
+    @ObservationIgnored private var cutLineFlashTask: Task<Void, Never>?
 
     var cutLineVisibility: CutLineVisibility {
         CutLineVisibility(
@@ -3249,14 +3293,23 @@ final class AppModel {
         guard !isCutLineFlashing else { return }
 
         isCutLineFlashing = true
-        Task { [weak self] in
+        cutLineFlashTask = Task { [weak self] in
             while true {
                 guard let self, let deadline = self.cutLineFlashDeadline else { return }
                 let remaining = deadline.timeIntervalSinceNow
                 if remaining <= 0 { break }
-                try? await Task.sleep(for: .seconds(remaining))
+                do {
+                    try await Task.sleep(for: .seconds(remaining))
+                } catch {
+                    // La cancellazione è una conclusione, non un ritardo da ignorare: inghiottire
+                    // l'errore faceva girare questo ciclo senza sospendersi e saturava una CPU.
+                    return
+                }
             }
-            self?.isCutLineFlashing = false
+            guard let self, !Task.isCancelled else { return }
+            self.isCutLineFlashing = false
+            self.cutLineFlashDeadline = nil
+            self.cutLineFlashTask = nil
         }
     }
 
@@ -3972,18 +4025,24 @@ final class AppModel {
         isArchiving = true
         archiveMessage = nil
 
-        let plan: Data? = includingPlan ? try? ProjectDocument(from: self).encoded() : nil
+        let document = ProjectDocument(from: self)
+        let plan: Data? = includingPlan && document.hasPlanContent ? try? document.encoded() : nil
         let store = archive
         let identity = patient
         let metadata = archivableExam
         let source = examSourcePath
+        let previouslyArchivedID = archivedExamID
 
-        let outcome = await Task.detached(priority: .userInitiated) { () -> Result<ArchiveEntry, Error> in
+        let outcome = await Task.detached(priority: .userInitiated) {
+            () -> Result<(entry: ArchiveEntry, replacedPlan: Bool), Error> in
             do {
-                return .success(
-                    try store.store(
-                        volume: volume, patient: identity, exam: metadata,
-                        sourcePath: source, plan: plan))
+                let existing = try store.loadIndex().entries.first { $0.matches(exam: metadata) }
+                let ownsExistingEntry = existing?.id == previouslyArchivedID
+                let entry = try store.store(
+                    volume: volume, patient: identity, exam: metadata,
+                    sourcePath: source, plan: plan,
+                    preservingExistingPlanWhenAbsent: !ownsExistingEntry)
+                return .success((entry, existing?.hasPlan == true && plan != nil))
             } catch {
                 return .failure(error)
             }
@@ -3991,12 +4050,16 @@ final class AppModel {
 
         isArchiving = false
         switch outcome {
-        case .success(let entry):
+        case .success(let stored):
+            let entry = stored.entry
+            let ownsStoredEntry = previouslyArchivedID == entry.id
             archivedExamID = entry.id
-            await storeScanInArchive()
+            await storeScanInArchive(preservingExistingWhenAbsent: !ownsStoredEntry)
             let name = entry.patient.isAnonymous
                 ? "Esame anonimo" : entry.patient.displayName
-            lastActionMessage = "Archiviato: \(name) — \(entry.summary)"
+            lastActionMessage = stored.replacedPlan
+                ? "Archiviato: \(name) — \(entry.summary). Il piano precedente è stato sostituito."
+                : "Archiviato: \(name) — \(entry.summary)"
             await reloadArchive()
         case .failure(let error):
             archiveMessage = error.localizedDescription
@@ -4088,8 +4151,12 @@ final class AppModel {
     ///
     /// In binario e non in ASCII: uno STL ASCII pesa quattro volte tanto e non aggiunge niente
     /// che serva a chi lo rileggerà, che è questo stesso programma.
-    private func storeScanInArchive() async {
+    private func storeScanInArchive(preservingExistingWhenAbsent: Bool = false) async {
         guard let id = archivedExamID else { return }
+        // Una nuova importazione degli stessi DICOM non possiede ancora la voce trovata per UID:
+        // l'assenza di una scansione nella sessione non è una richiesta di cancellare quella
+        // archiviata. La rimozione resta invece esplicita per il caso aperto dall'archivio.
+        if scan == nil, preservingExistingWhenAbsent { return }
         let data = scan.map { MeshIO.exportSTLBinary($0) }
         let store = archive
         let error = await Task.detached(priority: .utility) { () -> String? in

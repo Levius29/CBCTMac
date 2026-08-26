@@ -205,6 +205,9 @@ public struct PatientArchive: Sendable {
     /// archivio si riempirebbe di copie identiche a ogni apertura, e l'elenco del paziente
     /// diventerebbe illeggibile proprio per chi lo usa più spesso.
     ///
+    /// - Parameter preservingExistingPlanWhenAbsent: conserva il piano trovato quando il
+    ///   chiamante non ne porta uno. Serve a chi ha reimportato gli stessi DICOM ma non possiede
+    ///   ancora la voce; chi l'ha aperta dall'archivio lascia il valore falso e può rimuoverlo.
     /// - Returns: la voce scritta.
     @discardableResult
     public func store(
@@ -212,7 +215,8 @@ public struct PatientArchive: Sendable {
         patient: PatientIdentity,
         exam: ExamMetadata,
         sourcePath: String = "",
-        plan: Data? = nil
+        plan: Data? = nil,
+        preservingExistingPlanWhenAbsent: Bool = false
     ) throws -> ArchiveEntry {
         try createFolders()
         var index = try loadIndex()
@@ -228,6 +232,10 @@ public struct PatientArchive: Sendable {
         let key = existing.map { index.entries[$0].patientKey }
             ?? patient.mergeKey ?? "anon:" + id.uuidString
         let note = existing.map { index.entries[$0].note } ?? ""
+        let existingHasPlan = existing.map { index.entries[$0].hasPlan } ?? false
+        // La scansione vive in un file separato e `store` non la riscrive: anche il distintivo
+        // deve sopravvivere, altrimenti l'indice nega un file che è ancora presente sul disco.
+        let existingHasScan = existing.flatMap { index.entries[$0].hasScan }
 
         let folder = directory(for: id)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -240,14 +248,15 @@ public struct PatientArchive: Sendable {
             storedAt: Date(),
             sourcePath: sourcePath,
             volumeBytes: VolumeFile.byteCount(of: volume),
-            hasPlan: plan != nil,
+            hasPlan: plan != nil || (preservingExistingPlanWhenAbsent && existingHasPlan),
+            hasScan: existingHasScan,
             note: note,
             patientKey: key)
 
         let planURL = folder.appendingPathComponent(Self.planName)
         if let plan {
             try plan.write(to: planURL, options: .atomic)
-        } else {
+        } else if !preservingExistingPlanWhenAbsent {
             // Riarchiviare senza piano toglie quello vecchio: lasciarlo significherebbe
             // riaprire l'esame e ritrovare un piano che si credeva di aver rimosso.
             try? FileManager.default.removeItem(at: planURL)

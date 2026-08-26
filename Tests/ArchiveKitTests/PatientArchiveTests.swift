@@ -222,6 +222,25 @@ struct PatientArchiveTests {
         #expect(archive.loadPlan(id: again.id) == nil)
     }
 
+    @Test("Una nuova importazione senza piano conserva quello già archiviato")
+    func absentPlanCanPreserveExistingWork() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let identity = PatientIdentity(patientID: "P1")
+        let plan = Data("{\"misure\":3}".utf8)
+        let stored = try archive.store(
+            volume: try tinyVolume(), patient: identity, exam: exam(), plan: plan)
+
+        let again = try archive.store(
+            volume: try tinyVolume(), patient: identity, exam: exam(), plan: nil,
+            preservingExistingPlanWhenAbsent: true)
+
+        #expect(again.id == stored.id)
+        #expect(again.hasPlan)
+        #expect(archive.loadPlan(id: again.id) == plan)
+    }
+
     // MARK: Cancellazione
 
     @Test("Cancellare toglie la voce e i dati")
@@ -431,6 +450,26 @@ struct PatientArchiveTests {
         try archive.setScan(nil, for: entry.id)
         #expect(archive.loadScan(id: entry.id) == nil)
         #expect(try archive.loadIndex().entries[0].hasScan == false)
+    }
+
+    @Test("Riarchiviare il volume conserva il distintivo della scansione")
+    func reArchivingPreservesScanFlag() throws {
+        let archive = try makeArchive()
+        defer { try? FileManager.default.removeItem(at: archive.rootURL) }
+
+        let identity = PatientIdentity(patientID: "P1")
+        let entry = try archive.store(
+            volume: try tinyVolume(), patient: identity, exam: exam())
+        let stl = Data("solid prova\nendsolid".utf8)
+        try archive.setScan(stl, for: entry.id)
+
+        let again = try archive.store(
+            volume: try tinyVolume(slices: 3), patient: identity, exam: exam())
+
+        #expect(again.id == entry.id)
+        #expect(again.hasScan == true)
+        #expect(try archive.loadIndex().entries[0].hasScan == true)
+        #expect(archive.loadScan(id: entry.id) == stl)
     }
 
     @Test("Scansione e piano non si toccano fra loro")

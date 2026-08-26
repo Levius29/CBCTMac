@@ -352,7 +352,7 @@ public enum PolarStreakSuppression: Sendable {
         return medians
     }
 
-    private static func wrapped(_ index: Int, count: Int) -> Int {
+    static func wrapped(_ index: Int, count: Int) -> Int {
         let remainder = index % count
         return remainder >= 0 ? remainder : remainder + count
     }
@@ -367,7 +367,7 @@ public enum PolarStreakSuppression: Sendable {
     }
 }
 
-private struct PolarGrid: Sendable {
+struct PolarGrid: Sendable {
     let streaks: [Double]
     let radialCount: Int
     let angularCount: Int
@@ -379,8 +379,11 @@ private struct PolarGrid: Sendable {
         let angularPosition = angle / angularStep
         let radial0 = Int(radialPosition.rounded(.down))
         let radial1 = min(radialCount - 1, radial0 + 1)
-        let angular0 = Int(angularPosition.rounded(.down)) % angularCount
-        let angular1 = (angular0 + 1) % angularCount
+        // `%` conserva il segno in Swift: per un angolo negativo produceva un indice negativo
+        // e la lettura sotto andava in trap, anche se oggi il chiamante principale normalizza.
+        let angular0 = PolarStreakSuppression.wrapped(
+            Int(angularPosition.rounded(.down)), count: angularCount)
+        let angular1 = PolarStreakSuppression.wrapped(angular0 + 1, count: angularCount)
         let radialFraction = radialPosition - Double(radial0)
         let angularFraction = angularPosition - floor(angularPosition)
         let a = streaks[radial0 * angularCount + angular0]

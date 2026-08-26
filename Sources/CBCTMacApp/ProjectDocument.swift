@@ -141,6 +141,26 @@ struct ProjectDocument: Codable, Sendable {
         return try encoder.encode(self)
     }
 
+    /// Vero quando il documento contiene lavoro dell'utente, non soltanto lo stato iniziale
+    /// delle viste.
+    ///
+    /// Un documento appena creato contiene comunque mirino, finestra e soglie. Trattarlo come
+    /// un piano vero faceva sì che riaprire la stessa cartella DICOM e archiviarla di nuovo
+    /// sostituisse con quei valori iniziali il piano clinico già conservato mesi prima.
+    // solo-in-scrittura: decide se sostituire un piano d'archivio, non è un dato del documento.
+    var hasPlanContent: Bool {
+        !plan.annotations.isEmpty
+            || !implants.isEmpty
+            || !nerveCanals.isEmpty
+            || !(teeth ?? []).isEmpty
+            || !(bars ?? []).isEmpty
+            || !(snapshots ?? []).isEmpty
+            || scanTransform != nil
+            || scanRegistration != nil
+            || !archControlPointsMM.isEmpty
+            || !(cephTracing?.isEmpty ?? true)
+    }
+
     static func decoded(from data: Data) throws -> ProjectDocument {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -201,12 +221,12 @@ struct ProjectDocument: Codable, Sendable {
             guard values.count >= 3 else { return nil }
             return Vec3(values[0], values[1], values[2])
         }
-        if points.count >= 2 {
-            let up = archUpAxis.count >= 3
-                ? Vec3(archUpAxis[0], archUpAxis[1], archUpAxis[2])
-                : Vec3(0, 0, 1)
-            model.archCurve = ArchCurve(controlPointsMM: points, upAxis: up)
-        }
+        let up = archUpAxis.count >= 3
+            ? Vec3(archUpAxis[0], archUpAxis[1], archUpAxis[2])
+            : Vec3(0, 0, 1)
+        // Assegnare anche il vuoto: saltarlo faceva ereditare al piano appena aperto la curva
+        // del caso precedente, e le viste derivate venivano ricostruite su quell'altra arcata.
+        model.archCurve = ArchCurve(controlPointsMM: points, upAxis: up)
 
         model.panoramicHeightMM = panoramicHeightMM
         model.panoramicSlabThicknessMM = panoramicSlabThicknessMM

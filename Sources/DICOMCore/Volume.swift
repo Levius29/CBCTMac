@@ -155,9 +155,13 @@ public struct Volume: Sendable {
     /// nel dato, non una media fra vicini.
     public func densityValue(atPatient p: Vec3) -> Double? {
         let v = geometry.voxelPoint(fromPatient: p)
-        let i = Int(v.x.rounded())
-        let j = Int(v.y.rounded())
-        let k = Int(v.z.rounded())
+        // Un piano JSON danneggiato può portare qui NaN, infinito o una coordinata troppo grande
+        // per `Int`: la conversione diretta va in trap e abbatte l'app mentre apre il caso.
+        guard v.isFinite,
+            let i = Int(exactly: v.x.rounded()),
+            let j = Int(exactly: v.y.rounded()),
+            let k = Int(exactly: v.z.rounded())
+        else { return nil }
         return densityValue(i: i, j: j, k: k)
     }
 

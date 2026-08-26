@@ -1,11 +1,24 @@
-import ArtifactKit
 import DICOMCore
 import Foundation
 import SegmentKit
 import Testing
 
+@testable import ArtifactKit
+
 @Suite("Soppressione polare delle strie")
 struct PolarStreakSuppressionTests {
+    @Test("L'interpolazione avvolge anche gli angoli negativi")
+    func negativeAngleWraps() {
+        let grid = PolarGrid(
+            streaks: [0, 10, 20, 30],
+            radialCount: 1,
+            angularCount: 4,
+            radialStepMM: 1,
+            angularStep: .pi / 2)
+
+        #expect(grid.interpolatedStreak(radiusMM: 0, angle: -.pi / 4) == 15)
+    }
+
     @Test("Una fetta senza metallo resta identica campione per campione")
     func sliceWithoutMetalIsByteIdentical() throws {
         let fixture = try makeStreakPhantom(slices: 2)
