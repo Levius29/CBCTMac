@@ -117,9 +117,18 @@ public enum InspectorSections {
     /// Le schede contestuali attive, nell'ordine canonico.
     ///
     /// Tutte quelle vere, non la prima: vedi `InspectorContext`.
+    ///
+    /// In rilettura non ce n'è nessuna, e la ragione è la stessa per cui in quella scheda non si
+    /// prende uno strumento: le schede contestuali *modificano* — spostano un impianto, cambiano
+    /// un diametro — e una rilettura in cui si modifica senza accorgersene non è una rilettura.
+    /// Il modo sta fra i parametri e non in un `if` dentro la vista proprio perché è una regola,
+    /// e le regole si provano.
     public static func contexts(
-        occlusalPlane: Bool, cephalometry: Bool, prostheticTooth: Bool, implant: Bool
+        mode: WorkMode, occlusalPlane: Bool, cephalometry: Bool, prostheticTooth: Bool,
+        implant: Bool
     ) -> [InspectorContext] {
+        guard mode.isEditable else { return [] }
+
         var result: [InspectorContext] = []
         if occlusalPlane { result.append(.occlusalPlane) }
         if cephalometry { result.append(.cephalometry) }

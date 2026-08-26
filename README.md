@@ -69,7 +69,7 @@ e resta utile anche ora che si aprono studi veri.
 > **Stato della verifica.** `swift test` copre i moduli condivisi: 605 test in 74 suite, tutti
 > verdi su Swift 6.2. Il target dell'applicazione è condizionale a macOS e non entra in quella
 > suite, perché importa SwiftUI, AppKit e Metal; le sue chiamate verso i moduli sono però
-> verificate da `AppContractTests` e da undici controlli statici in `Tools/`.
+> verificate da `AppContractTests` e da ventisei controlli statici in `Tools/`.
 >
 > **Su macOS `swift test` richiede Xcode**, non bastano i Command Line Tools: sette file di test
 > importano `XCTest`, che su macOS vive dentro Xcode e non nella toolchain da riga di comando.
@@ -88,6 +88,18 @@ dimenticare uno degli `switch` che lo consumano è un errore che il compilatore 
 subito — dove c'è. Il controllo è sintattico e prudente: legge gli enum di tutti i moduli per non
 scambiare un `AnatomicalPlane` per un `ViewportSlot` incompleto, e tace quando un enum è coperto
 esattamente.
+
+È uno di ventisei controlli in `Tools/`, tutti eseguibili senza Xcode e senza rete:
+
+```sh
+for controllo in Tools/check-*.py; do python3 "$controllo" || break; done
+```
+
+Tre riguardano i pannelli, e nascono da un difetto solo — «se apro una cosa, poi non posso più
+aprirne altre»: `check-modal-routes.py` pretende che le finestre modali passino da una strada
+sola, `check-panel-exits.py` che ogni stato acceso si possa spegnere, `check-inspector-routes.py`
+che l'ispettore mostri elenchi invece di catene di `else`, dove il primo ramo vero copre gli
+altri. Vedi le *Regole trasversali* in [`docs/architecture.md`](docs/architecture.md).
 
 ### Costruire `3DMED.app`
 

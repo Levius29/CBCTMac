@@ -66,6 +66,7 @@ struct InspectorPanel: View {
     /// Ciò su cui si sta lavorando adesso: zero, uno o più contesti insieme.
     private var activeContexts: [InspectorContext] {
         InspectorSections.contexts(
+            mode: model.workMode,
             occlusalPlane: model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty,
             cephalometry: model.activeTool == .cephalometry || model.isShowingCephalometry,
             prostheticTooth: model.activeTool == .prostheticTooth || model.selectedTooth != nil,

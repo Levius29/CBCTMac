@@ -227,6 +227,23 @@ all'ingresso dello shader.
 **Unità.** Ogni valore in millimetri porta il suffisso nel nome (`lengthMM`, `spacingMM`).
 Gli angoli sono in radianti internamente, in gradi solo in UI.
 
+**Pannelli.** Da ogni stato dell'interfaccia si deve poter tornare indietro, e nessun pannello
+ne nasconde un altro. Tre regole lo tengono fermo, ciascuna con il suo controllo in `Tools/`:
+
+- *Una modale per volta, e nessuna richiesta perduta.* La presentazione passa da `activeSheet` e
+  da `ModalRouter`, non da un booleano per finestra: `.sheet(isPresented:)` impilati se ne
+  perdono uno e lasciano l'interruttore acceso, e da lì in poi quel comando non apre più niente
+  (`check-modal-routes.py`).
+- *Ogni stato che si accende si spegne.* Un booleano del modello con un `= true` e nessun
+  `= false` è un vicolo cieco: chi ci finisce dentro non ha un gesto per uscirne
+  (`check-panel-exits.py`).
+- *L'ispettore mostra elenchi, non catene di `else`.* Quali sezioni e quali contesti si vedano lo
+  decide `InspectorSections`, in StudyKit, dove i test percorrono per intero le combinazioni di
+  scheda, disposizione e riquadro a fuoco (`check-inspector-routes.py`).
+
+Il difetto che le ha motivate tutte e tre si descriveva così: «se apro una cosa, poi non posso
+più aprirne altre».
+
 ---
 
 ## 4. Uso previsto e limiti

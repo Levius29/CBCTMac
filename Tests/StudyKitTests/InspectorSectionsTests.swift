@@ -151,8 +151,8 @@ struct InspectorContextTests {
             let implant = bits & 8 != 0
 
             let contexts = InspectorSections.contexts(
-                occlusalPlane: occlusal, cephalometry: ceph, prostheticTooth: tooth,
-                implant: implant)
+                mode: .orthogonal, occlusalPlane: occlusal, cephalometry: ceph,
+                prostheticTooth: tooth, implant: implant)
 
             let expected = [occlusal, ceph, tooth, implant].filter { $0 }.count
             #expect(contexts.count == expected)
@@ -166,7 +166,8 @@ struct InspectorContextTests {
     @Test("L'ordine è sempre lo stesso")
     func theOrderIsStable() {
         let all = InspectorSections.contexts(
-            occlusalPlane: true, cephalometry: true, prostheticTooth: true, implant: true)
+            mode: .orthogonal, occlusalPlane: true, cephalometry: true, prostheticTooth: true,
+            implant: true)
         #expect(all == [.occlusalPlane, .cephalometry, .prostheticTooth, .implant])
         #expect(all == InspectorContext.allCases)
     }
@@ -174,7 +175,18 @@ struct InspectorContextTests {
     @Test("Senza niente in mano non c'è nessuna scheda")
     func nothingActiveMeansNoCards() {
         let none = InspectorSections.contexts(
-            occlusalPlane: false, cephalometry: false, prostheticTooth: false, implant: false)
+            mode: .orthogonal, occlusalPlane: false, cephalometry: false, prostheticTooth: false,
+            implant: false)
         #expect(none.isEmpty)
+    }
+
+    @Test("In rilettura non si modifica niente, quindi non c'è nessuna scheda")
+    func reviewShowsNoContext() {
+        // Un impianto resta selezionato passando a «Rivedi»: se la sua scheda comparisse lo si
+        // potrebbe ridimensionare da una scheda che promette di non toccare niente.
+        let contexts = InspectorSections.contexts(
+            mode: .review, occlusalPlane: true, cephalometry: true, prostheticTooth: true,
+            implant: true)
+        #expect(contexts.isEmpty)
     }
 }
