@@ -3149,6 +3149,11 @@ final class AppModel {
         // scansione dal caso da cui si sta uscendo.
         occlusalPointsMM = []
         reorientFailure = nil
+        // Il riquadro di lettura è in millimetri Patient, cioè nel sistema di **quell'esame**.
+        // Restava acceso aprendo il caso successivo, e con un'origine diversa poteva cadere
+        // fuori dall'anatomia: i riquadri si aprivano vuoti o mezzi vuoti, senza niente che
+        // dicesse perché — un pannello che non mostra niente sembra un pannello rotto.
+        clipBox = ClipBox(minMM: .zero, maxMM: .zero)
         scan = nil
         scanTransform = .identity
         scanRegistration = nil

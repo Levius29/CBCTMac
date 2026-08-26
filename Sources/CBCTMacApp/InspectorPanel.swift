@@ -1065,10 +1065,16 @@ struct ProfileChart: View {
             HStack {
                 Text(range)
                 Spacer()
-                Text(
-                    String(format: "%.1f mm", samples[samples.count - 1].distanceMM)
-                        .replacingOccurrences(of: ".", with: ",")
-                )
+                // `samples.last` e non `samples[count - 1]`: dentro il disegno c'è una guardia
+                // che pretende almeno due campioni, qui non c'era, e un profilo tutto fuori dal
+                // volume torna vuoto — cioè l'ispettore andava in errore proprio nel caso che
+                // già non aveva niente da mostrare.
+                if let last = samples.last {
+                    Text(
+                        String(format: "%.1f mm", last.distanceMM)
+                            .replacingOccurrences(of: ".", with: ",")
+                    )
+                }
             }
             .font(Typography.numericSmall)
             .foregroundStyle(Palette.textSecondary)
