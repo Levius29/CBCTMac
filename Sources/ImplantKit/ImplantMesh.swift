@@ -114,6 +114,126 @@ public enum ImplantMesh {
         return Mesh(verticesMM: vertices, triangles: triangles, name: label)
     }
 
+    /// Superficie filettata dettagliata per STL e costruzione della dima.
+    ///
+    /// La filettatura resta parametrica: nessuna sagoma commerciale entra nella mesh. Sedici
+    /// campioni per passo evitano che una scanalatura destinata alla stampa venga ridotta a una
+    /// successione di spigoli visibili.
+    public static func threadedSurface(
+        of implant: ImplantPlacement,
+        segments: Int = defaultSegments,
+        name: String? = nil
+    ) -> Mesh {
+        threadedSurface(
+            of: implant,
+            circumferentialSegments: Swift.min(Swift.max(segments, 3), 512),
+            axialSamplesPerPitch: 32,
+            maximumAxialIntervals: 16_384,
+            name: name
+        )
+    }
+
+    /// Superficie filettata leggera per il disegno CPU in tempo reale.
+    ///
+    /// Il passo resta leggibile, ma si riducono entrambe le dimensioni della griglia: è questa
+    /// scelta combinata che impedisce ai triangoli di moltiplicarsi a ogni fotogramma.
+    public static func threadedScreenSurface(
+        of implant: ImplantPlacement,
+        segments: Int = defaultSegments,
+        name: String? = nil
+    ) -> Mesh {
+        threadedSurface(
+            of: implant,
+            circumferentialSegments: Swift.max(Swift.min(Swift.max(segments, 3), 512) / 4, 3),
+            axialSamplesPerPitch: 2,
+            maximumAxialIntervals: 1_024,
+            name: name
+        )
+    }
+
+    private static func threadedSurface(
+        of implant: ImplantPlacement,
+        circumferentialSegments sides: Int,
+        axialSamplesPerPitch: Int,
+        maximumAxialIntervals: Int,
+        name: String?
+    ) -> Mesh {
+        let model = implant.model
+        guard model.threadPitchMM.isFinite, model.threadPitchMM > 0,
+              model.threadDepthMM.isFinite, model.threadDepthMM > 0
+        else {
+            return surface(of: implant, segments: sides, name: name)
+        }
+
+        let label = name ?? (implant.label.isEmpty ? "Impianto" : implant.label)
+        guard model.profile.count >= 2, let axis = implant.axis.normalized else {
+            return Mesh(verticesMM: [], triangles: [], name: label)
+        }
+
+        let length = model.profile.last?.zMM ?? model.lengthMM
+        let turns = length / model.threadPitchMM
+        let requestedIntervals = turns * Double(axialSamplesPerPitch)
+        // I parametri sono pubblici e possono arrivare da documenti esterni: il tetto evita
+        // sia la conversione di infinito a Int sia una mesh capace di esaurire la memoria.
+        let sampledIntervals = requestedIntervals.isFinite
+            ? Int(Foundation.ceil(Swift.min(requestedIntervals, Double(maximumAxialIntervals))))
+            : maximumAxialIntervals
+        let intervals = Swift.max(
+            Swift.min(model.profile.count - 1, maximumAxialIntervals),
+            sampledIntervals
+        )
+        let (right, up) = perpendicularFrame(to: axis)
+        var vertices: [Vec3] = []
+        var triangles: [Triangle] = []
+        vertices.reserveCapacity((intervals + 1) * sides + 2)
+        triangles.reserveCapacity(intervals * sides * 2 + sides * 2)
+
+        for ring in 0...intervals {
+            let z = length * Double(ring) / Double(intervals)
+            let centre = implant.platformMM + axis * z
+            let profileRadius = model.radius(atZ: z)
+            for side in 0..<sides {
+                let angle = 2 * Double.pi * Double(side) / Double(sides)
+                let phase = 2 * Double.pi * z / model.threadPitchMM - angle
+                // Una cosinusoide dà cresta e fondo senza discontinuità: le normali restano
+                // definite e la differenza cresta-fondo coincide con la profondità richiesta.
+                let groove = model.threadDepthMM * (1 + Foundation.cos(phase)) / 2
+                let radius = Swift.max(profileRadius - groove, 0)
+                let offset =
+                    right * (Foundation.cos(angle) * radius)
+                    + up * (Foundation.sin(angle) * radius)
+                vertices.append(centre + offset)
+            }
+        }
+
+        for ring in 0..<intervals {
+            let lower = ring * sides
+            let upper = (ring + 1) * sides
+            for side in 0..<sides {
+                let next = (side + 1) % sides
+                triangles.append(Triangle(a: lower + side, b: upper + next, c: upper + side))
+                triangles.append(Triangle(a: lower + side, b: lower + next, c: upper + next))
+            }
+        }
+
+        let platformCentre = vertices.count
+        vertices.append(implant.platformMM)
+        for side in 0..<sides {
+            let next = (side + 1) % sides
+            triangles.append(Triangle(a: platformCentre, b: next, c: side))
+        }
+
+        let apexRing = intervals * sides
+        let apexCentre = vertices.count
+        vertices.append(implant.platformMM + axis * length)
+        for side in 0..<sides {
+            let next = (side + 1) % sides
+            triangles.append(Triangle(a: apexCentre, b: apexRing + side, c: apexRing + next))
+        }
+
+        return Mesh(verticesMM: vertices, triangles: triangles, name: label)
+    }
+
     /// La sagoma del dente come scatola chiusa.
     ///
     /// - Parameter mesialDirectionMM: la tangente all'arcata, come per

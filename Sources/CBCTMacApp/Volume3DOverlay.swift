@@ -246,8 +246,13 @@ struct Volume3DOverlay: View {
                 }
                 continue
             }
+            // Filettato, e alla tassellatura da schermo: un impianto liscio non si riconosce, e
+            // uno filettato alla risoluzione dell'esportazione moltiplicherebbe i triangoli per
+            // dieci proprio nel disegno che gira sulla CPU. `threadedScreenSurface` tiene il
+            // passo leggibile e la griglia stretta — è la stessa scelta della risoluzione
+            // ridotta nel raycaster, applicata all'altro disegno.
             let mesh = model.solidMeshes.mesh(id: implant.id, key: implant.hashValue) {
-                ImplantMesh.surface(of: implant, segments: Self.solidSegments)
+                ImplantMesh.threadedScreenSurface(of: implant, segments: Self.solidSegments)
             }
             guard !mesh.triangles.isEmpty else { continue }
             draw(

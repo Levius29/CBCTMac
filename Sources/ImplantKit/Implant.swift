@@ -42,6 +42,16 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
     /// murato a una frazione fissa del corpo; adesso è un parametro, perché è una misura che si
     /// guarda quando si sceglie l'impianto.
     public var apexDiameterMM: Double
+    /// Passo della filettatura parametrica.
+    ///
+    /// Il valore iniziale è soltanto tipico e illustrativo: non riproduce la misura di alcun
+    /// prodotto reale e va sostituito quando il piano dispone di dati specifici.
+    public var threadPitchMM: Double
+    /// Profondità radiale della filettatura parametrica.
+    ///
+    /// Anche questo valore iniziale è tipico e illustrativo, non una misura ricavata da un
+    /// impianto commerciale.
+    public var threadDepthMM: Double
     /// Profilo dalla piattaforma all'apice, ordinato per `zMM` crescente.
     ///
     /// Generato dai tre diametri, e conservato invece che ricalcolato: un giorno lo si potrà
@@ -57,7 +67,9 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
         lengthMM: Double,
         platformDiameterMM: Double? = nil,
         apexDiameterMM: Double? = nil,
-        profile: [ProfilePoint]? = nil
+        profile: [ProfilePoint]? = nil,
+        threadPitchMM: Double = Self.defaultThreadPitchMM,
+        threadDepthMM: Double = Self.defaultThreadDepthMM
     ) {
         self.id = id
         self.manufacturer = manufacturer
@@ -72,6 +84,8 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
         let apex = max(apexDiameterMM ?? body * Self.defaultApexRatio, 0.1)
         self.platformDiameterMM = platform
         self.apexDiameterMM = apex
+        self.threadPitchMM = threadPitchMM.isFinite ? max(threadPitchMM, 0) : 0
+        self.threadDepthMM = threadDepthMM.isFinite ? max(threadDepthMM, 0) : 0
         self.profile =
             profile
             ?? Self.taperedProfile(
@@ -82,7 +96,7 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, manufacturer, line, diameterMM, lengthMM, platformDiameterMM, apexDiameterMM,
-            profile
+            profile, threadPitchMM, threadDepthMM
     }
 
     /// Decodifica scritta a mano per una ragione sola: `apexDiameterMM` non esisteva.
@@ -102,6 +116,16 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
             try container.decodeIfPresent(Double.self, forKey: .platformDiameterMM)
             ?? diameterMM
         self.profile = try container.decode([ProfilePoint].self, forKey: .profile)
+        // I piani precedenti non portano queste chiavi: il ripiego preserva l'apertura del
+        // documento e resta dichiaratamente generico, invece di fingere dati del produttore.
+        let decodedPitch =
+            try container.decodeIfPresent(Double.self, forKey: .threadPitchMM)
+            ?? Self.defaultThreadPitchMM
+        let decodedDepth =
+            try container.decodeIfPresent(Double.self, forKey: .threadDepthMM)
+            ?? Self.defaultThreadDepthMM
+        self.threadPitchMM = decodedPitch.isFinite ? max(decodedPitch, 0) : 0
+        self.threadDepthMM = decodedDepth.isFinite ? max(decodedDepth, 0) : 0
         if let apex = try container.decodeIfPresent(Double.self, forKey: .apexDiameterMM) {
             self.apexDiameterMM = apex
         } else {
@@ -112,6 +136,12 @@ public struct ImplantModel: Hashable, Sendable, Codable, Identifiable {
 
     /// Rapporto fra diametro all'apice e diametro del corpo di un conico generico.
     public static let defaultApexRatio: Double = 0.62
+
+    /// Valore tipico illustrativo per una filettatura generica, non misura di un prodotto reale.
+    public static let defaultThreadPitchMM: Double = 0.8
+
+    /// Valore tipico illustrativo per una filettatura generica, non misura di un prodotto reale.
+    public static let defaultThreadDepthMM: Double = 0.25
 
     /// Cambia le tre misure e rigenera il profilo.
     ///
