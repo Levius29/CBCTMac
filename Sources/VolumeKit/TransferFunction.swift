@@ -476,19 +476,27 @@ public struct VolumeCamera: Hashable, Sendable {
     /// gesto, abbastanza lento da fermarsi dove si vuole.
     public static let radiansPerDragPixel = Double.pi / 400
 
-    /// La camera dopo un trascinamento.
+    /// La camera dopo un trascinamento, in modo che **il modello segua il dito**.
     ///
-    /// # Perché i due segni stanno qui e non nel modello
+    /// # I due segni, e perché erano tutti e due sbagliati
     ///
-    /// Perché sono una convenzione con una risposta giusta e una sbagliata, e scritti nel
-    /// modello nessuna prova li raggiunge: il bersaglio dell'applicazione non si compila fuori
-    /// da macOS. Qui invece si fissano una volta e si provano.
+    /// Stavano scritti a mano nel modello: `+delta.width` sull'azimut, `-delta.height`
+    /// sull'elevazione. L'asimmetria faceva pensare a una correzione applicata a un asse solo, e
+    /// invece erano sbagliati entrambi — la negazione della verticale compensava soltanto il
+    /// verso delle coordinate del drawable, dove y cresce verso il basso.
     ///
-    /// La convenzione attuale è **la camera segue il dito**: portando il dito a destra la camera
-    /// gira verso la sinistra del paziente, e l'oggetto sembra girare al contrario. Vale
-    /// identica sui due assi — non c'è un asse trattato diversamente dall'altro, e le prove
-    /// accanto lo fissano perché è precisamente la cosa che si romperebbe correggendone uno
-    /// solo.
+    /// Con quella convenzione, trascinando a destra il naso si spostava di venticinque
+    /// millimetri **a sinistra**, e trascinando in basso **in alto**: la camera girava attorno al
+    /// paziente nel verso del dito, quindi il paziente girava al contrario.
+    ///
+    /// Il difetto è rimasto in piedi a lungo per una ragione che vale la pena dire: l'indicatore
+    /// di orientamento era un quadrato piatto con dentro una lettera. Sull'asse verticale non
+    /// poteva mostrare niente — cambiava solo il carattere — e su un cranio, che è quasi
+    /// simmetrico, chi gira corregge senza accorgersene. È saltato fuori quando il quadrato è
+    /// diventato un cubo vero: un difetto che aspettava di avere un testimone.
+    ///
+    /// La regola, adesso, è una sola e vale su entrambi gli assi: **si trascina il modello, non
+    /// la camera.** Il punto sotto il dito va dove va il dito.
     ///
     /// - Parameters:
     ///   - x: spostamento orizzontale in pixel, positivo verso destra.
@@ -496,8 +504,8 @@ public struct VolumeCamera: Hashable, Sendable {
     ///     `pixelDelta`, che lavora in coordinate del drawable con l'origine in alto.
     public func orbited(byDragX x: Double, y: Double) -> VolumeCamera {
         orbited(
-            deltaAzimuth: x * Self.radiansPerDragPixel,
-            deltaElevation: -y * Self.radiansPerDragPixel)
+            deltaAzimuth: -x * Self.radiansPerDragPixel,
+            deltaElevation: y * Self.radiansPerDragPixel)
     }
 
     /// Solo la verticale, per quando l'orizzontale non serve.
