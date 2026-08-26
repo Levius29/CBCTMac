@@ -217,6 +217,9 @@ Se l'applicazione mostra numeri diversi, l'errore è nella catena delle coordina
   del volume, terminologia dei valori di densità, cifre significative. Da leggere prima di
   scrivere qualunque codice.
 - [`docs/ui-spec.md`](docs/ui-spec.md) — specifica grafica e prompt per generare anteprime.
+- [`docs/stato-build.html`](docs/stato-build.html) — **lo stato della build, per chi usa il
+  programma**: che cosa è verificato e che cosa no, che cosa provare adesso, dove siamo rispetto
+  ai programmi commerciali. Si apre in un browser senza installare niente.
 - [`CLAUDE.md`](CLAUDE.md) — come si lavora sul repository: la regola dei rami (tutto
   converge su `main`), il cancello di verifica prima di fondere, la lingua di commit e commenti.
 

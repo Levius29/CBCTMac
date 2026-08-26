@@ -1,0 +1,1253 @@
+<title>Stato della build CBCTMac</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  /* Tavolozza: quella dell'applicazione, da docs/ui-spec.md § 2.
+     Pagina a tema unico e scuro, deliberatamente. Non è una scorciatoia: i colori dei piani
+     (#F1554C, #4FCB6B, #FFD426) sono tarati per essere letti su nero, che è il fondo su cui si
+     legge la radiologia, e su bianco il giallo sagittale diventa illeggibile. */
+  :root {
+    --ground:    #0B0C0E;
+    --surface:   #16181C;
+    --raised:    #1E2126;
+    --hairline:  #2C3037;
+    --text:      #ECEEF2;
+    --muted:     #868D97;
+    --faint:     #5D646E;
+
+    --accent:    #32B8C6;
+    --ok:        #30D158;
+    --pending:   #FF9F0A;
+    --gap:       #E15759;
+
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 1080px; margin: 0 auto; padding: 56px 28px 96px; }
+
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+  h1 {
+    font-variation-settings: "wdth" 118, "wght" 700;
+    font-size: clamp(30px, 5vw, 46px);
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+  }
+  h2 {
+    font-variation-settings: "wdth" 112, "wght" 650;
+    font-size: 21px;
+    line-height: 1.2;
+  }
+  h3 {
+    font-variation-settings: "wdth" 108, "wght" 600;
+    font-size: 15px;
+    line-height: 1.3;
+  }
+
+  /* Le maiuscole espanse vengono dall'app: `Typography.viewportLabel` è `.width(.expanded)`,
+     ed è così che i riquadri scrivono ASSIALE, CORONALE, SAGITTALE. */
+  .eyebrow {
+    font-family: var(--display);
+    font-variation-settings: "wdth" 122, "wght" 600;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--faint);
+  }
+
+  p { margin: 0; max-width: 68ch; }
+  b, strong { font-weight: 600; color: #FBFCFD; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  header { padding-bottom: 34px; border-bottom: 1px solid var(--hairline); }
+  .titleline { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .sub { margin-top: 16px; color: var(--muted); font-size: 16.5px; max-width: 64ch; }
+
+  section { padding-top: 46px; }
+  .sechead { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .sechead .note { color: var(--faint); font-size: 13px; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--hairline);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    margin-top: 30px;
+    overflow: hidden;
+  }
+  .stat { background: var(--surface); padding: 16px 18px 15px; }
+  .stat .v {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 27px;
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .stat .k { margin-top: 5px; font-size: 12px; color: var(--muted); line-height: 1.35; }
+  .stat.good .v { color: var(--ok); }
+
+  /* Le due strade di compilazione. Non è decorazione: sono due applicazioni diverse. */
+  .build {
+    margin-top: 30px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+    gap: 1px;
+    background: var(--hairline);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .lane { background: var(--surface); padding: 18px 20px 20px; }
+  .lane.pick { border-top: 2px solid var(--accent); }
+  .lane h3 { margin-bottom: 4px; }
+  .lane .tag { margin-bottom: 10px; }
+  .lane p { font-size: 13.5px; color: var(--muted); margin-top: 10px; }
+
+  .callout {
+    margin-top: 30px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-left: 2px solid var(--accent);
+    border-radius: 3px;
+    padding: 18px 22px;
+  }
+  .callout p + p { margin-top: 10px; }
+
+  /* ---- Elenchi con etichetta ---- */
+
+  .items { border-top: 1px solid var(--hairline); }
+  .item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 20px;
+    align-items: start;
+    padding: 16px 2px 15px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .item .what {
+    font-family: var(--display);
+    font-variation-settings: "wdth" 106, "wght" 600;
+    font-size: 15.5px;
+  }
+  .item .why { grid-column: 1; color: var(--muted); font-size: 13.5px; max-width: 76ch; }
+  .item .tag { grid-column: 2; grid-row: 1; margin-top: 3px; }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 8px 2px;
+    border-radius: 2px;
+    white-space: nowrap;
+    border: 1px solid;
+  }
+  .tag.have  { color: var(--ok);      border-color: rgba(48, 209, 88, .35);  background: rgba(48, 209, 88, .07); }
+  .tag.part  { color: var(--pending); border-color: rgba(255, 159, 10, .35); background: rgba(255, 159, 10, .07); }
+  .tag.miss  { color: var(--gap);     border-color: rgba(225, 87, 89, .38);  background: rgba(225, 87, 89, .08); }
+  .tag.edge  { color: var(--accent);  border-color: rgba(50, 184, 198, .38); background: rgba(50, 184, 198, .08); }
+
+  .try { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    padding: 15px 17px 16px;
+  }
+  .card.fresh { border-color: rgba(50, 184, 198, .38); }
+  .card h3 { margin-bottom: 5px; }
+  .card p { font-size: 13.5px; color: var(--muted); }
+  .card .keys {
+    display: inline-block;
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--accent);
+  }
+
+  .ledger { display: grid; gap: 9px; }
+  .row { display: grid; grid-template-columns: 210px 1fr 54px; gap: 16px; align-items: center; }
+  .row .lbl { font-size: 13px; color: var(--muted); }
+  .row .lbl span { color: var(--faint); font-family: var(--mono); font-size: 11px; margin-right: 7px; }
+  .track { height: 9px; background: var(--raised); border-radius: 1px; overflow: hidden; }
+  .fill { height: 100%; background: var(--accent); }
+  .row.full .fill { background: var(--ok); }
+  .row .cnt {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  /* Tabella dei controlli. Con tre righe se ne poteva fare a meno; con undici no — e una tabella
+     senza allineamento è un elenco travestito, che è il contrario di ciò per cui si sceglie una
+     tabella. */
+  .scroller { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  thead th {
+    text-align: left;
+    font-family: var(--display);
+    font-variation-settings: "wdth" 118, "wght" 600;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--faint);
+    font-weight: 400;
+    padding: 0 16px 8px 0;
+    border-bottom: 1px solid var(--hairline);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 10px 16px 10px 0;
+    border-bottom: 1px solid var(--hairline);
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.name {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  td.desc { color: var(--muted); }
+  td.desc:last-child { color: var(--faint); }
+
+  pre {
+    margin: 0;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--text);
+  }
+  pre .c { color: var(--faint); }
+
+  .log { display: flex; flex-direction: column; }
+  .commit {
+    display: grid; grid-template-columns: 80px 1fr; gap: 16px;
+    padding: 13px 0; border-bottom: 1px solid var(--hairline);
+  }
+  .commit:last-child { border-bottom: none; }
+  .sha { font-family: var(--mono); font-size: 12.5px; color: var(--accent); padding-top: 1px; }
+  .commit-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .commit-body strong { font-size: 14.5px; }
+  .commit-body p { font-size: 13.5px; color: var(--muted); }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 22px;
+    border-top: 1px solid var(--hairline);
+    font-size: 12.5px;
+    color: var(--faint);
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+
+  @media (max-width: 620px) {
+    .row { grid-template-columns: 1fr; gap: 5px; }
+    .row .cnt { text-align: left; }
+    .item { grid-template-columns: 1fr; }
+    .commit { grid-template-columns: 1fr; gap: 4px; }
+    .item .tag { grid-column: 1; grid-row: auto; }
+  }
+</style>
+
+<div class="page">
+
+  <header>
+    <div class="titleline">
+      <h1>CBCTMac</h1>
+      <span class="eyebrow">stato della build &middot; 26 agosto 2026 &middot; 215247b</span>
+    </div>
+    <p class="sub">
+      Centosessantaquattro commit, quattordici moduli, 1036 prove. Da questo giro <b>un dente esce
+      dall'esame e va in stampa</b>: si confina la crescita con un riquadro di lettura, si separano
+      denti e arcate, e la mesh esce chiusa in STL o OBJ. Gli impianti sono <b>filettati</b> e il
+      catalogo si importa da un file. Il catalogo di CS 3D resta finito — 99 voci su 101, due
+      parziali dichiarate.
+    </p>
+    <p class="sub">
+      La novità che cambia il comando che digiti: <b>il programma adesso sta tutto su
+      <span class="num">main</span></b>. Erano sei rami paralleli con dentro il solo LICENSE sul
+      tronco; ora si compila da lì, e la regola che ce lo tiene è scritta in
+      <span class="num">CLAUDE.md</span>.
+    </p>
+
+    <div class="stats">
+      <div class="stat"><div class="v">1036</div><div class="k">prove dichiarate &middot; <span style="color:var(--ok)">921</span> l'ultima corsa verde</div></div>
+      <div class="stat"><div class="v">54.898</div><div class="k">righe di sorgente</div></div>
+      <div class="stat"><div class="v">22.497</div><div class="k">righe di test</div></div>
+      <div class="stat good"><div class="v">99<span style="color:var(--faint)">/101</span></div><div class="k">catalogo CS 3D, due parziali</div></div>
+      <div class="stat good"><div class="v">26</div><div class="k">controlli che girano prima di ogni consegna</div></div>
+    </div>
+  </header>
+
+  <section>
+    <div class="sechead">
+      <h2>Che cosa compilare</h2>
+      <span class="note">due strade, e non danno la stessa applicazione</span>
+    </div>
+
+    <p style="color:var(--muted);font-size:14.5px;max-width:76ch">
+      Se hai letto <span class="num">CBCTMacApp</span> accanto alla mela mentre la finestra diceva
+      3DMED, era questo. macOS, per un eseguibile <b>senza bundle</b>, prende il nome del menu dal
+      file eseguibile, e SwiftPM dà al binario il nome del <i>prodotto</i> — che si chiamava
+      <span class="num">CBCTMacApp</span>. Ora il prodotto si chiama <span class="num">3DMED</span>
+      e il nome è uno solo; il target resta <span class="num">CBCTMacApp</span>, che è il nome del
+      modulo, quindi nessun <span class="num">import</span> cambia.
+    </p>
+
+    <div class="build">
+      <div class="lane pick">
+        <h3>Bundle</h3>
+        <span class="tag edge">per provare davvero</span>
+        <pre>./Tools/make-app-bundle.sh
+open 3DMED.app</pre>
+        <p>
+          Compila in release, scrive l'<span class="num">Info.plist</span>, genera l'icona e firma
+          ad-hoc. È l'unica strada con identità di bundle: finestre di dialogo dei file regolari,
+          tipi di documento dichiarati, applicazione visibile al sistema.
+        </p>
+      </div>
+      <div class="lane">
+        <h3>Eseguibile nudo</h3>
+        <span class="tag part">per un giro veloce</span>
+        <pre>swift build
+swift run 3DMED</pre>
+        <p>
+          Senza <span class="num">Info.plist</span> le finestre di dialogo dei file si comportano
+          in modo irregolare e i tipi di documento non esistono. Sono difetti della strada, non del
+          programma — e per non doverlo più dedurre, la barra di stato scrive quale delle due sta
+          girando: <span class="num">3DMED 0.1.0-dev · app</span> oppure <span class="num">· SwiftPM</span>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>Che cosa è verificato, e che cosa no</h2>
+      <span class="note">tre stati, non due</span>
+    </div>
+    <div class="items">
+      <div class="item">
+        <div class="what">Suite di test dei moduli</div>
+        <span class="tag part">1036 scritte · 921 corse</span>
+        <div class="why">
+          Tutta la matematica: geometria DICOM, misure e incertezza, arcata e panorex, impianti e
+          sicurezza, mesh e registrazione, segmentazione, dima, relazione. Oggi la suite
+          <b>dichiara</b> 1036 prove in 116 gruppi.
+          <br><br>
+          L'etichetta porta due numeri perché sono due cose diverse, e vale la pena non
+          confonderle. L'ultima corsa registrata — 921 prove, tutte verdi, su Swift 6.1.2 per
+          Linux — è <b>anteriore</b> alle prove della crescita confinata e della mesh stampabile.
+          Quelle sono scritte e non le ha ancora eseguite nessuno: finché non lanci
+          <span class="num">swift test</span> sul tuo Mac, il numero verde è 921, non 1036. Un
+          conteggio spacciato per un esito sarebbe precisamente la luce verde priva di significato
+          contro cui è costruito tutto il resto di questa pagina.
+        </div>
+      </div>
+      <div class="item">
+        <div class="what">Compilazione dei moduli condivisi</div>
+        <span class="tag have">14 moduli</span>
+        <div class="why">
+          <span class="num">swift build</span> pulito, senza avvisi, su Swift 6.2 in concorrenza
+          stretta.
+        </div>
+      </div>
+      <div class="item">
+        <div class="what">Codice dell'applicazione</div>
+        <span class="tag part">solo grammatica</span>
+        <div class="why">
+          <span class="num">swiftc -parse</span> passa su tutti i 50 file, ma è grammatica, non
+          tipi. Il target è condizionale a macOS e qui <b>non si compila</b>: un tipo sbagliato o
+          un argomento fuori posto si scopre alla tua prima compilazione. Il target
+          <span class="num">AppContractTests</span> ripete però ogni chiamata dell'app verso i
+          moduli con le stesse firme, e quello compila: le firme sbagliate si vedono già qui, e
+          resta fuori solo il codice di piattaforma vero e proprio.
+        </div>
+      </div>
+      <div class="item">
+        <div class="what">Metal e rendering</div>
+        <span class="tag part">non eseguibile qui</span>
+        <div class="why">
+          Gli shader non si compilano e non girano. MPR, raycaster e panorex sono verificati nella
+          matematica che li alimenta, non nel disegno che producono.
+        </div>
+      </div>
+      <div class="item">
+        <div class="what">Comportamento a schermo</div>
+        <span class="tag miss">solo a mano</span>
+        <div class="why">
+          Gesti, trascinamenti, fluidità dello scorrimento: nessun test automatico li copre, e
+          nessuno potrebbe da qui. È la parte che vede solo chi apre il programma.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>Da provare adesso</h2>
+      <span class="note">i riquadri col bordo acceso sono nuovi di questo giro</span>
+    </div>
+    <div class="try">
+      <div class="card fresh">
+        <h3>Un dente, dall'esame alla stampa</h3>
+        <p>Pannello «Separa i tessuti». Stringi il <b>riquadro di lettura</b> attorno al dente,
+        segna con un marcatore l'osso di fianco alla radice, cambia marcatore in <i>Dente</i> col
+        suo numero FDI e fai clic sulla corona. I contorni compaiono sulle viste col colore del
+        loro marcatore — è lì che si giudica, prima di esportare. Un pallino dice se il solido è
+        <b>chiuso</b>, che è la differenza fra un file e un file stampabile.</p>
+        <span class="keys">poi l'icona di salvataggio &middot; STL o OBJ</span>
+      </div>
+      <div class="card fresh">
+        <h3>Perché il riquadro non è un dettaglio</h3>
+        <p>Dove radice e osso si toccano alla stessa densità non c'è, nei voxel, <b>nessun confine
+        da trovare</b>: senza un limite esterno il dente si tira dietro la mandibola. Il riquadro è
+        l'unico limite che valga per costruzione — ed è anche ciò che rende l'operazione immediata
+        invece che lenta. Non tocca l'esame: confina la crescita, non ritaglia il volume.</p>
+        <span class="keys">si trascina per i lati, su qualunque vista</span>
+      </div>
+      <div class="card fresh">
+        <h3>Un'arcata intera</h3>
+        <p>Menu «Segmentazione per soglia». Stringi il riquadro attorno alla mandibola: senza,
+        «tieni il pezzo più grande» restituisce mezzo cranio, perché una soglia da osso comprende
+        colonna, mento e otturazioni. Il preset va corretto sull'istogramma di <i>questa</i>
+        acquisizione — le soglie di letteratura sono in unità Hounsfield e su una CBCT non
+        valgono.</p>
+        <span class="keys">Segmenta, poi Esporta</span>
+      </div>
+      <div class="card fresh">
+        <h3>Finitura per la stampa</h3>
+        <p>Due manopole, e governano due cose diverse: la <i>lisciatura</i> toglie i gradini dei
+        voxel senza assottigliare il modello, il <i>tetto di triangoli</i> si alza se lo slicer
+        fatica ad aprire il file. Quel che vedi sulle viste è quel che esce nel file.</p>
+        <span class="keys">dove una corona metallica ha bruciato il dato, il modello resta incompleto</span>
+      </div>
+      <div class="card fresh">
+        <h3>Impianti filettati</h3>
+        <p>Non più cilindri lisci: la filettatura c'è, e nel 3D la tassellatura si adatta a quanto
+        l'impianto occupa sullo schermo — fitta quando lo guardi da vicino, economica quando è un
+        segmento in mezzo all'arcata.</p>
+        <span class="keys">testa, apice e conicità restano regolabili</span>
+      </div>
+      <div class="card fresh">
+        <h3>Il tuo catalogo di impianti</h3>
+        <p>Si importa da un file, da un menu, invece di essere murato nel programma. La libreria
+        Alpha-Bio si ricava <b>dai nomi</b> dei sistemi, senza aprire niente di protetto: le
+        geometrie restano plausibili e non sono i dati sotto licenza del produttore, e la pagina lo
+        dice invece di lasciarlo intendere.</p>
+        <span class="keys">File &rsaquo; importa catalogo</span>
+      </div>
+      <div class="card fresh">
+        <h3>Il cubo segue il dito</h3>
+        <p>Trascinando a destra il naso si spostava di venticinque millimetri <b>a sinistra</b>, e
+        trascinando in basso in alto: la camera girava nel verso del dito, quindi il paziente
+        girava al contrario. Erano sbagliati tutti e due i segni. Il difetto è rimasto in piedi a
+        lungo perché l'indicatore era un quadrato piatto con dentro una lettera — su un cranio
+        quasi simmetrico chi gira corregge senza accorgersene. È saltato fuori quando il quadrato è
+        diventato un cubo vero.</p>
+        <span class="keys">si trascina il modello, non la camera</span>
+      </div>
+      <div class="card fresh">
+        <h3>Una modale per volta</h3>
+        <p>«Se apro una cosa, poi non posso più aprirne altre»: nove finestre modali e nove
+        booleani indipendenti, e l'ispettore che nascondeva i pannelli restando in cima per tutto
+        il resto della sessione. Ora le modali passano da una strada sola e ogni stato che si
+        accende si può spegnere. Tre controlli nuovi lo sorvegliano, perché è una regola che si
+        viola senza errori di compilazione.</p>
+        <span class="keys">la regola sta nelle «Regole trasversali» di architecture.md</span>
+      </div>
+      <div class="card">
+        <h3>Cefalometria</h3>
+        <p>Venticinque reperi si segnano <b>nello spazio</b>, in qualunque riquadro, e i bilaterali
+        due volte — l'analisi usa il punto di mezzo e ti dice quanto distano i due lati. Ventisette
+        misure: Steiner, Tweed, Downs, Ricketts, Jarabak. Gli angoli si calcolano sulla proiezione
+        sagittale, che è la ragione per cui si possono confrontare con le norme.</p>
+        <span class="keys">K &middot; il pannello si apre nell'ispettore</span>
+      </div>
+      <div class="card">
+        <h3>Il profilo del viso</h3>
+        <p>Il confine fra aria e pelle sul sagittale che passa per il mirino. Serve anche a
+        controllare i reperi cutanei: un pronasale che non ci cade sopra è segnato su un'altra
+        struttura, e le misure dei tessuti molli che ne dipendono non valgono niente.</p>
+        <span class="keys">pannello cefalometria &middot; la soglia si regola</span>
+      </div>
+      <div class="card">
+        <h3>Esporta la cartella DICOM</h3>
+        <p>Il volume raddrizzato, ritagliato o con le strie ridotte esce come serie CT vera, con
+        posizione e orientamento nello spazio. UID nuovi, perché è un volume diverso da quello
+        acquisito; lo studio resta, perché lo studio è la visita. La cartella non è mai una che
+        esiste già.</p>
+        <span class="keys">File &rsaquo; Esporta la cartella DICOM…</span>
+      </div>
+      <div class="card">
+        <h3>La cartella da consegnare</h3>
+        <p>Dati, <span class="num">DICOMDIR</span> e un'anteprima che si apre in qualunque browser
+        senza installare niente: le fette si sfogliano con le frecce, e la pagina dice in cima di
+        non essere un visore diagnostico. Con un LEGGIMI che spiega che cosa c'è.</p>
+        <span class="keys">File &rsaquo; Prepara la cartella da consegnare…</span>
+      </div>
+      <div class="card">
+        <h3>L'archivio, che è la schermata d'avvio</h3>
+        <p>Apri una cartella DICOM: il programma chiede se archiviarla, e da lì l'esame si riapre
+        senza più la cartella. Conserva volume, metadati, piano <b>e la scansione registrata</b>.
+        Il piano si riscrive da sé tre secondi dopo l'ultima modifica.</p>
+        <span class="keys">⌘O apre &middot; ⇧⌘A l'archivio</span>
+      </div>
+      <div class="card">
+        <h3>Chi è il paziente</h3>
+        <p>Nome, data di nascita, data dell'esame, apparecchio, kV e mA, voxel, matrice, campo.
+        In cima alla colonna di sinistra e nella barra del titolo. Il parser li leggeva già;
+        <span class="num">loadStudy</span> li buttava via tre righe dopo averli letti.</p>
+        <span class="keys">pannello «Esame»</span>
+      </div>
+      <div class="card">
+        <h3>Testa, apice, lunghezza</h3>
+        <p>Il diametro all'apice era murato a una frazione fissa del corpo. È la misura che decide
+        se un impianto passa fra due radici, e adesso si sceglie. Sotto i tre menu c'è la conicità
+        in gradi per lato, come su un catalogo.</p>
+        <span class="keys">ispettore, o l'elenco degli oggetti</span>
+      </div>
+      <div class="card">
+        <h3>Prendere un impianto nel 3D</h3>
+        <p>Il trascinamento faceva solo orbitare. Ora se sotto il puntatore c'è un oggetto il
+        gesto appartiene a quello e la telecamera resta ferma. Si prende il più vicino
+        all'osservatore, sul piano perpendicolare alla vista.</p>
+        <span class="keys">vale anche per i denti</span>
+      </div>
+      <div class="card">
+        <h3>Le frecce</h3>
+        <p>Non c'era nessuna navigazione da tastiera. Le frecce scorrono le fette in ogni
+        riquadro, ⇧ a passo fine, pagina su e giù dieci per volta. Passano dai richiami della
+        rotella, quindi ogni riquadro che scorre col mouse scorre anche da tastiera.</p>
+        <span class="keys">↑ ↓ ← → &middot; ⇞ ⇟</span>
+      </div>
+      <div class="card">
+        <h3>La relazione con le immagini</h3>
+        <p>I tre riquadri ortogonali e la sezione selezionata, dentro il documento come
+        <span class="num">data:</span> URI. Un file solo, che si manda per posta e si stampa in
+        PDF dal browser.</p>
+        <span class="keys">⇧⌘P</span>
+      </div>
+      <div class="card">
+        <h3>Il dente prima dell'impianto</h3>
+        <p>La via comoda è mettere l'impianto dove c'è osso e arrangiare la corona sopra. Posa
+        invece la sagoma del dente col suo numero FDI, poi l'impianto sotto: l'ispettore dice se
+        l'asse <b>emerge dentro la corona</b>, e sulle immagini vedi la linea fra bersaglio ed
+        emergenza, colorata per gravità.</p>
+        <span class="keys">C &middot; «Allinea l'asse al dente» nell'ispettore</span>
+      </div>
+      <div class="card">
+        <h3>Il piano sulla panorex</h3>
+        <p>Impianti, canale e denti erano invisibili nella vista d'insieme — proprio quella che
+        serve a giudicare se gli impianti sono paralleli fra loro e alla stessa altezza. Ora si
+        vedono, e si trascinano: la linea di taglio mantiene la precedenza dove passa.</p>
+        <span class="keys">il canale è disegnato col suo spessore vero</span>
+      </div>
+      <div class="card">
+        <h3>Segmentazione per soglia</h3>
+        <p>Isola i voxel in una finestra di densità, tiene il pezzo più grande e ne disegna il
+        confine in viola sulle viste. Non riconosce l'anatomia: una soglia da osso prende anche la
+        colonna e le otturazioni, e la finestra lo dice dove si preme il pulsante.</p>
+        <span class="keys">⇧⌘S</span>
+      </div>
+      <div class="card">
+        <h3>La scansione allineata alla CBCT</h3>
+        <p>Importa lo STL, posa tre coppie di punti corrispondenti, poi rifinisce con ICP. Il
+        contorno compare sulle tre viste <b>e sulle sezioni trasversali</b>, colorato per qualità
+        della registrazione: è così che si giudica un allineamento, non con un numero.</p>
+        <span class="keys">⇧⌘I poi «Registra la scansione…»</span>
+      </div>
+      <div class="card">
+        <h3>La dima, fino allo STL</h3>
+        <p>Costruisce corpo e boccole sugli impianti pianificati, verifica spessori e stampabilità,
+        esporta. Pretende una scansione registrata, perché una dima appoggia sui denti e sa dove
+        sono solo se la scansione è allineata.</p>
+        <span class="keys">⇧⌘G</span>
+      </div>
+      <div class="card">
+        <h3>La relazione</h3>
+        <p>HTML, con l'avvertenza in cima, la catena di come il volume è stato prodotto, ogni
+        misura con la sua incertezza, e la revisione del piano <b>prima</b> dei numeri. Il
+        controllo che nessuno mette: impianti pianificati senza canale tracciato, o senza dente
+        sopra — piano sicuro per assenza di verifica.</p>
+        <span class="keys">⇧⌘P &middot; il PDF si fa stampando dal browser</span>
+      </div>
+      <div class="card">
+        <h3>Quanto vale un numero</h3>
+        <p>Le misure non scrivono più <span class="num">12,47 mm</span>. Due decimali sono dieci
+        micrometri su un voxel da duecento: precisione inventata di un fattore venti. Ora si legge
+        <span class="num">12,5 ± 0,1 mm</span>, e sotto la misura selezionata c'è da dove viene
+        quell'incertezza.</p>
+        <span class="keys">Contratto 5</span>
+      </div>
+      <div class="card">
+        <h3>Quando una misura non vale</h3>
+        <p>Misurando su una proiezione a massima intensità le due strutture possono stare a
+        profondità diverse: la distanza vera <b>supera</b> quella letta. Non è un ±, è un limite
+        inferiore, e l'ispettore lo dice. Stessa cosa sulla panorex, che è una superficie
+        ricostruita e non un piano.</p>
+        <span class="keys">avvisi sotto la misura</span>
+      </div>
+      <div class="card">
+        <h3>Mettere alla prova il programma</h3>
+        <p>Misura da sé le grandezze note del fantoccio e le confronta con i valori attesi, col
+        criterio di bordo al 50&nbsp;% e la tolleranza legata all'incertezza dichiarata. Un asse
+        invertito darebbe immagini plausibili e misure sbagliate del dieci per cento: questo è ciò
+        che se ne accorge.</p>
+        <span class="keys">⇧⌘V</span>
+      </div>
+      <div class="card">
+        <h3>Muovere un impianto</h3>
+        <p>Dal corpo lo sposti, dagli estremi lo inclini. Dall'apice resta ferma la piattaforma,
+        dalla testa resta fermo l'apice — serve quando l'apice è già a posto sopra il canale e a
+        dover cambiare è l'emergenza. Adesso si afferra anche sulle <b>sezioni trasversali</b>,
+        dove prima si poteva trascinare un impianto che non si vedeva.</p>
+        <span class="keys">passi esatti di profondità nel pannello</span>
+      </div>
+      <div class="card">
+        <h3>Correggere invece di rifare</h3>
+        <p>Le maniglie delle misure si trascinano, e i nodi del nervo pure: con ⌥ clic si tolgono.
+        Un'ellisse mantiene gli assi perpendicolari, una sfera resta sferica.</p>
+        <span class="keys">Esc annulla la misura in corso</span>
+      </div>
+      <div class="card">
+        <h3>Sfogliare l'arcata</h3>
+        <p>La rotella sulla panorex entra ed esce dalla curva, ⇧ a passo fine. Con ⌥ si assottiglia
+        la fetta: è ciò che rende <i>visibile</i> la profondità, perché venti millimetri di
+        proiezione restano identici a sé stessi.</p>
+        <span class="keys">pinch sulle sezioni per allargare il campo</span>
+      </div>
+      <div class="card">
+        <h3>Raddrizzare il volume</h3>
+        <p>Tre punti sul piano occlusale e il volume si raddrizza. Misure, impianti <b>e denti</b>
+        ruotano con esso: restano sullo stesso tessuto invece di indicarne un altro.</p>
+        <span class="keys">⇧⌘D</span>
+      </div>
+      <div class="card">
+        <h3>Ridurre le strie da metallo</h3>
+        <p>Su una CBCT con corone o perni, non sul fantoccio. Produce un <b>secondo volume</b>:
+        passa dall'uno all'altro nell'albero dello studio per vedere che cosa è cambiato davvero.</p>
+        <span class="keys">⇧⌘M</span>
+      </div>
+      <div class="card">
+        <h3>Se un comando non si trova</h3>
+        <p>La legenda elenca tutti i gesti del mouse coi modificatori, che sono quelli che non
+        compaiono in nessun menu. Un controllo verifica che legenda e tasti collegati non
+        divergano, nei due versi.</p>
+        <span class="keys">?</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>Dove siamo rispetto al mercato</h2>
+      <span class="note">coDiagnostiX, DTX Studio, SMOP, CS 3D</span>
+    </div>
+
+    <div class="callout">
+      <p>
+        «Superiore al mercato» ha bisogno di un <b>asse scelto</b>. Nessuno batte coDiagnostiX
+        sull'ampiezza: è vent'anni di lavoro, una libreria implantare con centinaia di sistemi
+        sotto licenza, e una marcatura CE che da sola vale più di qualunque funzione.
+      </p>
+      <p>
+        In questo giro si è chiuso il divario che riguardava lo <b>stampare</b>: un dente o
+        un'arcata escono dall'esame come solido chiuso, in STL o OBJ, e la finitura è quella che
+        serve a uno slicer invece che a uno schermo. Nel giro precedente si era chiuso il
+        volume elaborato esce come DICOM vero, e la cartella da dare in mano a qualcuno porta con
+        sé l'indice standard. Prima erano volumi che esistevano soltanto dentro il programma. Con
+        la <b>cefalometria</b>, il catalogo di CS 3D è finito.
+      </p>
+      <p>
+        Nulla di tutto questo è mai stato percorso su un caso vero — è la differenza fra «il
+        codice c'è ed è provato» e «funziona», e vale la pena tenerla in mente leggendo le righe
+        qui sotto. Il DICOM che scriviamo lo rilegge il nostro stesso parser, e quello è provato;
+        che lo rilegga <i>un altro programma</i> si scopre aprendolo con un visore.
+      </p>
+      <p>
+        Resta vero il resto: nessuno dei quattro programmi citati dichiara l'incertezza di una
+        misura, nessuno avverte che una distanza presa su una proiezione a massima intensità è un
+        <b>limite inferiore</b>, e nessuno permette di verificare la propria catena di misura su
+        un fantoccio. Sono cose che non si vedono in una schermata e che decidono se un numero si
+        può usare.
+      </p>
+    </div>
+
+    <div class="items" style="margin-top:26px">
+
+      <div class="item">
+        <div class="what">Uscire dal programma: DICOM e supporto da consegnare</div>
+        <span class="tag have">fatto, mai aperto con un altro visore</span>
+        <div class="why">
+          Serie CT in Explicit VR Little Endian con posizione e orientamento veri, indice
+          <span class="num">DICOMDIR</span>, anteprima in HTML. Manca l'eseguibile Windows che i
+          concorrenti masterizzano sul disco: non è una cosa che questo programma possa fare, ed
+          è scritto invece di essere lasciato intendere.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Cefalometria in tre dimensioni</div>
+        <span class="tag have">fatta</span>
+        <div class="why">
+          Qui c'è un punto in cui la CBCT è <b>meglio</b> della lastra e quasi nessuno lo sfrutta:
+          i reperi bilaterali si segnano davvero due volte, uno per lato, invece di indovinare a
+          occhio una via di mezzo fra due contorni sovrapposti. La media la fa il programma, e la
+          distanza fra i due lati diventa un'informazione. Quel che manca rispetto a un software
+          ortodontico dedicato è la <b>sovrapposizione fra due esami nel tempo</b>, che è l'uso
+          per cui la cefalometria è nata.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Archivio dei pazienti</div>
+        <span class="tag have">fatto</span>
+        <div class="why">
+          Volume ricostruito, metadati, piano e scansione registrata: un esame si riapre senza la
+          cartella DICOM. I DICOM originali <b>non</b> si conservano — sarebbe il doppio dello
+          spazio — ma il percorso di provenienza resta registrato. La decisione più delicata è
+          che due esami <b>anonimi restano due pazienti</b>: raggrupparli metterebbe persone
+          diverse nella stessa cartella clinica, e guardando l'elenco non ci sarebbe modo di
+          accorgersene.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Registrazione della scansione intraorale</div>
+        <span class="tag have">fatta, mai provata su un caso vero</span>
+        <div class="why">
+          Era il divario che contava più di tutti gli altri messi insieme, ed è chiuso: importazione
+          STL/OBJ/PLY, allineamento grossolano su coppie di punti corrispondenti, rifinitura ICP,
+          scarto quadratico medio con giudizio di qualità. Il contorno compare sulle tre viste e
+          sulle sezioni trasversali, colorato per qualità — perché lo scarto dice <i>quanto</i>, il
+          contorno dice <b>dove</b>, e un settore fuori posto con scarto accettabile si vede solo
+          così.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Pianificazione guidata dalla protesi</div>
+        <span class="tag have">fatta</span>
+        <div class="why">
+          Sagoma di dente parametrica per numero FDI, vincolo fra asse protesico e asse implantare,
+          emergenza sul piano occlusale. La decisione che rende utile il vincolo:
+          <b>l'emergenza pesa più della divergenza</b>. Un impianto molto divergente resta
+          protesicamente corretto se emerge nel punto giusto — si compensa con un moncone angolato.
+          Uno quasi parallelo che emerge fuori dalla corona non si compensa con nulla.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Dima chirurgica dal piano alla stampante</div>
+        <span class="tag part">percorso collegato, mai percorso</span>
+        <div class="why">
+          <span class="num">GuideKit</span> genera boccole e corpo dima, verifica spessori e
+          stampabilità ed esporta STL, e adesso ci si arriva da un comando. Pretende una scansione
+          registrata: una dima appoggia sui <b>denti</b>, e mezzo millimetro di disallineamento
+          della scansione è mezzo millimetro che l'impianto sbaglia. Finché non la stampi e non
+          entra in bocca, resta non verificata.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Relazione</div>
+        <span class="tag have">fatta</span>
+        <div class="why">
+          HTML con avvertenza, provenienza del volume, misure con incertezza e caveat, impianti con
+          prossimità e verifica protesica, e le immagini dei riquadri dentro il documento. Il PDF
+          si fa stampando dal browser: un impaginatore scritto qui non si potrebbe verificare,
+          mentre di un testo si prova che ogni avvertimento ci sia.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Riduzione degli artefatti da metallo</div>
+        <span class="tag edge">vantaggio possibile</span>
+        <div class="why">
+          <span class="num">ArtifactKit</span> sopprime le strie in dominio polare, sul volume
+          ricostruito. I visori commerciali in genere non fanno MAR affatto — sta nella
+          ricostruzione della macchina — quindi qui non si rincorre nessuno. Il limite è dichiarato:
+          la MAR vera lavora sulle proiezioni, che noi non abbiamo, e questa attenua le strie senza
+          ricostruire ciò che il metallo ha nascosto. <b>Non è ancora stata provata su una CBCT vera
+          con del metallo.</b>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Onestà sui valori di densità</div>
+        <span class="tag edge">già migliore</span>
+        <div class="why">
+          Su una CBCT i valori grigi <b>non</b> sono unità Hounsfield: dipendono dal FOV, dalla
+          posizione nel volume e dalla macchina. Molti visori stampano comunque «HU», e chi legge
+          confronta con soglie di letteratura che non valgono. Qui si scrive
+          <span class="num">GV</span>, ogni volume porta la catena di come è stato prodotto, e la
+          finestra della segmentazione ripete l'avvertenza dove si sceglie una soglia.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Segmentazione</div>
+        <span class="tag part">guidata sì, automatica no</span>
+        <div class="why">
+          Soglia, crescita di regione e <b>crescita confinata</b>, morfologia, componenti connesse,
+          superficie e contorno: tutto c'è e adesso si raggiunge. Riconoscere <i>quale</i> struttura
+          sia — canale, denti, vie aeree — richiede un modello addestrato, e quello manca ancora.
+          <br><br>
+          Quello che è cambiato in questo giro è il costo del <b>farlo a mano</b>. Fino a ieri qui
+          c'era scritto che la segmentazione di un dente a mano non si fa, ed era vero finché il
+          fronte di crescita non aveva un limite: dove radice e osso si toccano alla stessa densità
+          il dente si tira dietro la mandibola, e non c'è pazienza che basti. Col riquadro di
+          lettura il limite c'è per costruzione, e un dente diventa questione di tre clic — un
+          marcatore nell'osso, uno sulla corona, «Separa». Resta lavoro guidato: il programma non
+          sa che quello è un dente, sa dove gli hai detto di fermarsi.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Libreria implantare reale</div>
+        <span class="tag part">generica</span>
+        <div class="why">
+          Il catalogo incluso ha geometrie plausibili e ora <b>filettate</b>, non i sistemi dei
+          produttori con i loro scostamenti di boccola. Non è un problema di codice: sono dati sotto
+          licenza. Quel che è cambiato è che il catalogo non è più murato dentro il programma — si
+          importa da un file, quindi se hai i dati puoi portarceli. Per l'uso personale la geometria
+          generica basta a pianificare; per una dima che entri in bocca no.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Reattività e impronta</div>
+        <span class="tag edge">vantaggio possibile</span>
+        <div class="why">
+          Metal nativo, nessuna macchina virtuale in mezzo, ricampionamento sulla GPU. Il vantaggio
+          è plausibile e <b>non ancora misurato</b>: la suite gira su fantocci, e nessuno ha aperto
+          una CBCT da settecento megabyte. Finché non succede resta una previsione.
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="what">Robustezza sul DICOM di tutti i giorni</div>
+        <span class="tag part">da verificare</span>
+        <div class="why">
+          Il parser legge il non compresso e alcune sintassi compresse. Le CBCT vere arrivano con
+          codifiche d'ogni tipo, tag mancanti e cartelle disordinate, e ogni macchina ha le proprie
+          stranezze. Questa è la voce che si scopre solo aprendo studi veri, uno dopo l'altro.
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>Il catalogo di CS 3D Imaging</h2>
+      <span class="note">le 101 voci ricavate dalle tue cinque schermate</span>
+    </div>
+    <div class="ledger">
+      <div class="row full"><div class="lbl"><span>A</span>Impalcatura dell'applicazione</div><div class="track"><div class="fill" style="width:100.0%"></div></div><div class="cnt">7/7</div></div>
+      <div class="row full"><div class="lbl"><span>C</span>Oggetti del piano</div><div class="track"><div class="fill" style="width:100.0%"></div></div><div class="cnt">12/12</div></div>
+      <div class="row full"><div class="lbl"><span>D</span>Barra di ogni riquadro</div><div class="track"><div class="fill" style="width:100.0%"></div></div><div class="cnt">8/8</div></div>
+      <div class="row full"><div class="lbl"><span>E</span>Sovraimpressioni dei riquadri 2D</div><div class="track"><div class="fill" style="width:100.0%"></div></div><div class="cnt">9/9</div></div>
+      <div class="row full"><div class="lbl"><span>F</span>Curva d'arcata e panorex</div><div class="track"><div class="fill" style="width:100.0%"></div></div><div class="cnt">10/10</div></div>
+      <div class="row full"><div class="lbl"><span>G</span>Sezioni trasversali</div><div class="track"><div class="fill" style="width:100.0%"></div></div><div class="cnt">8/8</div></div>
+      <div class="row full"><div class="lbl"><span>H</span>Riquadro 3D</div><div class="track"><div class="fill" style="width:100.0%"></div></div><div class="cnt">10/10</div></div>
+      <div class="row full"><div class="lbl"><span>I</span>Riformattazione e volumi multipli</div><div class="track"><div class="fill" style="width:100.0%"></div></div><div class="cnt">9/9</div></div>
+      <div class="row full"><div class="lbl"><span>K</span>Comportamenti trasversali</div><div class="track"><div class="fill" style="width:100.0%"></div></div><div class="cnt">6/6</div></div>
+      <div class="row"><div class="lbl"><span>B</span>Palette degli strumenti</div><div class="track"><div class="fill" style="width:92.3%"></div></div><div class="cnt">12/13</div></div>
+      <div class="row"><div class="lbl"><span>J</span>Esportazione e relazione</div><div class="track"><div class="fill" style="width:88.9%"></div></div><div class="cnt">8/9</div></div>
+    </div>
+    <p style="margin-top:22px;color:var(--muted);font-size:13.5px">
+      Da 84 a 99, e le due che restano sono <b>parziali dichiarate</b>, non buchi.
+    </p>
+    <div class="items" style="margin-top:14px">
+      <div class="item">
+        <div class="what">B7 · Strumento tessuto gengivale</div>
+        <span class="tag part">soglia, non gengiva</span>
+        <div class="why">
+          Gengiva, labbro e lingua hanno densità simili e per soglia non si distinguono: quel che
+          esce è il profilo dei tessuti molli, che serve a vedere dove appoggia una protesi e non
+          a modellarla. Chiamarla «gengiva» sarebbe la bugia comoda.
+        </div>
+      </div>
+      <div class="item">
+        <div class="what">J6 · Esportazione su disco con visualizzatore</div>
+        <span class="tag part">senza eseguibile</span>
+        <div class="why">
+          La cartella c'è tutta: file DICOM, <span class="num">DICOMDIR</span> — l'indice che ogni
+          visore e ogni PACS cercano per primo — anteprima sfogliabile in HTML e un LEGGIMI che
+          dice che quelle immagini non si misurano. Manca l'eseguibile Windows che i programmi
+          commerciali masterizzano: distribuire un eseguibile altrui non è cosa che questo
+          programma possa fare, e scriverne uno sarebbe scrivere un secondo visore per un sistema
+          operativo su cui il primo non gira.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>Da allora</h2>
+      <span class="note">quarantacinque commit dal 20 agosto &middot; i diciassette che cambiano qualcosa per te</span>
+    </div>
+    <div class="log">
+      <div class="commit">
+        <div class="sha">215247b</div>
+        <div class="commit-body">
+          <strong>Lo stato della verifica torna a dire il vero, in tutti e tre i posti dove è scritto</strong>
+          <p>I numeri erano fermi a prima delle ultime fusioni e sbagliati in modo diverso in ogni file. Sedici controlli su ventisei non erano citati da nessuna parte: scritti, funzionanti e invisibili a chi legge la documentazione.</p>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">6dc7470</div>
+        <div class="commit-body">
+          <strong>La regola dei rami sta scritta, così non va più ricostruita ogni volta</strong>
+          <p>Si parte da <span class="num">main</span> aggiornato e ci si rientra appena il lavoro regge, fondendo prima main nel ramo: i conflitti si risolvono e si verificano là, e main avanza in linea retta senza passare da uno stato rotto.</p>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">abc65d5</div>
+        <div class="commit-body">
+          <strong>La segmentazione rientra nel tronco</strong>
+          <p>L&rsquo;unico conflitto era un numero nel README — ventisei controlli contro ventitré — e vince ventisei, che è quanti ne conta oggi <span class="num">Tools/</span>.</p>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">95224d2</div>
+        <div class="commit-body">
+          <strong>Denti e arcate si separano, si guardano e si esportano</strong>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">3823788</div>
+        <div class="commit-body">
+          <strong>Un solo tronco: la rotazione del cubo rientra nel ramo principale</strong>
+          <p>Cinque rami paralleli, centocinquanta commit per uno, e main con dentro il solo LICENSE. Riunirli è costato poco solo perché nessuno aveva davvero divergato — la volta dopo non è detto.</p>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">de2e37c</div>
+        <div class="commit-body">
+          <strong>Nove difetti della revisione, e il decimo che non c'era</strong>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">a40a903</div>
+        <div class="commit-body">
+          <strong>La segmentazione si può confinare, e la mesh esce stampabile</strong>
+          <p>Il riquadro di lettura è l'unico limite che valga per costruzione: dove radice e osso si toccano alla stessa densità, nei voxel non c'è nessun confine da trovare.</p>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">948ef75</div>
+        <div class="commit-body">
+          <strong>Il riquadro di lettura non attraversa i pazienti, e il profilo non legge oltre la fine</strong>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">329ae8b</div>
+        <div class="commit-body">
+          <strong>Quattro vicoli ciechi trovati dalla revisione di Codex</strong>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">c6724bd</div>
+        <div class="commit-body">
+          <strong>Una modale per volta, e l'ispettore non nasconde più i pannelli</strong>
+          <p>Nove finestre modali e nove booleani indipendenti. Da qui tre controlli nuovi: le modali passano da una strada sola, ogni stato acceso si può spegnere, e l&rsquo;ispettore mostra elenchi invece di catene di <span class="num">else</span>.</p>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">7532bca</div>
+        <div class="commit-body">
+          <strong>La rotazione segue il dito, su entrambi gli assi</strong>
+          <p>Erano sbagliati tutti e due i segni: la negazione della verticale compensava soltanto il verso delle coordinate del drawable. Un difetto che aspettava di avere un testimone — è saltato fuori quando l'indicatore piatto è diventato un cubo vero.</p>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">5914983</div>
+        <div class="commit-body">
+          <strong>Il catalogo degli impianti si importa da un menu</strong>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">30dc248</div>
+        <div class="commit-body">
+          <strong>Impianti filettati, e nel 3D alla tassellatura da schermo</strong>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">9a5cae7</div>
+        <div class="commit-body">
+          <strong>I segni della rotazione escono dal modello e si fissano per iscritto</strong>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">b4da88b</div>
+        <div class="commit-body">
+          <strong>Separare i denti dall'osso, e ciascun dente dagli altri</strong>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">8ec283b</div>
+        <div class="commit-body">
+          <strong>Un riquadro per guardare una porzione, che non tocca l'esame</strong>
+        </div>
+      </div>
+      <div class="commit">
+        <div class="sha">d1f8d5a</div>
+        <div class="commit-body">
+          <strong>Le costruzioni si verificano contro le firme, senza SDK</strong>
+          <p>Confronta le costruzioni dei 457 tipi del progetto contro le firme dichiarate — una classe di errore che altrimenti costerebbe un giro completo sul Mac.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Se qualcosa non torna</h2></div>
+    <pre><span class="c"># dalla cartella del progetto, sul Mac</span>
+git pull origin main
+swift test
+swift build 2>&amp;1 | grep error:
+./Tools/make-app-bundle.sh &amp;&amp; open 3DMED.app</pre>
+
+    <p style="margin-top:20px;color:var(--muted);font-size:13.5px;max-width:74ch">
+      Il ramo è cambiato, ed è la riga da correggere se hai un vecchio comando negli appunti: il
+      programma stava su <span class="num">claude/mac-cbct-dental-app-n84glw</span> e ora sta su
+      <span class="num">main</span>, con tutto il resto dentro. La seconda riga è quella che trasforma
+      1036 prove dichiarate in 1036 prove verdi — o che ti dice quali non lo sono.
+    </p>
+
+    <p style="margin-top:24px;color:var(--muted);font-size:13.5px;max-width:74ch">
+      Ventisei controlli girano qui prima di ogni consegna. Questi dodici sono i primi. Nessuno è un compilatore: ognuno prende
+      una classe di errore che <span class="num">swiftc -parse</span> non vede e che altrimenti si
+      scoprirebbe solo sul tuo Mac, al costo di un giro completo. Ognuno è nato da un errore vero,
+      ed è stato verificato rimettendo al suo posto l'errore che lo ha generato.
+    </p>
+
+    <div class="scroller" style="margin-top:16px">
+      <table>
+        <thead>
+          <tr><th>Controllo</th><th>Trova</th><th>Nato da</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="name">exhaustive-switches</td>
+            <td class="desc"><span class="num">switch</span> a cui manca un caso</td>
+            <td class="desc">uno strumento aggiunto senza completare la gestione del clic</td>
+          </tr>
+          <tr>
+            <td class="name">duplicate-declarations</td>
+            <td class="desc">nomi dichiarati due volte nello stesso tipo</td>
+            <td class="desc">due modifiche automatiche che avevano lasciato doppioni</td>
+          </tr>
+          <tr>
+            <td class="name">cross-module-collisions</td>
+            <td class="desc">tipi pubblici omonimi in moduli diversi, o omonimi di SwiftUI</td>
+            <td class="desc"><span class="num">WindowLevel</span> (91 errori a cascata) e <span class="num">VolumeProvenance</span></td>
+          </tr>
+          <tr>
+            <td class="name">missing-imports</td>
+            <td class="desc">tipi usati senza importare il modulo che li dichiara</td>
+            <td class="desc">Swift non riesporta: importare DentalKit non dà i tipi di MeasureKit</td>
+          </tr>
+          <tr>
+            <td class="name">main-actor</td>
+            <td class="desc">funzioni non isolate che ne chiamano di <span class="num">@MainActor</span></td>
+            <td class="desc">l'icona del Dock, assegnata da un contesto non isolato</td>
+          </tr>
+          <tr>
+            <td class="name">metal-overlay-gestures</td>
+            <td class="desc">gesti SwiftUI in una sovraimpressione su un riquadro Metal</td>
+            <td class="desc">mirino, curva d'arcata, linea di taglio, riquadro di ritaglio — <b>quattro volte</b></td>
+          </tr>
+          <tr>
+            <td class="name">shortcuts</td>
+            <td class="desc">legenda dei comandi e tasti collegati che divergono, nei due versi</td>
+            <td class="desc">«Esc per annullare» senza Esc collegato; tre comandi non documentati</td>
+          </tr>
+          <tr>
+            <td class="name">memberwise-order</td>
+            <td class="desc">argomenti fuori dall'ordine di dichiarazione di una struct</td>
+            <td class="desc">una chiusura infilata nel punto sbagliato di una chiamata di trenta righe</td>
+          </tr>
+          <tr>
+            <td class="name">dead-handlers</td>
+            <td class="desc">richiami di eventi che non possono scattare</td>
+            <td class="desc">una vista che usciva dal hit testing e implementava <span class="num">scrollWheel</span></td>
+          </tr>
+          <tr>
+            <td class="name">viewport-coverage</td>
+            <td class="desc">un riquadro che non collega un gesto che il suo ponte dichiara</td>
+            <td class="desc">il pinch sulle sezioni trasversali, dichiarato e mai collegato</td>
+          </tr>
+          <tr>
+            <td class="name">unreachable-actions</td>
+            <td class="desc">metodi del modello che nessuna vista raggiunge</td>
+            <td class="desc">tre azioni scritte e provate che nessun comando poteva eseguire</td>
+          </tr>
+          <tr>
+            <td class="name">unreachable-api</td>
+            <td class="desc">operazioni pubbliche che nessun cammino collega all'applicazione</td>
+            <td class="desc">quattro moduli interi che esistevano e non si potevano raggiungere</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:20px;color:var(--faint);font-size:13px;max-width:74ch">
+      L'ultimo merita una riga. Non basta chiedersi se un tipo sia citato fuori dal suo modulo:
+      <span class="num">DICOMParser</span> non lo è, eppure l'applicazione lo raggiunge attraverso
+      <span class="num">DICOMScanner</span>. La domanda giusta è se esista un <i>cammino</i>, e la
+      risposta si ottiene partendo dai file dell'applicazione e chiudendo transitivamente sui nomi
+      citati. Con la regola grossolana segnalava diciotto falsi allarmi; con la chiusura
+      transitiva ne restavano tre veri, ed erano tre.
+    </p>
+
+    <p style="margin-top:16px;color:var(--faint);font-size:13px;max-width:74ch">
+      Uno di questi, alla prima stesura, non trovava il difetto per cui era stato scritto: in
+      Python <span class="num">stack and stack[-1][1]</span> restituisce la lista quando è vuota,
+      e appenderla la rendeva auto-referenziale e quindi vera — così ogni funzione risultava
+      isolata. Un controllo che non può fallire dà lo stesso silenzio del codice sano ed è peggio
+      di nessun controllo, perché occupa il posto di quello che servirebbe. L'ha rivelato solo
+      rimettere l'errore vero e pretendere che scattasse.
+    </p>
+
+    <p style="margin-top:26px;color:var(--muted);font-size:13.5px;max-width:74ch">
+      Gli altri quattordici hanno spostato il bersaglio, e vale la pena dire dove. I dodici di
+      sopra inseguono errori che <b>il tuo compilatore troverebbe comunque</b>, solo un giro più
+      tardi: il loro guadagno è di tempo. Questi cercano difetti che <b>compilano benissimo su ogni
+      piattaforma e non danno un messaggio a nessuno</b> — un campo salvato e mai riletto,
+      un&rsquo;operazione che nessun gesto raggiunge, una sequenza di campi che diverge fra Swift e
+      Metal e produce pixel sbagliati invece di un errore. Per questa classe non esiste un giro sul
+      Mac che li scopra: o li trova un controllo, o li trova chi usa il programma.
+    </p>
+
+    <div class="scroller" style="margin-top:16px">
+      <table>
+        <thead>
+          <tr><th>Controllo</th><th>Trova</th><th>Nato da</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="name">call-sites</td>
+            <td class="desc">costruzioni di tipi che non corrispondono alle firme dichiarate</td>
+            <td class="desc">il bersaglio non si compila qui: 457 tipi confrontati senza SDK</td>
+          </tr>
+          <tr>
+            <td class="name">member-names</td>
+            <td class="desc">nomi quasi-sinonimi chiamati sul tipo sbagliato</td>
+            <td class="desc"><span class="num">displayName</span> chiamato <span class="num">localizedName</span></td>
+          </tr>
+          <tr>
+            <td class="name">unreachable-members</td>
+            <td class="desc">operazioni pubbliche che nessuno chiama</td>
+            <td class="desc">capacità scritte, provate e mai collegate a un gesto</td>
+          </tr>
+          <tr>
+            <td class="name">dangling-references</td>
+            <td class="desc">riferimenti a oggetti del piano che possono restare appesi</td>
+            <td class="desc">un identificatore che punta a un oggetto cancellato — <b>tre volte</b></td>
+          </tr>
+          <tr>
+            <td class="name">project-document</td>
+            <td class="desc">campi del piano salvati e mai riletti</td>
+            <td class="desc">scriverlo e non rileggerlo compila e non dà avvisi</td>
+          </tr>
+          <tr>
+            <td class="name">plan-snapshot</td>
+            <td class="desc">i quattro posti dell&rsquo;istantanea del piano che divergono</td>
+            <td class="desc">dimenticarne uno non dà errori, né a compilazione né a runtime</td>
+          </tr>
+          <tr>
+            <td class="name">undoable-plan</td>
+            <td class="desc">modifiche al piano che «annulla» non riporta indietro</td>
+            <td class="desc">il piano si cambia da troppi punti perché ricordarseli basti</td>
+          </tr>
+          <tr>
+            <td class="name">view-only-state</td>
+            <td class="desc">stato di sola visualizzazione finito nel piano o in archivio</td>
+            <td class="desc">inquadratura e finestra di densità non sono il piano</td>
+          </tr>
+          <tr>
+            <td class="name">uniform-layout</td>
+            <td class="desc">blocchi di uniform con la sequenza di campi diversa fra Swift e Metal</td>
+            <td class="desc">uno <span class="num">struct</span> che esiste due volte: il disallineamento dà pixel, non errori</td>
+          </tr>
+          <tr>
+            <td class="name">3d-parity</td>
+            <td class="desc">oggetti del piano disegnati in 2D e non nel 3D</td>
+            <td class="desc">il canale si tracciava e nel 3D non compariva</td>
+          </tr>
+          <tr>
+            <td class="name">overlay-parity</td>
+            <td class="desc">sovraimpressioni che la griglia disegna e le sezioni trasversali no</td>
+            <td class="desc">un elenco a parte, dimenticato — <b>tre volte nello stesso posto</b></td>
+          </tr>
+          <tr>
+            <td class="name">modal-routes</td>
+            <td class="desc">finestre modali che non passano da una strada sola</td>
+            <td class="desc">nove modali e nove booleani indipendenti</td>
+          </tr>
+          <tr>
+            <td class="name">panel-exits</td>
+            <td class="desc">stati che si accendono e non si possono spegnere</td>
+            <td class="desc">il pannello cefalometrico, in cima all&rsquo;ispettore per tutta la sessione</td>
+          </tr>
+          <tr>
+            <td class="name">inspector-routes</td>
+            <td class="desc">l&rsquo;ispettore che sceglie con catene di <span class="num">else</span> invece che con elenchi</td>
+            <td class="desc">due catene in cui il primo ramo vero copriva gli altri</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:16px;color:var(--faint);font-size:13px;max-width:74ch">
+      Restano fuori dalla rete tre classi che senza compilatore non si vedono: optionality
+      sbagliata, tipi di argomento errati, inizializzatori inesistenti. Per quelle il compilatore
+      ce l'hai tu, e i giri sul Mac servono a quello.
+    </p>
+  </section>
+
+  <footer>
+    <span>Software non certificato come dispositivo medico. Uso personale e di ricerca.</span>
+    <span class="num">main &middot; 215247b</span>
+  </footer>
+
+</div>
+
