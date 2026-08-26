@@ -241,6 +241,9 @@ struct Volume3DOverlay: View {
                     through: [implant.platformMM, implant.apexMM],
                     diameterMM: implant.model.diameterMM,
                     in: &context, projector: projector, colour: implantColor(implant))
+                drawImplantAxis(
+                    implant, in: &context, projector: projector,
+                    colour: implantColor(implant))
                 if implant.id == model.selectedImplantID {
                     drawImplantHandles(implant, in: &context, projector: projector)
                 }
@@ -259,10 +262,50 @@ struct Volume3DOverlay: View {
                 mesh, in: &context, projector: projector,
                 colour: implantColor(implant),
                 isSelected: implant.id == model.selectedImplantID)
+            drawImplantAxis(
+                implant, in: &context, projector: projector, colour: implantColor(implant))
             if implant.id == model.selectedImplantID {
                 drawImplantHandles(implant, in: &context, projector: projector)
             }
         }
+    }
+
+    /// L'asse dell'impianto, prolungato oltre la piattaforma fin dove emergerebbe.
+    ///
+    /// # Perché serve proprio nel 3D
+    ///
+    /// Perché è lì che la domanda si pone: guardando il volume da fuori si vede la sagoma
+    /// dell'impianto dentro l'osso, ma non **dove va a finire** — e la posizione di emergenza è
+    /// ciò che decide se sopra ci sta una corona o no. Nelle viste 2D la riga tratteggiata c'era
+    /// da sempre; nel 3D no, e senza di essa l'impianto era una capsula in mezzo al nulla di cui
+    /// non si capiva l'orientamento.
+    ///
+    /// Tratteggiata e non piena, come nelle 2D: è un prolungamento, non un pezzo. Un tratto
+    /// pieno che esce dall'osso si legge come una parte dell'impianto che non c'è.
+    private func drawImplantAxis(
+        _ implant: ImplantPlacement,
+        in context: inout GraphicsContext,
+        projector: ScreenProjector,
+        colour: Color
+    ) {
+        let platform = projector.project(implant.platformMM)
+        let emergence = projector.project(implant.emergencePoint(extensionMM: 7))
+        var path = Path()
+        path.move(to: CGPoint(x: platform.x, y: platform.y))
+        path.addLine(to: CGPoint(x: emergence.x, y: emergence.y))
+        context.stroke(
+            path, with: .color(colour.opacity(0.75)),
+            style: StrokeStyle(lineWidth: 1.4, dash: [4, 3]))
+
+        // Una crocetta dove l'asse buca il piano occlusale: è il punto che si confronta con il
+        // dente, e una linea che finisce nel vuoto non dice quale sia il suo capo.
+        let tip = CGPoint(x: emergence.x, y: emergence.y)
+        var mark = Path()
+        mark.move(to: CGPoint(x: tip.x - 4, y: tip.y))
+        mark.addLine(to: CGPoint(x: tip.x + 4, y: tip.y))
+        mark.move(to: CGPoint(x: tip.x, y: tip.y - 4))
+        mark.addLine(to: CGPoint(x: tip.x, y: tip.y + 4))
+        context.stroke(mark, with: .color(colour.opacity(0.9)), lineWidth: 1.4)
     }
 
     /// Prese proiettate di testa e apice: sono gli stessi due bersagli che

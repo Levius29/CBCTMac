@@ -21,49 +21,29 @@ struct InspectorPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Metrics.spacingLarge) {
-                // I controlli seguono il riquadro attivo: finestra e livello non hanno senso
-                // sul 3D, dove conta la transfer function, e viceversa. Mostrarli entrambi
-                // sempre riempirebbe l'ispettore di comandi inerti.
-                // Con uno strumento implantare attivo, o con un impianto selezionato, i
-                // controlli che servono sono quelli, non finestra e livello.
                 if model.workMode == .review {
                     // In rilettura l'ispettore non è un pannello di comandi: è il piano.
                     ReviewPanel(model: model)
-                } else if model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty {
-                    // Come la cefalometria: i punti si posano facendo clic sui riquadri, quindi
-                    // il pannello deve stare accanto alle immagini e non sopra.
-                    OcclusalPlanePanel(model: model)
-                } else if model.activeTool == .cephalometry || model.isShowingCephalometry {
-                    // La cefalometria si segna facendo clic sui riquadri: il pannello deve
-                    // stare accanto alle immagini, non sopra. Per questo è nell'ispettore e non
-                    // in una finestra.
-                    CephalometryPanel(model: model)
-                } else if model.activeTool == .prostheticTooth || model.selectedTooth != nil {
-                    prostheticSection
-                } else if model.activeTool == .implant || model.activeTool == .nerve
-                    || model.selectedImplant != nil
-                {
-                    implantSection
-                    Divider().overlay(Palette.separator)
-                    ProstheticVerdict(model: model)
-                    Divider().overlay(Palette.separator)
-                    SafetyPanel(
-                        report: model.selectedImplantID.flatMap { model.safetyReports[$0] },
-                        implant: model.selectedImplant)
-                } else if model.layout == .panoramic {
-                    visualizationSection
-                    Divider().overlay(Palette.separator)
-                    archSection
-                } else if model.focusedSlot == .volume3D {
-                    renderingSection
-                    Divider().overlay(Palette.separator)
-                    orientationSection
                 } else {
-                    visualizationSection
-                    Divider().overlay(Palette.separator)
-                    scrollSection
-                }
-                if model.workMode != .review {
+                    // # Contesto **più** visualizzazione, non contesto **al posto di**
+                    //
+                    // Era una catena di `else if`, quindi compariva una sezione sola: con un
+                    // impianto selezionato, finestra e livello sparivano del tutto. Non erano
+                    // coperti — erano assenti, e l'unico modo di riaverli era deselezionare
+                    // l'impianto, cosa per cui non c'era un comando. Da fuori l'unica via
+                    // d'uscita sembrava cancellarlo.
+                    //
+                    // La correzione non è allungare la catena: è che le due cose non stanno
+                    // sullo stesso piano. Finestra e livello si regolano **mentre** si lavora su
+                    // un impianto — anzi, proprio allora, per giudicare la corticale — quindi
+                    // non possono essere alternativi a nulla. Il timore che li teneva esclusivi,
+                    // «riempirebbe l'ispettore di comandi inerti», vale per i comandi che non
+                    // fanno niente in quel contesto: questi ne fanno sempre.
+                    if hasContextualSection {
+                        contextualSection
+                        Divider().overlay(Palette.separator)
+                    }
+                    viewingSection
                     Divider().overlay(Palette.separator)
                     measurementsSection
                 }
@@ -71,6 +51,64 @@ struct InspectorPanel: View {
             .padding(Metrics.spacingLarge)
         }
         .background(Palette.chrome)
+    }
+
+    /// Vero se c'è qualcosa su cui si sta lavorando adesso.
+    ///
+    /// Tenuto accanto a `contextualSection` e con le stesse condizioni: due elenchi che
+    /// divergono darebbero un separatore senza niente sopra, o una sezione senza separatore.
+    private var hasContextualSection: Bool {
+        model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty
+            || model.activeTool == .cephalometry || model.isShowingCephalometry
+            || model.activeTool == .prostheticTooth || model.selectedTooth != nil
+            || model.activeTool == .implant || model.activeTool == .nerve
+            || model.selectedImplant != nil
+    }
+
+    /// Ciò su cui si sta lavorando: si posa, si sceglie, si corregge.
+    @ViewBuilder
+    private var contextualSection: some View {
+        if model.activeTool == .occlusalPlane || !model.occlusalPointsMM.isEmpty {
+            // Come la cefalometria: i punti si posano facendo clic sui riquadri, quindi il
+            // pannello deve stare accanto alle immagini e non sopra.
+            OcclusalPlanePanel(model: model)
+        } else if model.activeTool == .cephalometry || model.isShowingCephalometry {
+            CephalometryPanel(model: model)
+        } else if model.activeTool == .prostheticTooth || model.selectedTooth != nil {
+            prostheticSection
+        } else if model.activeTool == .implant || model.activeTool == .nerve
+            || model.selectedImplant != nil
+        {
+            implantSection
+            Divider().overlay(Palette.separator)
+            ProstheticVerdict(model: model)
+            Divider().overlay(Palette.separator)
+            SafetyPanel(
+                report: model.selectedImplantID.flatMap { model.safetyReports[$0] },
+                implant: model.selectedImplant)
+        }
+    }
+
+    /// Come si guarda: sempre raggiungibile, qualunque cosa si stia facendo.
+    ///
+    /// Quali comandi, però, dipende dal riquadro attivo: finestra e livello non hanno senso sul
+    /// 3D, dove conta la transfer function, e viceversa. Quella distinzione resta — è fra comandi
+    /// che agiscono e comandi inerti, non fra guardare e lavorare.
+    @ViewBuilder
+    private var viewingSection: some View {
+        if model.layout == .panoramic {
+            visualizationSection
+            Divider().overlay(Palette.separator)
+            archSection
+        } else if model.focusedSlot == .volume3D {
+            renderingSection
+            Divider().overlay(Palette.separator)
+            orientationSection
+        } else {
+            visualizationSection
+            Divider().overlay(Palette.separator)
+            scrollSection
+        }
     }
 
     // MARK: Rotella
@@ -188,7 +226,22 @@ struct InspectorPanel: View {
 
     private var prostheticSection: some View {
         VStack(alignment: .leading, spacing: Metrics.spacing + 2) {
-            SectionHeader("DENTE PROTESICO")
+            // Come per l'impianto: senza un modo di deselezionare, l'unica uscita era cancellare.
+            HStack(spacing: Metrics.spacingSmall) {
+                SectionHeader("DENTE PROTESICO")
+                Spacer(minLength: 0)
+                if model.selectedToothID != nil {
+                    Button {
+                        model.selectedToothID = nil
+                    } label: {
+                        Label("Deseleziona", systemImage: "xmark.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.textSecondary)
+                    .help("Smetti di lavorare su questo dente. Non lo cancella.")
+                }
+            }
 
             Text("Il dente si posa **prima** dell'impianto: la protesi decide dov'è il posto "
                 + "giusto, l'impianto la serve.")
@@ -323,7 +376,27 @@ struct InspectorPanel: View {
 
     private var implantSection: some View {
         VStack(alignment: .leading, spacing: Metrics.spacing + 2) {
-            SectionHeader("IMPIANTO")
+            // # Un modo per smettere di lavorare su questo impianto
+            //
+            // Non c'era. La sezione compariva finché un impianto restava selezionato, e per
+            // deselezionarlo non esisteva un comando: chi voleva tornare agli altri controlli
+            // finiva per **cancellare l'impianto**, che è l'unica cosa che lo toglieva di mezzo.
+            // Una via d'uscita che distrugge il lavoro non è una via d'uscita.
+            HStack(spacing: Metrics.spacingSmall) {
+                SectionHeader("IMPIANTO")
+                Spacer(minLength: 0)
+                if model.selectedImplantID != nil {
+                    Button {
+                        model.selectedImplantID = nil
+                    } label: {
+                        Label("Deseleziona", systemImage: "xmark.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.textSecondary)
+                    .help("Smetti di lavorare su questo impianto. Non lo cancella.")
+                }
+            }
 
             if let implant = model.selectedImplant {
                 // Tre misure, e ciascuna cambia da sé senza disfare le altre.
