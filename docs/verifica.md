@@ -81,9 +81,9 @@ una macchina macOS — che è un cambiamento di ambiente, non di codice.
 
 ## Dove sta il resto della verifica
 
-- `swift test` — 1045 prove sulle librerie: 962 in 118 gruppi con
+- `swift test` — 1046 prove sulle librerie: 963 in 119 gruppi con
   `swift-testing`, 83 con `XCTest` in dieci file. L'ultima corsa le ha viste
-  tutte verdi in 66 secondi, su macOS con la toolchain di Xcode; quella
+  tutte verdi in 76 secondi, su macOS con la toolchain di Xcode; quella
   registrata prima si fermava a 921, su Linux, ed era anteriore alle prove
   della crescita confinata, della mesh stampabile e del taglio minimo.
 - Le prove nascono con una **mutazione**: si reintroduce il difetto e si

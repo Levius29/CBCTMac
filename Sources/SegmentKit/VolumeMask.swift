@@ -66,6 +66,10 @@ public enum SegmentKitError: Error, Hashable, Sendable, LocalizedError {
     case invalidMaximumNodeCount(Int)
     /// Il grafo richiesto non è allocabile: serve restringere il riquadro.
     case graphTooLarge(nodes: Int, maximum: Int)
+    /// L'istogramma non separa due popolazioni: non c'è una soglia da ricavare.
+    case thresholdNotFound
+    /// Nessuna isola di smalto abbastanza grande: non ci sono denti da separare.
+    case noCrownsFound(enamelThresholdGV: Double)
 
     /// Descrizione localizzata pronta per l'interfaccia utente.
     public var errorDescription: String? {
@@ -132,6 +136,13 @@ public enum SegmentKitError: Error, Hashable, Sendable, LocalizedError {
             return """
                 Il riquadro richiede un grafo da \(nodes) nodi, oltre il limite di \(maximum). \
                 Restringere il riquadro attorno alla struttura da estrarre.
+                """
+        case .thresholdNotFound:
+            return "L'istogramma dell'esame non separa due popolazioni distinguibili."
+        case .noCrownsFound(let threshold):
+            return """
+                Nessuna corona trovata sopra \(threshold) GV. L'esame potrebbe non contenere \
+                denti, oppure lo smalto è mascherato da artefatti metallici.
                 """
         }
     }

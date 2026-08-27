@@ -14,7 +14,7 @@ misurazioni, annotazioni e pianificazione implantare.
 
 ## Stato
 
-I moduli condivisi compilano e sono verificati da 1045 prove. L'applicazione SwiftUI compila su
+I moduli condivisi compilano e sono verificati da 1046 prove. L'applicazione SwiftUI compila su
 macOS; l'interfaccia non è ancora stata percorsa a mano.
 
 | Fase | Contenuto | Stato |
@@ -27,6 +27,7 @@ macOS; l'interfaccia non è ancora stata percorsa a mano.
 | 5 | Dime chirurgiche ed endodontiche per stampa 3D | **modulo verificato**, manca la UI |
 | 5b | Separazione di denti e arcate, uscita STL/OBJ stampabile | **moduli verificati**, UI collegata e da compilare sul Mac |
 | 5c | Taglio minimo: separare il dente dall'osso che lo circonda | **modulo verificato**, manca la UI |
+| 5d | Segmentazione automatica: trova, separa e conta i denti senza marcatori | **provata su esame vero**, manca la UI e il numero FDI |
 | 6 | Segmentazione AI on-device (Core ML) | da fare |
 
 ## Requisiti
@@ -70,10 +71,10 @@ All'avvio l'applicazione genera un **fantoccio sintetico**: un cubo da 20,00 mm 
 densità note. Serve a verificare le misure contro valori esatti senza toccare dati di pazienti,
 e resta utile anche ora che si aprono studi veri.
 
-> **Stato della verifica.** `swift test` copre i moduli condivisi. La suite conta **962 prove
-> in 118 gruppi** con `swift-testing`, più **83 prove `XCTest`** in dieci file: 1045 in tutto.
+> **Stato della verifica.** `swift test` copre i moduli condivisi. La suite conta **963 prove
+> in 119 gruppi** con `swift-testing`, più **83 prove `XCTest`** in dieci file: 1046 in tutto.
 >
-> L'ultima esecuzione le ha viste **tutte e 1045 verdi**, in 66 secondi, su macOS con la
+> L'ultima esecuzione le ha viste **tutte e 1046 verdi**, in 76 secondi, su macOS con la
 > toolchain di Xcode e Swift 6.3.3. È la prima corsa completa su questa piattaforma: quella
 > registrata prima si fermava a 921 prove su Swift 6.1.2 per Linux, ed era anteriore alle prove
 > della crescita confinata, della mesh stampabile e del taglio minimo.
