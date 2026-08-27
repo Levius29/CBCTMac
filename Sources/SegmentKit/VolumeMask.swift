@@ -52,6 +52,20 @@ public enum SegmentKitError: Error, Hashable, Sendable, LocalizedError {
     case invalidComponentCount(Int)
     /// Il volume minimo di una componente deve essere finito e non negativo.
     case invalidMinimumComponentVolumeMM3(Double)
+    /// Il taglio minimo separa due parti: senza marcatori sull'oggetto non c'è cosa separare.
+    case missingObjectSeed
+    /// Senza marcatori sullo sfondo il taglio prenderebbe tutto il volume.
+    case missingBackgroundSeed
+    /// Il peso della continuità deve essere finito e non negativo.
+    case invalidSmoothness(Double)
+    /// La preferenza per i percorsi scuri deve stare fra zero e uno.
+    case invalidLigamentAffinity(Double)
+    /// L'ampiezza del contrasto deve essere una densità finita e positiva.
+    case invalidContrastSigma(Double)
+    /// Il tetto di nodi del grafo deve essere positivo.
+    case invalidMaximumNodeCount(Int)
+    /// Il grafo richiesto non è allocabile: serve restringere il riquadro.
+    case graphTooLarge(nodes: Int, maximum: Int)
 
     /// Descrizione localizzata pronta per l'interfaccia utente.
     public var errorDescription: String? {
@@ -102,6 +116,23 @@ public enum SegmentKitError: Error, Hashable, Sendable, LocalizedError {
             return "Il numero di componenti da conservare non può essere negativo: \(count)."
         case .invalidMinimumComponentVolumeMM3(let volume):
             return "Il volume minimo delle componenti non è valido: \(volume) mm³."
+        case .missingObjectSeed:
+            return "Serve almeno un marcatore dentro l'oggetto da estrarre."
+        case .missingBackgroundSeed:
+            return "Serve almeno un marcatore fuori dall'oggetto, in ciò da cui separarlo."
+        case .invalidSmoothness(let smoothness):
+            return "Il peso della continuità non è valido: \(smoothness)."
+        case .invalidLigamentAffinity(let affinity):
+            return "La preferenza per i percorsi scuri deve stare fra 0 e 1: \(affinity)."
+        case .invalidContrastSigma(let sigma):
+            return "L'ampiezza del contrasto non è valida: \(sigma) GV."
+        case .invalidMaximumNodeCount(let maximum):
+            return "Il tetto di nodi del grafo deve essere positivo: \(maximum)."
+        case .graphTooLarge(let nodes, let maximum):
+            return """
+                Il riquadro richiede un grafo da \(nodes) nodi, oltre il limite di \(maximum). \
+                Restringere il riquadro attorno alla struttura da estrarre.
+                """
         }
     }
 }

@@ -81,10 +81,11 @@ una macchina macOS — che è un cambiamento di ambiente, non di codice.
 
 ## Dove sta il resto della verifica
 
-- `swift test` — 1036 prove sulle librerie, eseguibili ovunque: 953 in 116
-  gruppi con `swift-testing`, 83 con `XCTest` in dieci file. L'ultima corsa
-  registrata ne contava 921 verdi, prima che entrassero quelle della crescita
-  confinata e della mesh stampabile; il resto è scritto e attende una corsa.
+- `swift test` — 1045 prove sulle librerie: 962 in 118 gruppi con
+  `swift-testing`, 83 con `XCTest` in dieci file. L'ultima corsa le ha viste
+  tutte verdi in 66 secondi, su macOS con la toolchain di Xcode; quella
+  registrata prima si fermava a 921, su Linux, ed era anteriore alle prove
+  della crescita confinata, della mesh stampabile e del taglio minimo.
 - Le prove nascono con una **mutazione**: si reintroduce il difetto e si
   controlla che cadano. Una prova che non è mai caduta non ha dimostrato niente.
 - Il fantoccio sintetico, con i suoi numeri noti — spigolo di 20,000 mm, densità

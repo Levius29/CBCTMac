@@ -14,7 +14,7 @@ misurazioni, annotazioni e pianificazione implantare.
 
 ## Stato
 
-I moduli condivisi compilano e sono verificati da 1036 prove. L'applicazione SwiftUI compila su
+I moduli condivisi compilano e sono verificati da 1045 prove. L'applicazione SwiftUI compila su
 macOS; l'interfaccia non è ancora stata percorsa a mano.
 
 | Fase | Contenuto | Stato |
@@ -26,6 +26,7 @@ macOS; l'interfaccia non è ancora stata percorsa a mano.
 | 4 | Import mesh STL/PLY/OBJ e registrazione rigida | **compilata e verificata** |
 | 5 | Dime chirurgiche ed endodontiche per stampa 3D | **modulo verificato**, manca la UI |
 | 5b | Separazione di denti e arcate, uscita STL/OBJ stampabile | **moduli verificati**, UI collegata e da compilare sul Mac |
+| 5c | Taglio minimo: separare il dente dall'osso che lo circonda | **modulo verificato**, manca la UI |
 | 6 | Segmentazione AI on-device (Core ML) | da fare |
 
 ## Requisiti
@@ -69,13 +70,13 @@ All'avvio l'applicazione genera un **fantoccio sintetico**: un cubo da 20,00 mm 
 densità note. Serve a verificare le misure contro valori esatti senza toccare dati di pazienti,
 e resta utile anche ora che si aprono studi veri.
 
-> **Stato della verifica.** `swift test` copre i moduli condivisi. La suite dichiara **953 prove
-> in 116 gruppi** con `swift-testing`, più **83 prove `XCTest`** in dieci file: 1036 in tutto.
+> **Stato della verifica.** `swift test` copre i moduli condivisi. La suite conta **962 prove
+> in 118 gruppi** con `swift-testing`, più **83 prove `XCTest`** in dieci file: 1045 in tutto.
 >
-> L'ultima esecuzione registrata — 921 prove in 111 gruppi, tutte verdi, su Swift 6.1.2 per Linux
-> — è **anteriore** alle prove della crescita confinata e della mesh stampabile, entrate in `main`
-> dopo. Quelle sono scritte e aspettano una corsa: finché non la si fa, il numero verde è 921 e
-> non 1036.
+> L'ultima esecuzione le ha viste **tutte e 1045 verdi**, in 66 secondi, su macOS con la
+> toolchain di Xcode e Swift 6.3.3. È la prima corsa completa su questa piattaforma: quella
+> registrata prima si fermava a 921 prove su Swift 6.1.2 per Linux, ed era anteriore alle prove
+> della crescita confinata, della mesh stampabile e del taglio minimo.
 >
 > Il target dell'applicazione è condizionale a macOS e non entra in quella suite, perché importa
 > SwiftUI, AppKit e Metal; le sue chiamate verso i moduli sono però verificate da
@@ -85,6 +86,10 @@ e resta utile anche ora che si aprono studi veri.
 > importano `XCTest`, che su macOS vive dentro Xcode e non nella toolchain da riga di comando.
 > `swift build` e `swift run 3DMED` invece non compilano i test e funzionano anche con i soli
 > Command Line Tools.
+>
+> **I controlli in `Tools/` vogliono Python 3.10 o successivo.** Due di essi annotano con
+> `X | None`, che il Python 3.9 di sistema su macOS valuta a runtime e rifiuta: falliscono con
+> un `TypeError` che non ha niente a che vedere col codice controllato.
 
 Il target dell'applicazione non compila fuori da macOS, quindi un errore banale in quel codice si
 scopre solo là. Un controllo copre la classe di errore più frequente:
