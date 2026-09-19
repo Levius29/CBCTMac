@@ -96,6 +96,7 @@ let libraryProducts: [Product] = [
     .library(name: "CephKit", targets: ["CephKit"]),
     .library(name: "MediaKit", targets: ["MediaKit"]),
     .library(name: "ReportKit", targets: ["ReportKit"]),
+    .library(name: "FollowUpKit", targets: ["FollowUpKit"]),
 ]
 
 let moduleTargets: [Target] = [
@@ -136,6 +137,11 @@ let moduleTargets: [Target] = [
     // PNG in Swift puro e la cartella da consegnare. Niente AppKit, quindi si verifica tutto
     // con `swift test` invece che guardando un'immagine a occhio.
     .target(name: "MediaKit", dependencies: ["DICOMCore"]),
+    // Confronto fra due esami dello stesso paziente presi in date diverse: registrazione rigida
+    // volume-volume, ricampionamento sulla griglia del riferimento, regione seguita nel tempo.
+    // Niente Metal e niente Python: è aritmetica, e si verifica per intero con `swift test`.
+    // Dipende da SegmentKit per il solo `BoxMM` — la regione su cui registrare.
+    .target(name: "FollowUpKit", dependencies: ["DICOMCore", "SegmentKit"]),
 ]
 
 let testTargets: [Target] = [
@@ -161,6 +167,10 @@ let testTargets: [Target] = [
     .testTarget(
         name: "ArtifactKitTests",
         dependencies: ["ArtifactKit", "DICOMCore", "SegmentKit"]
+    ),
+    .testTarget(
+        name: "FollowUpKitTests",
+        dependencies: ["FollowUpKit", "DICOMCore", "SegmentKit"]
     ),
     // Contratto delle API usate dall'applicazione.
     //
