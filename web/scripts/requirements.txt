@@ -1,0 +1,6 @@
+pydicom==3.0.2
+nibabel==5.4.2
+numpy==2.5.3
+scipy==1.18.1
+SimpleITK==2.5.6
+dcm2niix==1.0.20260724

@@ -1,0 +1,94 @@
+name: CI
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  web:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  processing:
+    name: Python import and registration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm run setup
+        env:
+          OPENMRI_SETUP_PYTHON: python3.12
+      - run: npm run test:import
+
+  python-latest:
+    name: Python 3.14 import tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - run: npm ci
+      - run: npm run setup
+        env:
+          OPENMRI_SETUP_PYTHON: python3.14
+      - run: .venv/bin/python --version
+      - run: npm run test:import
+
+  demo:
+    name: npm run demo from a fresh checkout
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install, build, start, and load the demo
+        run: npm run demo -- --no-open
+      - name: Jane's study is in the library
+        run: |
+          curl -fsS http://127.0.0.1:4173/api/library | tee library.json
+          node -e "const d=require('./library.json'); const j=d.patients.find(p=>p.name==='Jane'); if(!j||!d.studies.some(s=>s.patient_id===j.id)) process.exit(1)"
+      - name: A second run reuses the demo
+        run: |
+          npm run demo -- --no-open | tee second.log
+          grep -q 'already in the library' second.log
+          test "$(curl -fsS http://127.0.0.1:4173/api/library | node -p 'JSON.parse(require("fs").readFileSync(0)).studies.length')" = 1
+      - run: npm run status
+      - run: npm run down
+      - if: failure()
+        run: cat .openmri-server.log || true

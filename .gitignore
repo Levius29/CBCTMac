@@ -39,3 +39,6 @@ Phantoms/
 *.swp
 __pycache__/
 *.pyc
+
+## Aggiornamenti dall'originale OpenMRI
+.upstream-cache/

@@ -1,0 +1,55 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never attach real scans, DICOM headers, worker logs with patient names,
+        screenshots with patient details, or your `library.sqlite`.
+        Reproduce with synthetic data or anonymise first.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This report contains no real medical images and no patient details.
+          required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Import a ZIP with ...
+        2. Open the study ...
+        3. Click ...
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 26.1 / Ubuntu 24.04 / Windows 11 with WSL
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Node and Python versions
+      placeholder: node 22.13.0, python 3.12.8
+  - type: textarea
+    id: input
+    attributes:
+      label: About the archive
+      description: Modality, vendor, DICOM or NIfTI, roughly how many series and files. No identifiers.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error text or log excerpt
+      description: From the browser console, the terminal, or `.openmri/jobs/<id>/`. Remove names and dates of birth.
+      render: text

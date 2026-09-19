@@ -1,8 +1,30 @@
 # CBCTMac — istruzioni per chi ci lavora
 
-Visore e pianificatore per CBCT dentali, nativo macOS. Il [`README`](README.md) spiega come si
-compila e come si usa; qui c'è soltanto quello che serve a non rompere il progetto lavorandoci
-dentro.
+Visore e pianificatore per CBCT dentali. Il [`README`](README.md) spiega come si fa girare e come
+si usa; qui c'è soltanto quello che serve a non rompere il progetto lavorandoci dentro.
+
+## Due parti, e non sono pari
+
+**Il programma è `web/`**: OpenMRI, copiato intatto, più ciò che aggiungiamo noi. È quello che si
+apre, che importa gli esami e che si vede. Perché la base sia questa, e che cosa ne consegue, sta
+in [`docs/openmri-dental.md`](docs/openmri-dental.md) — che è il primo documento da leggere.
+
+**`Sources/` è la riserva**: quindici moduli Swift con la matematica dentale già provata, da cui
+si porta una funzione per volta. Non è il prodotto, e non si cancella: ogni funzione che il
+programma non ha ancora esiste lì, con i suoi test e con scritto nei commenti il difetto che
+corregge. Chi la riscrive altrove parte da lì invece che da capo.
+
+Due regole che valgono ovunque, e che sono la stessa regola:
+
+- **Dentro `web/` si tocca il meno possibile.** Restiamo agganciati all'originale
+  (`Tools/update-openmri.sh`), e ogni riga cambiata nei loro file è un conflitto che torna al
+  prossimo aggiornamento. Ciò che aggiungiamo va in file nostri. Le modifiche locali si elencano
+  in `docs/openmri-dental.md`, e l'elenco deve restare corto.
+- **I contratti di [`docs/architecture.md`](docs/architecture.md) non sono di Swift, sono del
+  dominio.** Coordinate Patient in millimetri, slice ordinate per proiezione, «GV» e non «HU»,
+  nessun numero con più precisione di quanta ne abbia: valgono identici in Python e in
+  TypeScript. Violarli non dà errori di compilazione in nessuna delle tre lingue — dà numeri
+  sbagliati sullo schermo di chi guarda un esame.
 
 ## Un solo tronco: `main`
 
@@ -48,9 +70,14 @@ Tre corollari, tutti conseguenza della stessa regola:
 
 ## Il cancello: cosa passare prima di fondere in `main`
 
-`main` deve restare compilabile. Prima di fonderci dentro qualcosa:
+`main` deve restare compilabile. Prima di fonderci dentro qualcosa, **quello che si è toccato**:
 
 ```sh
+# se hai toccato web/ — il programma
+cd web && npm run check       # oxlint, tsc --noEmit, prove in node:test
+npm run test:import           # le prove Python dell'import e della registrazione
+
+# se hai toccato Sources/ o Tests/ — la riserva
 for controllo in Tools/check-*.py; do python3 "$controllo" || break; done
 swift test
 ```
