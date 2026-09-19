@@ -52,6 +52,27 @@ Se il controllo dice `RIFIUTATA: Modality «OT»` — capita su qualche apparecc
 dichiara `CT` — l'esame è buono e l'importatore è severo: apri una segnalazione, si allarga
 l'elenco in `web/scripts/import_mri.py` in una riga.
 
+### La ricostruzione dentale
+
+Il pulsante **Dental** in alto, o l'indirizzo `127.0.0.1:4173/dental`.
+
+Scegli lo studio e la serie, premi **Reconstruct**. Il programma trova l'arcata da solo, distende
+la **panoramica** lungo di essa e prepara le **sezioni trasversali**, perpendicolari alla curva —
+quelle su cui si giudicano altezza e spessore della cresta. Un clic sulla panoramica sposta la
+sezione, le frecce ← → la fanno scorrere.
+
+**Guarda la curva prima di fidarti delle sezioni.** Il riquadro in basso a sinistra mostra la fetta
+assiale con sopra la curva trovata: il rilevamento è un'euristica, e quella è l'unica immagine su
+cui si vede se ha trovato l'arcata o la colonna cervicale. Correggerla a mano non si può ancora.
+
+I comandi in fondo rifanno la ricostruzione: spessore dello slab, altezza, passo e misure delle
+sezioni, proiezione massima o media. Ogni combinazione resta in cache, quindi tornare su un valore
+di prima è immediato.
+
+> Una panoramica ricostruita **non è una radiografia panoramica**: è una superficie campionata, e
+> una distanza presa su di essa è una distanza fra due punti di quella superficie. Per la distanza
+> fra due strutture vale la sezione trasversale, dove il piano è piatto.
+
 ### Lo studio demo
 
 Non è nel repository, perché pesa 46 MB e non cambia mai. Si scarica quando serve:
@@ -94,10 +115,10 @@ for controllo in Tools/check-*.py; do python3 "$controllo" || break; done
 
 ### Che cosa manca, e in che ordine
 
-Il programma web oggi guarda: non misura, non segmenta, non sa niente di denti. La prima cosa che
-ci portiamo dalla riserva è **la panoramica e la curva d'arcata**, che è ciò che distingue un
-visore CBCT da un visore qualunque. Il calcolo pesante andrà nell'ambiente Python che OpenMRI ha
-già, accanto a import e registrazione.
+Portata: **panoramica e curva d'arcata**, con le sezioni trasversali. Restano da portare, in
+quest'ordine: la correzione a mano della curva, le misure con l'incertezza dichiarata, il canale
+alveolare con gli impianti, la segmentazione. Il calcolo pesante sta nell'ambiente Python che
+OpenMRI ha già, accanto a import e registrazione — nessuna dipendenza nuova.
 
 ---
 

@@ -53,14 +53,27 @@ serve, e si innesta nei loro nei punti più stretti possibile.
 
 ### Modifiche locali al tree copiato
 
-Una sola, per ora. L'elenco va tenuto qui, corto:
+Due, e l'elenco va tenuto corto:
 
 - `web/.gitignore` — tolta l'eccezione `!/demo/jane-head-mri.zip`. Senza, un `git add -A` si
   porterebbe dentro i 46 MB dello studio demo per sempre.
+- `web/app/viewer.tsx` — un collegamento alla pagina dentale nella barra in alto, più il suo
+  `import`. È l'unico punto in cui l'interfaccia dell'originale nomina roba nostra; tutto il resto
+  della ricostruzione dentale sta in file nostri.
 
-E due file nostri aggiunti là dentro, che non possono entrare in conflitto con niente:
+E i file nostri aggiunti là dentro, che non possono entrare in conflitto con niente:
 
 - `web/.upstream-commit` — da quale commit dell'originale siamo partiti.
+- `web/scripts/dental_panorama.py`, `web/tests/test_dental_panorama.py`, `web/lib/dental.ts`,
+  `web/app/api/dental/**`, `web/app/dental/**` — la ricostruzione dentale.
+
+### Una regola dell'originale che qui non vale
+
+`web/AGENTS.md` dice: «OpenMRI is a viewer: it must not detect, measure, or diagnose». È la regola
+del **loro** progetto, ed è giusta per un visore generico. Questo fork esiste per fare di più, e la
+differenza va detta invece che lasciata intendere: la ricostruzione dentale **ricostruisce viste**
+— una panoramica e sezioni perpendicolari all'arcata — e continua a non diagnosticare niente.
+L'avviso di uso non diagnostico resta dov'è, in fondo alla pagina e nel README.
 
 ## Tirare gli aggiornamenti dall'originale
 
@@ -90,10 +103,65 @@ La ricetta, nell'ordine in cui conviene:
 4. **Disegnare** in un componente nostro, in inglese, agganciato al visore nel punto più stretto
    possibile.
 
+## La ricostruzione dentale
+
+La prima funzione portata dalla riserva, ed è quella senza cui una CBCT dentale non si legge: i
+denti stanno su una curva, e qualunque taglio piatto li attraversa di sbieco.
+
+- `web/scripts/dental_panorama.py` — il calcolo: rilevamento automatico dell'arcata, panoramica
+  come slab curvo, sezioni perpendicolari. È il porto fedele di `Sources/DentalKit` e di
+  `Sources/SegmentKit/ArchDetection.swift`, scelte non ovvie comprese — Catmull-Rom, passo d'arco
+  costante, scala isotropa, slab centrato, soglia di Otsu, i tre criteri di rifiuto.
+- `web/tests/test_dental_panorama.py` — diciassette prove su un'arcata **nota per costruzione**:
+  la curva trovata deve coincidere con quella vera, la banda d'osso deve cadere alla quota giusta,
+  la sezione deve tagliare il tubo d'osso al centro, e un blocco pieno o un volume vuoto devono
+  essere **rifiutati**.
+- `web/lib/dental.ts` e `web/app/api/dental/**` — il contorno: dove sta il volume, quali opzioni
+  sono ammesse, la cache indicizzata sulle opzioni.
+- `web/app/dental/**` — la pagina: panoramica in alto, fetta assiale con la curva disegnata sopra,
+  sezione trasversale, e i comandi che rifanno la ricostruzione.
+
+**Il limite da sapere.** Il volume su cui si ricostruisce è quello che OpenMRI prepara
+all'importazione, ricampionato a un massimo di 320 voxel per asse: su una CBCT a campo grande
+significa mezzo millimetro di voxel invece di un quarto. La panoramica ne risente poco, le sezioni
+trasversali sì. Il passo successivo è una conversione a piena risoluzione riservata al dentale, e
+va fatta sapendo che costa memoria.
+
+**Perché la curva si guarda sulla fetta assiale.** Il rilevamento è un'euristica, e una proposta
+sbagliata è peggio di nessuna proposta: chi la riceve la corregge invece di rifarla. La fetta con
+la curva sopra è l'unica immagine su cui si può giudicare, e sta nella pagina per questo, non per
+decorazione.
+
+## Le prove, e una che chiede una cosa in più
+
+```sh
+cd web
+npm run check                     # lint, tipi, prove Node
+Tools/../../Tools/fetch-demo-study.sh   # solo la prima volta
+npm run test:import               # 26 prove Python, 17 nostre
+```
+
+Una delle prove dell'originale importa lo studio demo, che qui non è versionato: senza,
+`npm run test:import` fallisce su quella sola con un `FileNotFoundError`. Si scarica una volta con
+`Tools/fetch-demo-study.sh` e non se ne parla più.
+
 ## Che cosa resta da decidere
 
 - Se e quando portare nel web la registrazione fra date diverse: la riserva la contiene in Swift
   (`Sources/FollowUpKit`), OpenMRI la fa già in Python con SimpleITK. Finché la base è questa,
   vince la loro — la nostra resta come riferimento e come implementazione senza dipendenze.
-- Come collocare l'avviso di uso non diagnostico dentro l'interfaccia: nel `README` c'è, nello
-  schermo non ancora.
+- L'avviso di uso non diagnostico: nel `README` c'è, e nella pagina dentale pure, in fondo. Nel
+  resto dell'interfaccia dell'originale c'è la loro dicitura, più blanda.
+
+## Il prossimo passo dal magazzino
+
+Nell'ordine in cui conviene, ciascuno con il suo modulo Swift già provato da cui leggere:
+
+1. **Correggere la curva a mano** — trascinare i punti di controllo sulla fetta assiale.
+   `Sources/DentalKit/ArchEditing.swift`. È la cosa che manca di più: il rilevamento automatico
+   funziona o non funziona, e quando non funziona adesso non c'è rimedio dentro la pagina.
+2. **Misure sulle sezioni** — altezza e spessore della cresta, con l'incertezza dichiarata
+   (Contratto 5). `Sources/MeasureKit`.
+3. **Canale alveolare e impianti** — `Sources/ImplantKit`, che è il cuore del pianificatore e
+   pretende le misure già pronte sotto.
+4. **Volume a piena risoluzione** per il dentale, vedi il limite qui sopra.
