@@ -18,11 +18,13 @@
  */
 import { execFile } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import {
   SETUP_HINT,
   dataRoot,
   db,
+  identifier,
   newJob,
   pythonPath,
   startWorker,
@@ -83,6 +85,54 @@ export function chooseFolder() {
       },
     );
   });
+}
+
+/** Dove si radunano i file che arrivano dal browser, prima di diventare un archivio. */
+export function uploadDirectory(id: string) {
+  return path.join(dataRoot(), 'jobs', identifier(id), 'incoming');
+}
+
+/**
+ * Chiude un caricamento: dai file arrivati fa l'archivio e consegna il lavoro al motore.
+ *
+ * È lo stesso passaggio dell'importazione da cartella — stessa compressione, stesse funzioni
+ * dell'originale — e cambia solo da dove vengono i file: lì stavano già su disco, qui sono appena
+ * arrivati dal browser.
+ */
+export async function finishUpload(id: string) {
+  const folder = uploadDirectory(id);
+  const archive = path.join(dataRoot(), 'jobs', id, 'source.zip');
+  try {
+    db()
+      .prepare("UPDATE jobs SET stage='Packing the files' WHERE id=?")
+      .run(id);
+    const summary = JSON.parse(
+      await runPython(
+        'scripts/zip_folder.py',
+        [folder, archive],
+        ZIP_TIMEOUT_MS,
+      ),
+    ) as { files: number; bytes: number; sha256: string };
+
+    db()
+      .prepare(
+        "UPDATE jobs SET sha256=?,status='inspecting',stage='Inspecting DICOM',updated_at=? WHERE id=?",
+      )
+      .run(summary.sha256, new Date().toISOString(), id);
+    startWorker(id, 'inspect');
+    // I file sciolti non servono più: l'archivio li contiene, e lasciarli raddoppierebbe lo
+    // spazio occupato da ogni importazione.
+    await rm(folder, { recursive: true, force: true });
+    return { id, ...summary };
+  } catch (error) {
+    db()
+      .prepare("UPDATE jobs SET status='error',error=? WHERE id=?")
+      .run(
+        error instanceof Error ? error.message : 'The files could not be read',
+        id,
+      );
+    throw error;
+  }
 }
 
 /** Che cosa c'è dentro la cartella, prima di toccarla. */

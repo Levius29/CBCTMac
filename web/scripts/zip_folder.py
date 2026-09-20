@@ -38,9 +38,16 @@ MAXIMUM_BYTES = 2 * 1024**3
 MAXIMUM_EXTRACTED_BYTES = 12 * 1024**3
 
 
-def interesting(path):
-    """Vero se il file vale la pena di entrare nell'archivio."""
-    if any(part.startswith(".") or part == "__MACOSX" for part in path.parts):
+def interesting(path, folder):
+    """Vero se il file vale la pena di entrare nell'archivio.
+
+    Il nascosto si giudica **dentro** la cartella scelta, non sul percorso intero: la cartella di
+    lavoro del programma si chiama `.openmri`, e guardando il percorso assoluto ogni file che ci
+    stava dentro risultava nascosto. Il sintomo era «That folder has no files in it» su una
+    cartella piena.
+    """
+    relative = path.relative_to(folder)
+    if any(part.startswith(".") or part == "__MACOSX" for part in relative.parts):
         return False
     return path.is_file() and not path.is_symlink()
 
@@ -51,7 +58,7 @@ def build(folder, archive):
     if not folder.is_dir():
         raise ValueError(f"«{folder}» is not a folder")
 
-    files = [p for p in sorted(folder.rglob("*")) if interesting(p)]
+    files = [p for p in sorted(folder.rglob("*")) if interesting(p, folder)]
     if not files:
         raise ValueError("That folder has no files in it")
     if len(files) > MAXIMUM_FILES:

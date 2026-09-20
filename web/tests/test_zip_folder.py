@@ -73,3 +73,31 @@ class ZipFolderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HiddenAncestorTests(unittest.TestCase):
+    """Il difetto che ha fermato il primo caricamento dal browser, in una prova.
+
+    I file arrivano in `.openmri/jobs/<id>/incoming`, e il filtro sui nascosti guardava il
+    percorso assoluto: ogni file risultava dentro una cartella che comincia per punto, quindi
+    l'archivio usciva vuoto e l'importazione si fermava dicendo che la cartella era vuota.
+    """
+
+    def test_a_hidden_parent_does_not_hide_the_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / ".openmri" / "jobs" / "abc" / "incoming"
+            root.mkdir(parents=True)
+            for index in range(3):
+                (root / f"{index:06d}-slice.dcm").write_bytes(b"x" * 50)
+
+            summary = zipper.build(root, Path(folder) / "out.zip")
+            self.assertEqual(summary["files"], 3)
+
+    def test_hidden_files_inside_the_chosen_folder_still_go(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "CBCT"
+            root.mkdir()
+            (root / ".DS_Store").write_bytes(b"spazzatura")
+            (root / "buono.dcm").write_bytes(b"x")
+            summary = zipper.build(root, Path(folder) / "out.zip")
+            self.assertEqual(summary["files"], 1)
