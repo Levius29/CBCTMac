@@ -12,6 +12,24 @@ computer.
 
 ---
 
+## Come applicazione, con un doppio clic
+
+```sh
+Tools/make-mac-app.sh --install
+```
+
+Costruisce **OpenMRI Dental.app** e lo mette in Applicazioni: icona nel Dock, finestra dedicata
+senza barra degli indirizzi, niente terminale. Avvia il server da sé — il primo avvio installa
+quel che manca e ci mette qualche minuto — e apre la ricostruzione dentale.
+
+Dentro il pacchetto c'è uno script di testo di quaranta righe: chi vuole sapere che cosa fa il
+doppio clic lo legge. Se qualcosa non parte, il registro è in
+`~/Library/Logs/OpenMRI Dental.log`.
+
+> Non è un'applicazione nativa: è il programma locale con addosso la forma di un'applicazione. Una
+> nativa vera — Electron o Tauri — è la strada dopo, e costa duecento megabyte o una catena di
+> compilazione in più.
+
 ## Provarlo, stasera
 
 Serve **macOS o Linux**, [Node.js](https://nodejs.org) 22.13 o successivo, **Python 3.12, 3.13 o
@@ -41,12 +59,13 @@ python3 Tools/inspect-dicom.py /percorso/della/cartella
 python3 Tools/inspect-dicom.py esame.zip        # funziona anche direttamente sullo ZIP
 ```
 
-Poi:
+Poi, **senza comprimere niente**: nella pagina **Dental**, pulsante **Import folder** → *Choose…*
+apre il pannello del Finder, scegli la cartella dei `.dcm`, dai un nome al paziente, **Import**.
+Il programma gira sul tuo computer, quindi la cartella la legge da sé.
 
-1. Comprimi la cartella dell'esame in uno **ZIP** — senza password, **un paziente per archivio**,
-   fino a 2 GB. Vanno bene anche `.nii` / `.nii.gz`.
-2. **Import MRI**, scegli lo ZIP, dai un nome al paziente, **Prepare the study**.
-3. La conversione gira in un processo a parte: la finestra si può chiudere.
+La strada dell'originale resta, e serve per i `.nii` o per un archivio già pronto: **Import MRI**
+vuole uno **ZIP** — senza password, **un paziente per archivio**, fino a 2 GB. In entrambi i casi
+la conversione gira in un processo a parte: la finestra si può chiudere.
 
 Se il controllo dice `RIFIUTATA: Modality «OT»` — capita su qualche apparecchio dentale che non
 dichiara `CT` — l'esame è buono e l'importatore è severo: apri una segnalazione, si allarga

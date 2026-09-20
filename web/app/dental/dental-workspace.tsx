@@ -37,6 +37,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
+  FolderPlus,
   LoaderCircle,
   PenLine,
   RefreshCw,
@@ -45,6 +46,7 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import FolderImport from './folder-import';
 
 type Patient = { id: string; name: string };
 type Study = { id: string; patient_id: string; date: string; label: string };
@@ -203,20 +205,34 @@ export default function DentalWorkspace() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<number[][] | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
+  const [importing, setImporting] = useState(false);
   const panorama = useRef<HTMLButtonElement>(null);
+  /** Lo studio scelto, letto dentro `loadLibrary` senza rifare la funzione a ogni cambio. */
+  const studyIdRef = useRef('');
   const axialSvg = useRef<SVGSVGElement>(null);
 
-  useEffect(() => {
+  const loadLibrary = useCallback((pick?: 'newest') => {
     api<{ patients: Patient[]; studies: Study[] }>('/api/library')
       .then((library) => {
         setPatients(library.patients);
         setStudies(library.studies);
-        if (library.studies.length) setStudyId(library.studies[0].id);
+        // Dopo un'importazione si apre lo studio appena entrato: è quello che si stava
+        // aspettando, e cercarlo in un elenco sarebbe un passo in più senza ragione.
+        if (
+          library.studies.length &&
+          (pick === 'newest' || !studyIdRef.current)
+        )
+          setStudyId(library.studies[0].id);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
 
   useEffect(() => {
+    loadLibrary();
+  }, [loadLibrary]);
+
+  useEffect(() => {
+    studyIdRef.current = studyId;
     if (!studyId) return;
     api<{ series: Series[]; defaultSeriesId?: string }>(
       `/api/library/studies/${studyId}`,
@@ -412,11 +428,28 @@ export default function DentalWorkspace() {
             </option>
           ))}
         </select>
+        <Button
+          variant="outline"
+          onClick={() => setImporting((open) => !open)}
+          aria-pressed={importing}
+        >
+          <FolderPlus /> Import folder
+        </Button>
         <Button onClick={() => reconstruct()} disabled={!seriesId || busy}>
           {busy ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
           {build ? 'Rebuild' : 'Reconstruct'}
         </Button>
       </header>
+
+      {importing ? (
+        <FolderImport
+          onDone={() => {
+            setImporting(false);
+            setBuild(null);
+            loadLibrary('newest');
+          }}
+        />
+      ) : null}
 
       {error ? (
         <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border p-3 text-sm">

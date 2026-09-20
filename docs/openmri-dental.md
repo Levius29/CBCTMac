@@ -121,6 +121,25 @@ denti stanno su una curva, e qualunque taglio piatto li attraversa di sbieco.
 - `web/app/dental/**` — la pagina: panoramica in alto, fetta assiale con la curva disegnata sopra,
   sezione trasversale, e i comandi che rifanno la ricostruzione.
 
+### L'importazione da cartella, e il pacchetto macOS
+
+Due cose che l'originale non fa, e che su un computer di studio pesano più di quanto sembri.
+
+- `web/scripts/zip_folder.py` e `web/lib/dental-import.ts` — si importa una **cartella** di DICOM
+  senza comprimerla. Il browser non sa dare una cartella, ma il server gira sullo stesso computer
+  e la legge da sé: prepara l'archivio dove il loro motore se lo aspetta e gli consegna il lavoro,
+  che da quel punto in poi è un'importazione identica a quella dal browser. Su macOS il pulsante
+  *Choose…* apre il pannello del Finder con `osascript`; altrove si incolla il percorso.
+- `Tools/make-mac-app.sh` — costruisce **OpenMRI Dental.app**: icona nel Dock, finestra dedicata
+  senza barra degli indirizzi, doppio clic invece di tre comandi. Dentro c'è uno script di testo
+  che avvia il server come `npm run up` e apre la finestra con Chrome, Edge o Brave in modalità
+  applicazione; senza nessuno dei tre ripiega sul browser predefinito. L'icona la disegna
+  `Tools/make-app-icon.py`, che scrive i PNG con `zlib` e non ha dipendenze.
+
+Non è un'applicazione nativa e il documento non finge che lo sia: è il programma locale con
+addosso la forma di un'applicazione. Electron o Tauri sono la strada dopo, e costano
+duecento megabyte o una catena di compilazione in Rust.
+
 **Il limite da sapere.** Il volume su cui si ricostruisce è quello che OpenMRI prepara
 all'importazione, ricampionato a un massimo di 320 voxel per asse: su una CBCT a campo grande
 significa mezzo millimetro di voxel invece di un quarto. La panoramica ne risente poco, le sezioni

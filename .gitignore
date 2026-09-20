@@ -42,3 +42,7 @@ __pycache__/
 
 ## Aggiornamenti dall'originale OpenMRI
 .upstream-cache/
+
+## Pacchetto macOS, costruito da Tools/make-mac-app.sh
+OpenMRI Dental.app/
+*.iconset/
