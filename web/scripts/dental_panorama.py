@@ -475,7 +475,20 @@ def build_panorama(volume, curve, options):
     # La colonna parte dall'alto: la prima riga è la più craniale, come nelle viste coronale e
     # sagittale, e scende di un pixel per volta.
     rows = (np.arange(height) - (height - 1) / 2) * mm_per_pixel
-    column_top = position.copy()
+
+    # Scostamento vestibolo-linguale: sposta il **piano campionato**, non la curva.
+    #
+    # Serve perché una curva d'arcata è un'approssimazione: passa per i punti che si sono posati, e
+    # i denti stanno un po' più fuori o un po' più dentro. Con uno slab spesso si vede tutto
+    # sovrapposto e nulla con nitidezza; con uno slab sottile si vede una fetta sola, e per trovare
+    # l'apice di una radice bisogna poter attraversare l'arcata in profondità. Positivo verso il
+    # vestibolare, negativo verso il linguale.
+    #
+    # Le sezioni trasversali **non** lo ricevono, ed è voluto: sono larghe trenta millimetri e
+    # contengono già tutto lo spessore, mentre spostarne il centro renderebbe due sezioni prese con
+    # scostamenti diversi non confrontabili fra loro.
+    depth = float(options.get("normalOffsetMM", 0.0))
+    column_top = position + normal * depth
     column_top[:, 2] = vertical_centre
 
     maximum = options.get("projection", "maximum") == "maximum"
@@ -501,6 +514,7 @@ def build_panorama(volume, curve, options):
         "slabThicknessMM": thickness,
         "slabSamples": slab_count,
         "projection": "maximum" if maximum else "average",
+        "normalOffsetMM": depth,
     }
 
 
@@ -552,6 +566,24 @@ def build_sections(volume, curve, options):
         values = volume.sample(stack.reshape(-1, 3)).reshape(slab_count, height, width)
         images[index] = values.mean(axis=0)
 
+    # Dove ciascuna sezione taglia, in millimetri: i due capi del segmento sulla fetta assiale.
+    # Senza, chi guarda la sezione non sa da che parte dell'arcata provenga, e la striscia di
+    # sezioni resta un elenco invece che un percorso.
+    half = np.array([width * mm_per_pixel / 2, width * mm_per_pixel / 2])
+    cut_ends = [
+        [
+            [
+                float(position[index, 0] - normal[index, 0] * half[0]),
+                float(position[index, 1] - normal[index, 1] * half[1]),
+            ],
+            [
+                float(position[index, 0] + normal[index, 0] * half[0]),
+                float(position[index, 1] + normal[index, 1] * half[1]),
+            ],
+        ]
+        for index in range(count)
+    ]
+
     geometry = {
         "count": count,
         "intervalMM": float(total / (count - 1)),
@@ -562,6 +594,7 @@ def build_sections(volume, curve, options):
         "heightMM": height * mm_per_pixel,
         "thicknessMM": thickness,
         "arcLengthsMM": [float(value) for value in arc],
+        "cutEndsMM": cut_ends,
     }
     return images, geometry
 
@@ -664,6 +697,30 @@ def build(volume_path, output_dir, options=None):
         axial_geometry["curvePixels"] = to_pixels(dense[:: max(1, len(dense) // 240)])
         axial_geometry["controlPixels"] = to_pixels(detection["points"])
         axial_geometry["orientation"] = "radiological"
+
+        # Dove taglia ciascuna sezione, sulla stessa immagine. Chi guarda una sezione vede così da
+        # che parte dell'arcata viene, e le tre viste dicono la stessa cosa invece di tre cose
+        # vicine.
+        axial_geometry["cutPixels"] = [
+            [point for end in to_pixels(ends) for point in end]
+            for ends in section_geometry["cutEndsMM"]
+        ]
+
+        # La trasformazione **inversa**, in forma di affine esplicita: serve a chi trascina un punto
+        # di controllo sull'immagine e deve dire in millimetri dove l'ha portato. Scriverla qui e
+        # non nell'interfaccia è la stessa ragione di `to_pixels`: una conversione tenuta in due
+        # posti è una conversione che prima o poi diverge, e lo fa in silenzio.
+        #
+        #   X = x[0]·colonna + x[1]·riga + x[2]      Y = y[0]·colonna + y[1]·riga + y[2]
+        step = axial_geometry["stepMM"]
+        origin = axial_geometry["originMM"]
+        axial_geometry["worldFromPixel"] = {
+            "x": [-step, 0.0, origin[0] + (axial_geometry["columns"] - 1) * step],
+            "y": [0.0, -step, origin[1] + (axial_geometry["rows"] - 1) * step],
+            "z": detection["verticalMM"],
+        }
+        lower, upper = volume.world_bounds()
+        axial_geometry["levelRangeMM"] = [float(lower[2]), float(upper[2])]
 
     return {
         "curve": {

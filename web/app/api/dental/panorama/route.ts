@@ -14,7 +14,15 @@ export async function POST(request: Request) {
     const body = (await request.json()) as Record<string, unknown>;
     if (typeof body.seriesId !== 'string')
       throw new Error('Choose a series to reconstruct.');
-    return Response.json(await buildDental(body.seriesId, body.options));
+    // Il gesto sulla curva sta fuori dalle opzioni di proposito: salvare o dimenticare non cambia
+    // l'immagine, quindi non deve cambiare la chiave della cache.
+    const action =
+      body.curveAction === 'save' || body.curveAction === 'forget'
+        ? body.curveAction
+        : undefined;
+    return Response.json(
+      await buildDental(body.seriesId, body.options, action),
+    );
   } catch (e) {
     return failure(e);
   }

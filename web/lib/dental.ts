@@ -10,7 +10,15 @@
  */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import {
   SETUP_HINT,
@@ -41,8 +49,18 @@ export type DentalOptions = {
   sectionHeightMM: number;
   sectionThicknessMM: number;
   sectionMmPerPixel: number;
+  /**
+   * Scostamento vestibolo-linguale del piano campionato dalla panoramica, in millimetri.
+   *
+   * Positivo verso il vestibolare. Con uno slab spesso non si vede quasi niente — lo spessore
+   * contiene l'osso comunque — ed è per questo che si assottiglia lo slab quando si sfoglia
+   * l'arcata in profondità.
+   */
+  normalOffsetMM: number;
   /** Quota della fetta su cui cercare l'arcata. `null` la fa scegliere al rilevamento. */
   archVerticalMM: number | null;
+  /** La curva posata a mano. `null` la fa trovare al rilevamento. */
+  controlPointsMM: number[][] | null;
 };
 
 export const defaultOptions: DentalOptions = {
@@ -55,7 +73,9 @@ export const defaultOptions: DentalOptions = {
   sectionHeightMM: 45,
   sectionThicknessMM: 1,
   sectionMmPerPixel: 0.15,
+  normalOffsetMM: 0,
   archVerticalMM: null,
+  controlPointsMM: null,
 };
 
 /** I limiti di ciascuna opzione: minimo, massimo. Il confine è qui, non nella pagina. */
@@ -68,6 +88,7 @@ const limits: Partial<Record<keyof DentalOptions, [number, number]>> = {
   sectionHeightMM: [10, 90],
   sectionThicknessMM: [0, 10],
   sectionMmPerPixel: [0.05, 1],
+  normalOffsetMM: [-15, 15],
 };
 
 export function normaliseOptions(input: unknown): DentalOptions {
@@ -89,6 +110,23 @@ export function normaliseOptions(input: unknown): DentalOptions {
     Number.isFinite(given.archVerticalMM)
   )
     result.archVerticalMM = given.archVerticalMM;
+
+  // La curva a mano arriva dal browser, quindi si riconosce invece di fidarsi: da tre a
+  // quaranta punti, tre numeri finiti ciascuno. Il resto è un errore, non un valore da correggere.
+  const points = given.controlPointsMM;
+  if (Array.isArray(points) && points.length >= 3 && points.length <= 40) {
+    const clean = points
+      .filter(
+        (point): point is number[] =>
+          Array.isArray(point) &&
+          point.length === 3 &&
+          point.every(
+            (value) => typeof value === 'number' && Number.isFinite(value),
+          ),
+      )
+      .map((point) => point.map(Number));
+    if (clean.length === points.length) result.controlPointsMM = clean;
+  }
   return result;
 }
 
@@ -110,6 +148,65 @@ export function seriesVolumePath(seriesId: string) {
   return path.isAbsolute(stored) ? stored : path.join(dataRoot(), stored);
 }
 
+/**
+ * La tavola dove vive la curva corretta a mano, creata al primo uso come fa `timeline-server`.
+ *
+ * Senza, la correzione durava fino alla ricarica della pagina: si sistemava la curva su un'arcata
+ * difficile, si chiudeva, e il giorno dopo si ricominciava. Una correzione che non sopravvive è
+ * una correzione che nessuno fa due volte.
+ */
+function dentalDB() {
+  const d = db();
+  d.exec(
+    `CREATE TABLE IF NOT EXISTS dental_curves(series_id TEXT PRIMARY KEY, points TEXT NOT NULL, arch_vertical REAL, updated_at TEXT NOT NULL);`,
+  );
+  return d;
+}
+
+/** La curva salvata per una serie, se c'è. */
+export function savedCurve(
+  seriesId: string,
+): { controlPointsMM: number[][]; archVerticalMM: number | null } | null {
+  const row = dentalDB()
+    .prepare('SELECT points,arch_vertical FROM dental_curves WHERE series_id=?')
+    .get(identifier(seriesId));
+  if (!row) return null;
+  try {
+    const points = JSON.parse(String(row.points)) as number[][];
+    if (!Array.isArray(points) || points.length < 3) return null;
+    return {
+      controlPointsMM: points,
+      archVerticalMM:
+        typeof row.arch_vertical === 'number' ? row.arch_vertical : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveCurve(
+  seriesId: string,
+  controlPointsMM: number[][],
+  archVerticalMM: number | null,
+) {
+  dentalDB()
+    .prepare(
+      'INSERT INTO dental_curves(series_id,points,arch_vertical,updated_at) VALUES(?,?,?,?) ON CONFLICT(series_id) DO UPDATE SET points=excluded.points,arch_vertical=excluded.arch_vertical,updated_at=excluded.updated_at',
+    )
+    .run(
+      identifier(seriesId),
+      JSON.stringify(controlPointsMM),
+      archVerticalMM,
+      new Date().toISOString(),
+    );
+}
+
+export function forgetCurve(seriesId: string) {
+  dentalDB()
+    .prepare('DELETE FROM dental_curves WHERE series_id=?')
+    .run(identifier(seriesId));
+}
+
 export function outputDirectory(seriesId: string, key: string) {
   return path.join(dataRoot(), 'dental', identifier(seriesId), identifier(key));
 }
@@ -122,8 +219,13 @@ type PythonResult = Record<string, unknown> & {
 export type DentalBuild = PythonResult & {
   key: string;
   cached: boolean;
+  /** Da dove viene la curva: trovata ora, posata adesso, o ripresa da quella salvata. */
+  curveSource: 'automatic' | 'manual' | 'saved';
   images: { panorama: string; axial: string | null; sections: string[] };
 };
+
+/** Che cosa fare della curva salvata, se il gesto lo chiede. */
+export type CurveAction = 'save' | 'forget' | undefined;
 
 /**
  * Ricostruisce panoramica e sezioni per una serie, o restituisce quelle già fatte.
@@ -135,8 +237,28 @@ export type DentalBuild = PythonResult & {
 export async function buildDental(
   seriesId: string,
   input: unknown,
+  action?: CurveAction,
 ): Promise<DentalBuild> {
   const options = normaliseOptions(input);
+
+  // Prima si esegue il gesto — salva, dimentica — poi si decide con quale curva ricostruire. La
+  // curva salvata vale come quella posata a mano: chi l'ha corretta una volta non deve rifarlo.
+  if (action === 'save' && options.controlPointsMM)
+    saveCurve(seriesId, options.controlPointsMM, options.archVerticalMM);
+  if (action === 'forget') forgetCurve(seriesId);
+
+  let curveSource: DentalBuild['curveSource'] = options.controlPointsMM
+    ? 'manual'
+    : 'automatic';
+  if (!options.controlPointsMM && action !== 'forget') {
+    const saved = savedCurve(seriesId);
+    if (saved) {
+      options.controlPointsMM = saved.controlPointsMM;
+      if (options.archVerticalMM === null)
+        options.archVerticalMM = saved.archVerticalMM;
+      curveSource = 'saved';
+    }
+  }
   const volume = seriesVolumePath(seriesId);
   const key = createHash('sha256')
     .update(JSON.stringify(options))
@@ -158,7 +280,13 @@ export async function buildDental(
 
   if (existsSync(resultPath)) {
     const cached = JSON.parse(readFileSync(resultPath, 'utf8')) as PythonResult;
-    return { ...cached, key, cached: true, images: images(cached) };
+    return {
+      ...cached,
+      key,
+      cached: true,
+      curveSource,
+      images: images(cached),
+    };
   }
 
   const python = pythonPath();
@@ -192,5 +320,30 @@ export async function buildDental(
 
   const result = JSON.parse(stdout) as PythonResult;
   writeFileSync(resultPath, JSON.stringify(result), { mode: 0o600 });
-  return { ...result, key, cached: false, images: images(result) };
+  pruneOldBuilds(seriesId);
+  return { ...result, key, cached: false, curveSource, images: images(result) };
+}
+
+/**
+ * Tiene le ultime ricostruzioni di una serie e butta le più vecchie.
+ *
+ * Ogni combinazione di opzioni ha la sua cartella, e correggere la curva a mano ne produce una a
+ * ogni ritocco: senza una potatura, mezz'ora di lavoro su un caso lascerebbe un gigabyte di
+ * immagini che nessuno riaprirà. Otto sono abbastanza per tornare sui propri passi.
+ */
+function pruneOldBuilds(seriesId: string, keep = 8) {
+  const root = path.join(dataRoot(), 'dental', identifier(seriesId));
+  try {
+    const builds = readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => {
+        const full = path.join(root, entry.name);
+        return { full, time: statSync(full).mtimeMs };
+      })
+      .sort((a, b) => b.time - a.time);
+    for (const stale of builds.slice(keep))
+      rmSync(stale.full, { recursive: true, force: true });
+  } catch {
+    // Una potatura che fallisce non deve far fallire una ricostruzione riuscita.
+  }
 }

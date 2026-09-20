@@ -291,3 +291,109 @@ class AxialOverlayTests(unittest.TestCase):
         """Il primo punto della curva sta a destra del paziente, quindi a sinistra dell'immagine."""
         control = np.asarray(self.result["axial"]["controlPixels"])
         self.assertLess(control[0, 0], control[-1, 0])
+
+
+class DepthAndCutTests(unittest.TestCase):
+    """Lo scostamento in profondità e le linee di taglio: i due legami fra le viste."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        folder = Path(cls.temp.name)
+        cls.path = make_arch_volume(folder / "arch.nii.gz")
+        # Slab sottile di proposito: è la condizione in cui lo scostamento significa qualcosa.
+        # Con venti millimetri di spessore il piano si sposta e l'osso resta dentro lo slab
+        # comunque — ed è esattamente perché si assottiglia lo slab quando si sfoglia in
+        # profondità.
+        thin = {"sectionIntervalMM": 8.0, "slabThicknessMM": 1.0}
+        cls.result = dental.build(cls.path, folder / "centro", thin)
+        cls.image = dental.sitk.GetArrayFromImage(
+            dental.sitk.ReadImage(str(folder / "centro/panorama.png"))
+        )
+        # Otto millimetri verso il vestibolare: il tubo d'osso ha raggio quattro, quindi il piano
+        # campionato esce dall'osso e la panoramica deve svuotarsi.
+        cls.outside = dental.build(
+            cls.path, folder / "fuori", {**thin, "normalOffsetMM": 8.0}
+        )
+        cls.outside_image = dental.sitk.GetArrayFromImage(
+            dental.sitk.ReadImage(str(folder / "fuori/panorama.png"))
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def test_depth_offset_moves_the_sampled_plane(self):
+        self.assertEqual(self.result["panorama"]["normalOffsetMM"], 0.0)
+        self.assertEqual(self.outside["panorama"]["normalOffsetMM"], 8.0)
+        bright_inside = float((self.image > 128).mean())
+        bright_outside = float((self.outside_image > 128).mean())
+        self.assertGreater(bright_inside, 0.1, "la panoramica centrata non mostra osso")
+        self.assertLess(
+            bright_outside,
+            bright_inside / 4,
+            "spostando il piano fuori dall'osso la panoramica non si è svuotata",
+        )
+
+    def test_cut_lines_cross_the_curve(self):
+        axial = self.result["axial"]
+        cuts = np.asarray(axial["cutPixels"])
+        self.assertEqual(len(cuts), self.result["sections"]["count"])
+
+        curve = np.asarray(axial["curvePixels"])
+        step = axial["stepMM"]
+        for cut in cuts:
+            start = cut[:2]
+            end = cut[2:]
+            middle = (start + end) / 2
+            # Il centro del taglio sta sulla curva: è lì che la sezione è generata.
+            distance = np.min(np.linalg.norm(curve - middle, axis=1)) * step
+            self.assertLess(distance, 2.0, "una linea di taglio non parte dalla curva")
+            # E la sua lunghezza è la larghezza della sezione.
+            length = np.linalg.norm(end - start) * step
+            self.assertAlmostEqual(length, self.result["sections"]["widthMM"], delta=1.0)
+
+    def test_world_from_pixel_is_the_inverse_of_the_drawing(self):
+        """Trascinare un punto e ridisegnarlo deve riportarlo dov'era, al decimo di millimetro."""
+        axial = self.result["axial"]
+        affine = axial["worldFromPixel"]
+        for pixel, point in zip(
+            axial["controlPixels"], self.result["curve"]["controlPointsMM"]
+        ):
+            x = affine["x"][0] * pixel[0] + affine["x"][1] * pixel[1] + affine["x"][2]
+            y = affine["y"][0] * pixel[0] + affine["y"][1] * pixel[1] + affine["y"][2]
+            self.assertAlmostEqual(x, point[0], places=6)
+            self.assertAlmostEqual(y, point[1], places=6)
+        self.assertAlmostEqual(affine["z"], self.result["curve"]["archVerticalMM"], places=6)
+
+    def test_level_range_covers_the_volume(self):
+        low, high = self.result["axial"]["levelRangeMM"]
+        self.assertLess(low, self.result["curve"]["archVerticalMM"])
+        self.assertGreater(high, self.result["curve"]["archVerticalMM"])
+
+
+class ManualCurveTests(unittest.TestCase):
+    """La curva data a mano: è il rimedio quando il rilevamento sbaglia, e deve essere obbedita."""
+
+    def test_given_points_are_used_as_they_are(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = make_arch_volume(Path(folder) / "arch.nii.gz")
+            # Una curva più stretta di quella vera, posata a mano: il programma deve usare questa.
+            theta = np.linspace(0.15 * np.pi, 0.85 * np.pi, 6)
+            points = [
+                [float(ARCH_A * 0.6 * np.cos(t)), float(ARCH_B * 0.6 * np.sin(t)), 2.0]
+                for t in theta
+            ]
+            result = dental.build(
+                path,
+                Path(folder) / "out",
+                {"controlPointsMM": points, "sectionIntervalMM": 8.0},
+            )
+            self.assertFalse(result["curve"]["automatic"])
+            used = np.asarray(result["curve"]["controlPointsMM"])
+            given = np.asarray(points)
+            # Stessi punti, eventualmente nell'ordine rovesciato per partire dalla destra.
+            if used[0, 0] < given[0, 0]:
+                given = given[::-1]
+            np.testing.assert_allclose(used, given, atol=1e-9)
+            self.assertAlmostEqual(result["curve"]["archVerticalMM"], 2.0, places=6)

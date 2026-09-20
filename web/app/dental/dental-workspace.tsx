@@ -11,8 +11,20 @@
  * giudicare se ha trovato l'arcata o qualcos'altro. A destra la **sezione trasversale**, che è la
  * vista su cui si guarda davvero la cresta.
  *
- * Fare clic sulla panoramica sposta la sezione: è il gesto che lega le due viste, e senza di esso
- * la griglia delle sezioni sarebbe un elenco da scorrere a caso.
+ * Le tre viste sono legate: un clic sulla panoramica sposta la sezione, e la sezione si vede sulla
+ * fetta assiale come la riga lungo cui taglia. Senza quel legame la striscia di sezioni sarebbe un
+ * elenco da scorrere a caso, e nessuno saprebbe da che parte dell'arcata viene quella che guarda.
+ *
+ * # Perché la curva si corregge a mano
+ *
+ * Perché il rilevamento automatico o funziona o non funziona, e quando non funziona — arcata
+ * asimmetrica, edentulo, campo parziale, un'otturazione che tira la soglia — senza correzione non
+ * c'è rimedio e la funzione intera non serve a niente. Si trascinano i punti, se ne aggiunge uno
+ * facendo clic sulla curva, se ne toglie uno con un clic tenendo Alt.
+ *
+ * La curva disegnata mentre si trascina è un'**anteprima** calcolata qui; quella vera la calcola
+ * Python con la stessa formula, e si vede appena si preme Apply. Sono due implementazioni della
+ * stessa spline, e stanno vicine di proposito: l'anteprima serve a non lavorare alla cieca.
  *
  * # Perché la scala è dichiarata a schermo
  *
@@ -26,7 +38,9 @@ import {
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
+  PenLine,
   RefreshCw,
+  RotateCcw,
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -34,16 +48,24 @@ import { Button } from '@/components/ui/button';
 
 type Patient = { id: string; name: string };
 type Study = { id: string; patient_id: string; date: string; label: string };
-type Series = {
-  id: string;
-  label: string;
-  dimensions?: number[];
-  voxelMm?: number[];
+type Series = { id: string; label: string };
+
+type Axial = {
+  columns: number;
+  rows: number;
+  stepMM: number;
+  verticalMM: number;
+  curvePixels: number[][];
+  controlPixels: number[][];
+  cutPixels: number[][];
+  levelRangeMM: number[];
+  worldFromPixel: { x: number[]; y: number[]; z: number };
 };
 
 type Build = {
   key: string;
   cached: boolean;
+  curveSource: 'automatic' | 'manual' | 'saved';
   curve: {
     controlPointsMM: number[][];
     archVerticalMM: number;
@@ -58,6 +80,7 @@ type Build = {
     slabThicknessMM: number;
     slabSamples: number;
     projection: string;
+    normalOffsetMM: number;
   };
   sections: {
     count: number;
@@ -69,14 +92,7 @@ type Build = {
     heightMM: number;
     arcLengthsMM: number[];
   };
-  axial: {
-    columns: number;
-    rows: number;
-    stepMM: number;
-    verticalMM: number;
-    curvePixels: number[][];
-    controlPixels: number[][];
-  } | null;
+  axial: Axial | null;
   volume: { dimensions: number[]; voxelMM: number[] };
   notes: string[];
   images: { panorama: string; axial: string | null; sections: string[] };
@@ -86,20 +102,26 @@ type Options = {
   slabThicknessMM: number;
   projection: 'maximum' | 'average';
   heightMM: number;
+  normalOffsetMM: number;
   sectionIntervalMM: number;
   sectionWidthMM: number;
   sectionHeightMM: number;
   sectionThicknessMM: number;
+  archVerticalMM: number | null;
+  controlPointsMM: number[][] | null;
 };
 
 const initialOptions: Options = {
   slabThicknessMM: 20,
   projection: 'maximum',
   heightMM: 80,
+  normalOffsetMM: 0,
   sectionIntervalMM: 2,
   sectionWidthMM: 32,
   sectionHeightMM: 45,
   sectionThicknessMM: 1,
+  archVerticalMM: null,
+  controlPointsMM: null,
 };
 
 async function api<T>(route: string, init?: RequestInit): Promise<T> {
@@ -108,6 +130,63 @@ async function api<T>(route: string, init?: RequestInit): Promise<T> {
   if (!response.ok)
     throw new Error(body.error || `${route}: ${response.status}`);
   return body as T;
+}
+
+/**
+ * Anteprima della spline mentre si trascina.
+ *
+ * Catmull-Rom con tensione 0,5, la stessa di `scripts/dental_panorama.py`: passa esattamente per i
+ * punti posati. Qui è disegno, non geometria — la curva su cui si ricostruisce la calcola Python.
+ */
+function catmullRom(points: number[][], perSegment = 20): number[][] {
+  if (points.length < 2) return points;
+  const out: number[][] = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const p0 = points[Math.max(index - 1, 0)];
+    const p1 = points[index];
+    const p2 = points[Math.min(index + 1, points.length - 1)];
+    const p3 = points[Math.min(index + 2, points.length - 1)];
+    for (let step = 0; step < perSegment; step += 1) {
+      const t = step / perSegment;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      out.push(
+        [0, 1].map(
+          (axis) =>
+            0.5 *
+            (2 * p1[axis] +
+              (p2[axis] - p0[axis]) * t +
+              (2 * p0[axis] - 5 * p1[axis] + 4 * p2[axis] - p3[axis]) * t2 +
+              (3 * p1[axis] - p0[axis] - 3 * p2[axis] + p3[axis]) * t3),
+        ),
+      );
+    }
+  }
+  out.push(points[points.length - 1]);
+  return out;
+}
+
+/** Fra quali due punti di controllo cade un clic: è lì che il punto nuovo si inserisce. */
+function insertionIndex(points: number[][], x: number, y: number) {
+  let best = points.length;
+  let bestDistance = Infinity;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const [ax, ay] = points[index];
+    const [bx, by] = points[index + 1];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const length = dx * dx + dy * dy || 1;
+    const t = Math.min(
+      Math.max(((x - ax) * dx + (y - ay) * dy) / length, 0),
+      1,
+    );
+    const distance = Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = index + 1;
+    }
+  }
+  return best;
 }
 
 export default function DentalWorkspace() {
@@ -121,7 +200,11 @@ export default function DentalWorkspace() {
   const [section, setSection] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<number[][] | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
   const panorama = useRef<HTMLButtonElement>(null);
+  const axialSvg = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
     api<{ patients: Patient[]; studies: Study[] }>('/api/library')
@@ -145,25 +228,32 @@ export default function DentalWorkspace() {
       .catch((e: Error) => setError(e.message));
   }, [studyId]);
 
-  const reconstruct = useCallback(async () => {
-    if (!seriesId) return;
-    setBusy(true);
-    setError('');
-    try {
-      const result = await api<Build>('/api/dental/panorama', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seriesId, options }),
-      });
-      setBuild(result);
-      setSection(Math.floor(result.sections.count / 2));
-    } catch (e) {
-      setBuild(null);
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }, [seriesId, options]);
+  const reconstruct = useCallback(
+    async (override?: Partial<Options>, curveAction?: 'save' | 'forget') => {
+      if (!seriesId) return;
+      const wanted = { ...options, ...override };
+      setBusy(true);
+      setError('');
+      try {
+        const result = await api<Build>('/api/dental/panorama', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seriesId, options: wanted, curveAction }),
+        });
+        setOptions(wanted);
+        setBuild(result);
+        setDraft(null);
+        setEditing(false);
+        setSection(Math.floor(result.sections.count / 2));
+      } catch (e) {
+        setBuild(null);
+        setError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [seriesId, options],
+  );
 
   // Le frecce scorrono le sezioni: è il gesto con cui si percorre un'arcata, e cercarlo con il
   // mouse su una striscia di sessanta miniature è il modo più lento di farlo.
@@ -203,12 +293,79 @@ export default function DentalWorkspace() {
     setSection(best);
   }
 
+  // MARK: Correzione della curva
+
+  const axial = build?.axial ?? null;
+  const points = draft ?? axial?.controlPixels ?? [];
+
+  /** Dal pixel dello schermo al pixel dell'immagine: il riquadro è scalato, la geometria no. */
+  function imagePoint(event: React.PointerEvent) {
+    const box = axialSvg.current?.getBoundingClientRect();
+    if (!box || !box.width || !box.height || !axial) return null;
+    return [
+      ((event.clientX - box.left) / box.width) * axial.columns,
+      ((event.clientY - box.top) / box.height) * axial.rows,
+    ];
+  }
+
+  function onSurfaceDown(event: React.PointerEvent<SVGSVGElement>) {
+    if (!editing || dragging !== null) return;
+    const point = imagePoint(event);
+    if (!point) return;
+    const next = points.map((p) => [...p]);
+    next.splice(insertionIndex(next, point[0], point[1]), 0, point);
+    setDraft(next);
+  }
+
+  function onHandleDown(
+    event: React.PointerEvent<SVGCircleElement>,
+    index: number,
+  ) {
+    if (!editing) return;
+    event.stopPropagation();
+    // Alt toglie il punto. Sotto i tre punti la curva non è più una curva, quindi non si scende.
+    if (event.altKey) {
+      if (points.length <= 3) return;
+      setDraft(points.filter((_, at) => at !== index));
+      return;
+    }
+    (event.target as Element).setPointerCapture?.(event.pointerId);
+    setDragging(index);
+  }
+
+  function onSurfaceMove(event: React.PointerEvent<SVGSVGElement>) {
+    if (dragging === null) return;
+    const point = imagePoint(event);
+    if (!point) return;
+    setDraft(points.map((p, index) => (index === dragging ? point : p)));
+  }
+
+  function applyCurve() {
+    if (!axial || !draft) return;
+    const { x, y, z } = axial.worldFromPixel;
+    // `reconstruct` gestisce da sé l'errore e lo stato: qui l'attesa non serve a nessuno.
+    // La curva si salva con la serie: correggerla una volta deve bastare.
+    void reconstruct(
+      {
+        controlPointsMM: draft.map((point) => [
+          x[0] * point[0] + x[1] * point[1] + x[2],
+          y[0] * point[0] + y[1] * point[1] + y[2],
+          z,
+        ]),
+        archVerticalMM: z,
+      },
+      'save',
+    );
+  }
+
   const patientOf = (study: Study) =>
     patients.find((p) => p.id === study.patient_id)?.name ?? 'Patient';
   const arc = build?.sections.arcLengthsMM[section] ?? 0;
   const markerPercent = build
     ? (arc / Math.max(build.panorama.arcLengthMM, 1e-6)) * 100
     : 0;
+  const cut = axial?.cutPixels?.[section];
+  const preview = editing ? catmullRom(points) : (axial?.curvePixels ?? []);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-[1700px] flex-col gap-4 p-4">
@@ -231,9 +388,9 @@ export default function DentalWorkspace() {
           className="border-border bg-card h-8 rounded-lg border px-2 text-sm"
           value={studyId}
           onChange={(event) => {
-            // La ricostruzione mostrata appartiene alla serie di prima: sparisce qui, nel gesto,
-            // e non in un effetto — altrimenti resterebbe a schermo per un fotogramma sotto il
-            // nome dello studio nuovo.
+            // La ricostruzione mostrata appartiene alla serie di prima: sparisce qui, nel gesto, e
+            // non in un effetto — altrimenti resterebbe a schermo per un fotogramma sotto il nome
+            // dello studio nuovo.
             setBuild(null);
             setStudyId(event.target.value);
           }}
@@ -255,7 +412,7 @@ export default function DentalWorkspace() {
             </option>
           ))}
         </select>
-        <Button onClick={reconstruct} disabled={!seriesId || busy}>
+        <Button onClick={() => reconstruct()} disabled={!seriesId || busy}>
           {busy ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
           {build ? 'Rebuild' : 'Reconstruct'}
         </Button>
@@ -282,10 +439,11 @@ export default function DentalWorkspace() {
               <span className="text-muted-foreground">
                 arch {build.panorama.arcLengthMM.toFixed(0)} mm · slab{' '}
                 {build.panorama.slabThicknessMM.toFixed(0)} mm ·{' '}
-                {build.panorama.projection === 'maximum'
-                  ? 'maximum'
-                  : 'average'}{' '}
-                · {build.panorama.mmPerPixel.toFixed(3)} mm/px
+                {build.panorama.projection} ·{' '}
+                {build.panorama.mmPerPixel.toFixed(3)} mm/px
+                {build.panorama.normalOffsetMM
+                  ? ` · depth ${build.panorama.normalOffsetMM > 0 ? '+' : ''}${build.panorama.normalOffsetMM.toFixed(1)} mm`
+                  : ''}
               </span>
               <span className="text-muted-foreground ml-auto">
                 Click to move the cross-section · ← → to step
@@ -318,55 +476,138 @@ export default function DentalWorkspace() {
 
           <section className="grid gap-4 lg:grid-cols-[minmax(260px,1fr)_minmax(320px,1.2fr)]">
             <div className="border-border bg-card rounded-xl border p-3">
-              <div className="mb-2 text-xs">
-                <span className="font-medium">Arch curve</span>{' '}
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-medium">Arch curve</span>
                 <span className="text-muted-foreground">
-                  {build.curve.automatic
+                  {build.curveSource === 'automatic'
                     ? 'found automatically'
-                    : 'given by hand'}{' '}
-                  · axial level {build.curve.archVerticalMM.toFixed(1)} mm
+                    : build.curveSource === 'saved'
+                      ? 'saved for this series'
+                      : 'set by hand'}{' '}
+                  · axial level {build.curve.archVerticalMM.toFixed(1)} mm ·{' '}
+                  {points.length} points
+                </span>
+                <span className="ml-auto flex items-center gap-1">
+                  {editing ? (
+                    <>
+                      <Button
+                        size="xs"
+                        onClick={applyCurve}
+                        disabled={!draft || busy}
+                      >
+                        Apply curve
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => {
+                          setDraft(null);
+                          setEditing(false);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => setEditing(true)}
+                      disabled={!axial || busy}
+                    >
+                      <PenLine /> Edit
+                    </Button>
+                  )}
+                  {build.curveSource !== 'automatic' && !editing ? (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() =>
+                        // «Automatic» non è solo «ricostruisci senza curva»: è anche «dimentica
+                        // quella salvata», altrimenti tornerebbe da sola al prossimo giro.
+                        void reconstruct(
+                          { controlPointsMM: null, archVerticalMM: null },
+                          'forget',
+                        )
+                      }
+                    >
+                      <RotateCcw /> Automatic
+                    </Button>
+                  ) : null}
                 </span>
               </div>
-              {build.images.axial && build.axial ? (
+
+              {build.images.axial && axial ? (
                 <div className="relative overflow-hidden rounded-lg bg-black">
                   <Image
                     unoptimized
-                    width={build.axial.columns}
-                    height={build.axial.rows}
+                    width={axial.columns}
+                    height={axial.rows}
                     src={build.images.axial}
                     alt="Axial slice with the detected arch"
                     className="block w-full"
                   />
                   <svg
-                    className="pointer-events-none absolute inset-0 h-full w-full"
-                    viewBox={`0 0 ${build.axial.columns} ${build.axial.rows}`}
+                    ref={axialSvg}
+                    className={`absolute inset-0 h-full w-full ${editing ? 'cursor-crosshair' : 'pointer-events-none'}`}
+                    viewBox={`0 0 ${axial.columns} ${axial.rows}`}
                     preserveAspectRatio="none"
+                    onPointerDown={onSurfaceDown}
+                    onPointerMove={onSurfaceMove}
+                    onPointerUp={() => setDragging(null)}
+                    onPointerCancel={() => setDragging(null)}
                   >
+                    {cut ? (
+                      <line
+                        x1={cut[0]}
+                        y1={cut[1]}
+                        x2={cut[2]}
+                        y2={cut[3]}
+                        stroke="#ffb829"
+                        strokeWidth={Math.max(axial.columns / 300, 0.8)}
+                        strokeOpacity={0.95}
+                      />
+                    ) : null}
                     <polyline
-                      points={build.axial.curvePixels
+                      points={preview
                         .map((point) => `${point[0]},${point[1]}`)
                         .join(' ')}
                       fill="none"
                       stroke="var(--primary)"
-                      strokeWidth={Math.max(build.axial.columns / 260, 1)}
+                      strokeWidth={Math.max(axial.columns / 260, 1)}
                       strokeOpacity={0.9}
                     />
-                    {build.axial.controlPixels.map((point, index) => (
+                    {points.map((point, index) => (
                       <circle
                         key={index}
                         cx={point[0]}
                         cy={point[1]}
-                        r={Math.max(build.axial!.columns / 180, 1.5)}
+                        r={Math.max(axial.columns / (editing ? 90 : 180), 1.5)}
                         fill="var(--primary)"
+                        className={editing ? 'cursor-grab' : ''}
+                        onPointerDown={(event) => onHandleDown(event, index)}
                       />
                     ))}
                   </svg>
                 </div>
               ) : null}
+
               <p className="text-muted-foreground mt-2 text-xs">
-                Radiological orientation: the patient&rsquo;s right is on the
-                left, anterior is up. Check that the curve follows the arch
-                before trusting the cross-sections.
+                {editing ? (
+                  <>
+                    Drag a point to move it, click the curve to add one,
+                    Alt-click a point to remove it. <b>Apply curve</b> rebuilds
+                    everything from the curve you drew.
+                  </>
+                ) : (
+                  <>
+                    Radiological orientation: the patient&rsquo;s right is on
+                    the left, anterior is up. The amber line is where the
+                    cross-section cuts. Check that the curve follows the arch
+                    before trusting the cross-sections.
+                  </>
+                )}
               </p>
             </div>
 
@@ -403,23 +644,25 @@ export default function DentalWorkspace() {
                   </Button>
                 </span>
               </div>
-              <div className="relative mx-auto inline-block overflow-hidden rounded-lg bg-black">
-                <Image
-                  unoptimized
-                  width={build.sections.widthPx}
-                  height={build.sections.heightPx}
-                  src={build.images.sections[section]}
-                  alt={`Cross-section at ${arc.toFixed(1)} mm`}
-                  className="block h-[420px] w-auto"
-                />
-                {/* Righello da 10 mm: l'immagine è ridimensionata dal browser, il rapporto no. */}
-                <div
-                  className="absolute bottom-3 left-3 border-b-2 border-white/80 text-[10px] text-white/80"
-                  style={{
-                    width: `${(10 / build.sections.mmPerPixel / build.sections.heightPx) * 420}px`,
-                  }}
-                >
-                  10 mm
+              <div className="flex justify-center">
+                <div className="relative overflow-hidden rounded-lg bg-black">
+                  <Image
+                    unoptimized
+                    width={build.sections.widthPx}
+                    height={build.sections.heightPx}
+                    src={build.images.sections[section]}
+                    alt={`Cross-section at ${arc.toFixed(1)} mm`}
+                    className="block h-[420px] w-auto"
+                  />
+                  {/* Righello da 10 mm: l'immagine è ridimensionata dal browser, il rapporto no. */}
+                  <div
+                    className="absolute bottom-3 left-3 border-b-2 border-white/80 text-[10px] text-white/80"
+                    style={{
+                      width: `${(10 / build.sections.mmPerPixel / build.sections.heightPx) * 420}px`,
+                    }}
+                  >
+                    10 mm
+                  </div>
                 </div>
               </div>
               <input
@@ -443,6 +686,17 @@ export default function DentalWorkspace() {
               step={1}
               onChange={(value) =>
                 setOptions((o) => ({ ...o, slabThicknessMM: value }))
+              }
+            />
+            <Slider
+              label="Depth, buccal +"
+              unit="mm"
+              value={options.normalOffsetMM}
+              min={-15}
+              max={15}
+              step={0.5}
+              onChange={(value) =>
+                setOptions((o) => ({ ...o, normalOffsetMM: value }))
               }
             />
             <Slider
@@ -523,8 +777,33 @@ export default function DentalWorkspace() {
                 </option>
               </select>
             </label>
-            <div className="flex items-end">
-              <Button onClick={reconstruct} disabled={busy} variant="outline">
+            {axial ? (
+              <Slider
+                label="Axial level for the arch"
+                unit="mm"
+                value={Math.round(
+                  options.archVerticalMM ?? build.curve.archVerticalMM,
+                )}
+                min={Math.round(axial.levelRangeMM[0])}
+                max={Math.round(axial.levelRangeMM[1])}
+                step={1}
+                onChange={(value) =>
+                  // Cambiare la quota rimette in gioco il rilevamento: la curva a mano era posata
+                  // su un'altra fetta, e tenerla qui significherebbe una curva che galleggia.
+                  setOptions((o) => ({
+                    ...o,
+                    archVerticalMM: value,
+                    controlPointsMM: null,
+                  }))
+                }
+              />
+            ) : null}
+            <div className="flex items-end gap-2">
+              <Button
+                onClick={() => reconstruct()}
+                disabled={busy}
+                variant="outline"
+              >
                 {busy ? (
                   <LoaderCircle className="animate-spin" />
                 ) : (
@@ -533,6 +812,12 @@ export default function DentalWorkspace() {
                 Apply
               </Button>
             </div>
+            <p className="text-muted-foreground sm:col-span-2 lg:col-span-4">
+              Depth browses through the arch along the buccal–lingual direction.
+              With a thick slab it changes little, because the slab already
+              contains the bone: thin the slab to a few millimetres first, then
+              browse.
+            </p>
           </section>
 
           <footer className="text-muted-foreground space-y-1 text-xs">
@@ -571,7 +856,13 @@ function Slider({
   return (
     <label className="flex flex-col gap-1">
       <span className="text-muted-foreground">
-        {label} <span className="text-foreground">{value}</span> {unit}
+        {label}{' '}
+        {/* Una quota che arriva dal calcolo ha quindici decimali, e nessuno di quelli oltre il
+            primo significa qualcosa: il passo del cursore dice quanti scriverne. */}
+        <span className="text-foreground">
+          {value.toFixed(step < 1 ? 1 : 0)}
+        </span>{' '}
+        {unit}
       </span>
       <input
         type="range"
