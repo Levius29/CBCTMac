@@ -216,6 +216,7 @@ export default function DentalWorkspace() {
       .then((library) => {
         setPatients(library.patients);
         setStudies(library.studies);
+        if (!library.studies.length) setImporting(true);
         // Dopo un'importazione si apre lo studio appena entrato: è quello che si stava
         // aspettando, e cercarlo in un elenco sarebbe un passo in più senza ragione.
         if (
