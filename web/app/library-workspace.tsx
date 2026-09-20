@@ -101,8 +101,20 @@ async function api<T = Record<string, unknown>>(
   options?: RequestInit,
 ): Promise<T> {
   const r = await fetch(url, options);
-  const d = (await r.json()) as T & { error?: string };
-  if (!r.ok) throw new Error(d.error || 'The request failed');
+  // CBCTMac: una risposta senza JSON dentro faceva fallire `r.json()`, e su Safari il messaggio
+  // che ne usciva era «The string did not match the expected pattern» — che non dice a chi lo
+  // legge né che cosa è andato storto né dove. Lo stato HTTP lo dice.
+  const text = await r.text();
+  let d: (T & { error?: string }) | null = null;
+  try {
+    d = text ? ((JSON.parse(text) as T & { error?: string }) ?? null) : null;
+  } catch {
+    d = null;
+  }
+  if (!r.ok)
+    throw new Error(d?.error || `The request failed (HTTP ${r.status})`);
+  if (!d)
+    throw new Error(`The server answered without any data (HTTP ${r.status})`);
   return d;
 }
 export default function LibraryWorkspace() {
@@ -493,14 +505,19 @@ function ImportWizard({
           if (e.lengthComputable)
             setPercent(Math.round((e.loaded / e.total) * 100));
         };
-        xhr.onload = () =>
-          xhr.status >= 200 && xhr.status < 300
-            ? resolve()
-            : reject(
-                new Error(
-                  JSON.parse(xhr.responseText || '{}').error || 'Upload failed',
-                ),
-              );
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) return resolve();
+          // CBCTMac: se la risposta non è JSON, `JSON.parse` lanciava **dentro** questo
+          // richiamo, quindi la promessa non si chiudeva né bene né male e il caricamento
+          // restava appeso per sempre. Adesso l'errore esce, con lo stato HTTP.
+          let message = '';
+          try {
+            message = String(JSON.parse(xhr.responseText || '{}').error || '');
+          } catch {
+            message = '';
+          }
+          reject(new Error(message || `Upload failed (HTTP ${xhr.status})`));
+        };
         xhr.onerror = () => reject(new Error('The connection was interrupted'));
         xhr.send(file);
       });
