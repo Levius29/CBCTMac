@@ -136,6 +136,10 @@ tar -xzf "$CACHE/$PYTHON_FILE" -C "$LAVORO"
 PY="$LAVORO/python/bin/python3"
 "$PY" -m pip install --quiet --no-cache-dir --no-warn-script-location --disable-pip-version-check \
     --only-binary=:all: -r "$LAVORO/openmri/scripts/requirements.txt"
+# I decodificatori JPEG, JPEG-LS e JPEG 2000 del convertitore di riserva, web/scripts/dicom_volume.py:
+# entra in gioco solo quando dcm2niix si rifiuta, e allora deve saper leggere ciò che legge lui.
+"$PY" -m pip install --quiet --no-cache-dir --no-warn-script-location --disable-pip-version-check \
+    --only-binary=:all: pylibjpeg==2.1.0 pylibjpeg-libjpeg==2.4.0 pylibjpeg-openjpeg==2.6.0
 # Gli script installati da pip puntano al Python con un percorso assoluto, che dentro l'app
 # cambierebbe a ogni spostamento. Si riscrivono perché cerchino il Python accanto a sé.
 for script in "$LAVORO/python/bin/"*; do
@@ -156,7 +160,7 @@ find "$LAVORO/python/lib" -type d -name tests -prune -exec rm -rf {} +
 "$PY" -m pip uninstall --quiet --yes pip >/dev/null 2>&1 || true
 # Compilati adesso, i moduli non verranno scritti dentro l'app al primo avvio.
 "$PY" -m compileall -q "$LAVORO/python/lib" >/dev/null 2>&1 || true
-"$PY" -c "import pydicom, nibabel, numpy, scipy, SimpleITK; print('  librerie Python a posto')"
+"$PY" -c "import pydicom, nibabel, numpy, scipy, SimpleITK, pylibjpeg, libjpeg, openjpeg; print('  librerie Python a posto')"
 # dcm2niix stampa il suo nome ed esce con errore anche quando va: si guarda che cosa dice.
 VERSIONE_DCM2NIIX="$("$LAVORO/python/bin/dcm2niix" --version 2>&1 || true)"
 case "$VERSIONE_DCM2NIIX" in

@@ -5,6 +5,9 @@ import nibabel as nib
 import numpy as np
 import pydicom
 from nibabel.processing import resample_from_to
+# CBCTMac: le CBCT oltre il tetto si riducono invece di rifiutarle. Vedi docs/openmri-dental.md.
+from large_volume import reduce_large_volume
+from dicom_volume import build_volume
 
 
 def date(value):
@@ -29,8 +32,8 @@ def prepare_volume(source, output, series_id, label, meta=None):
     original=nib.load(str(source))
     if len(original.shape)!=3 or min(original.shape)<2:
         raise ValueError('Not a 3D volume (4D series and single frames are skipped)')
-    if np.prod(original.shape)>512**3*2: raise ValueError('The volume is too large')
     native_shape=list(original.shape); native_spacing=list(map(float,original.header.get_zooms()[:3]))
+    original=reduce_large_volume(original)
     img=nib.as_closest_canonical(original)
     # Preserve voxel-center geometry and physical field of view on downsampling.
     target=np.minimum(np.array(img.shape),320)
@@ -143,9 +146,15 @@ def main(root,job_id,action):
                         dest=groupdir/f'{j}.dcm'
                         if not dest.exists():os.link(p,dest)
                     out=work/'converted'/str(i);out.mkdir(parents=True,exist_ok=True)
-                    result=subprocess.run([binary,'-z','y','-b','n','-f','volume','-o',str(out),str(groupdir)],capture_output=True,timeout=180)
+                    result=subprocess.run([binary,'-z','y','-b','n','-f','volume','-o',str(out),str(groupdir)],capture_output=True,timeout=900)
                     outputs=sorted(out.glob('*.nii.gz'))
-                    if result.returncode or not outputs:raise ValueError('The converter could not build a volume')
+                    # CBCTMac: quando dcm2niix si rifiuta, il volume lo costruisce il convertitore di riserva;
+                    # se si rifiuta anche quello, l'errore dice il perché di tutti e due.
+                    if result.returncode or not outputs:
+                        said=[l for l in (result.stdout+result.stderr).decode('utf-8','replace').splitlines() if re.search(r'error|warning|unable|not|only',l,re.I)]
+                        reason=f"dcm2niix: {said[-1].strip()[:160]}" if said else 'dcm2niix gave no volume'
+                        try:outputs=[build_volume(g['files'],out/'reserve.nii.gz')]
+                        except Exception as e:raise ValueError(f"The converter could not build a volume ({len(g['files'])} files; {reason}; second converter: {e})")
                 for k,p in enumerate(outputs):
                     asset_id=str(uuid.uuid5(uuid.NAMESPACE_URL,'pipeline-v2:'+job['sha256']+g['uid']+str(k)))
                     dest=root/'volumes'/f'{asset_id}.nii.gz'

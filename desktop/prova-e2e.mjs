@@ -143,6 +143,29 @@ try {
   await shot(page, '04-cartella-importata.png');
   if (outcome !== 'ok') throw new Error(outcome);
 
+  step('ritento lo stesso esame: deve riaprirlo, non fermarsi con un errore');
+  // Chi non vede succedere niente ritenta, e la seconda importazione dello stesso archivio con un
+  // paziente nuovo si fermava su «already imported for another patient».
+  await page.goto(`${origin}/dental`);
+  await page.getByRole('button', { name: 'Import folder' }).click();
+  await panelWillAnswer(app, [folder]);
+  await page.getByRole('button', { name: 'Open CBCT…' }).click();
+  outcome = await importOutcome(page);
+  console.log(`  seconda importazione: ${outcome}`);
+  if (outcome !== 'ok') throw new Error(outcome);
+
+  step('un file solo, come chi apre la cartella e clicca una fetta');
+  // Una fetta non è un volume: il convertitore si fermava con «could not build a volume». Ora si
+  // prendono le fette sorelle, e l'esame si importa intero.
+  const slices = filesIn(folder).filter((file) => /IM\d+$|\.dcm$/i.test(file));
+  await page.goto(`${origin}/dental`);
+  await page.getByRole('button', { name: 'Import folder' }).click();
+  await panelWillAnswer(app, [slices[Math.floor(slices.length / 2)]]);
+  await page.getByRole('button', { name: 'Open CBCT…' }).click();
+  outcome = await importOutcome(page);
+  console.log(`  una fetta scelta: ${outcome}`);
+  if (outcome !== 'ok') throw new Error(outcome);
+
   step('panoramica');
   await page.getByRole('button', { name: /Reconstruct|Rebuild/ }).click();
   await page.getByText('Arch curve').waitFor({ timeout: 300_000 });

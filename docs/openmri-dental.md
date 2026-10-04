@@ -53,7 +53,7 @@ serve, e si innesta nei loro nei punti più stretti possibile.
 
 ### Modifiche locali al tree copiato
 
-Quattro, contate con `git diff` dal commit che ha copiato l'originale, e l'elenco va tenuto
+Cinque, contate con `git diff` dal commit che ha copiato l'originale, e l'elenco va tenuto
 corto:
 
 - `web/.gitignore` — tolta l'eccezione `!/demo/jane-head-mri.zip`. Senza, un `git add -A` si
@@ -66,6 +66,11 @@ corto:
   errore dica che cosa è successo, invece del messaggio di Safari «The string did not match the
   expected pattern»; nell'app del Mac i pulsanti d'importazione aprono il pannello del sistema
   invece di quello che vuole solo ZIP; `/?study=<id>` apre direttamente uno studio nel visore.
+- `web/scripts/import_mri.py` — tre innesti per le CBCT vere. Oltre il tetto di 2·512³ voxel il
+  volume si riduce per blocchi invece di essere rifiutato (`scripts/large_volume.py`). Quando
+  dcm2niix si rifiuta, il volume lo costruisce il convertitore di riserva
+  (`scripts/dicom_volume.py`), e se si rifiuta anche quello l'errore riporta le parole di tutti e
+  due. Il convertitore ha quindici minuti invece di tre.
 
 I collegamenti nostri sono `<a>` normali, in `web/components/page-link.tsx`, e non `next/link`:
 in vinext 1.0.0-beta.5 la navigazione di `next/link` nella compilazione di produzione muore al
@@ -81,6 +86,9 @@ E i file nostri aggiunti là dentro, che non possono entrare in conflitto con ni
   l'importazione da cartella, o da file scelti uno per uno.
 - `web/lib/desktop.ts`, `web/components/page-link.tsx` — il ponte verso l'app del Mac, e i
   collegamenti che navigano davvero.
+- `web/scripts/large_volume.py`, `web/scripts/dicom_volume.py`, con le loro prove — la riduzione
+  delle CBCT troppo grandi e il convertitore di riserva. Il secondo è provato contro dcm2niix
+  stesso: dove dcm2niix converte, i due devono dare lo stesso volume con la stessa geometria.
 
 ### Una regola dell'originale che qui non vale
 

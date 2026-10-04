@@ -33,6 +33,23 @@ MAXIMUM_FILES = 60_000
 IMPLICIT_LITTLE = "1.2.840.10008.1.2"
 EXPLICIT_BIG = "1.2.840.10008.1.2.2"
 
+# Come sono scritti i pixel. Quando il convertitore si rifiuta, di solito il perché sta qui.
+SYNTAX_NAMES = {
+    IMPLICIT_LITTLE: "non compressa (implicita)",
+    "1.2.840.10008.1.2.1": "non compressa",
+    EXPLICIT_BIG: "non compressa, big endian",
+    "1.2.840.10008.1.2.1.99": "Deflate",
+    "1.2.840.10008.1.2.5": "RLE",
+    "1.2.840.10008.1.2.4.50": "JPEG baseline 8 bit",
+    "1.2.840.10008.1.2.4.51": "JPEG extended 12 bit",
+    "1.2.840.10008.1.2.4.57": "JPEG lossless",
+    "1.2.840.10008.1.2.4.70": "JPEG lossless SV1",
+    "1.2.840.10008.1.2.4.80": "JPEG-LS",
+    "1.2.840.10008.1.2.4.81": "JPEG-LS quasi senza perdita",
+    "1.2.840.10008.1.2.4.90": "JPEG 2000 senza perdita",
+    "1.2.840.10008.1.2.4.91": "JPEG 2000",
+}
+
 # Le sole etichette che servono a decidere. Tutto il resto del dataset si salta.
 TAGS = {
     (0x0002, 0x0010): "transferSyntax",
@@ -257,7 +274,8 @@ def main(argv):
         spacing = f", {first['spacing']} mm" if first["spacing"] else ""
         thickness = f", spessore {first['thickness']} mm" if first["thickness"] else ""
         print(f"{mark} {label}")
-        print(f"    {first['modality'] or '?'} · {size}{spacing}{thickness}")
+        syntax = SYNTAX_NAMES.get(first["transferSyntax"], first["transferSyntax"])
+        print(f"    {first['modality'] or '?'} · {size}{spacing}{thickness} · {syntax}")
         if first["imageType"]:
             print(f"    tipo: {first['imageType']}")
         for note in notes:

@@ -119,16 +119,23 @@ export default function FolderImport({
         confirmed = true;
         const dicom = job.preview?.patient ?? {};
         const typed = patient.trim();
+        // Lo stesso esame già importato si conferma per il paziente che l'ha: il motore risponde
+        // che c'è già, e lo si apre. Con un paziente nuovo si fermerebbe con un errore.
+        const { patientId } = await api<{ patientId: string }>(
+          `/api/dental/owner?job=${encodeURIComponent(id)}`,
+        );
         await api(
           `/api/library/imports/${id}`,
           post({
-            patient: typed
-              ? { name: typed }
-              : {
-                  name: dicom.name?.trim() || fallback,
-                  birth_date: dicom.birth_date || '',
-                  sex: dicom.sex || '',
-                },
+            patient: patientId
+              ? { id: patientId }
+              : typed
+                ? { name: typed }
+                : {
+                    name: dicom.name?.trim() || fallback,
+                    birth_date: dicom.birth_date || '',
+                    sex: dicom.sex || '',
+                  },
           }),
         );
       }

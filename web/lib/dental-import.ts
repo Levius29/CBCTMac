@@ -18,7 +18,7 @@
  */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { copyFile, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -153,6 +153,28 @@ export function describeFolder(folder: string) {
   return full;
 }
 
+/**
+ * Le fette sorelle di un file scelto da solo: quelle accanto, con la stessa estensione.
+ *
+ * Una CBCT è una fetta per file, e il gesto più naturale — aprire la cartella e cliccare un
+ * `.dcm` — ne sceglie uno. Una fetta sola non è un volume, e il convertitore si fermava con «could
+ * not build a volume». Si prendono le sorelle e non l'intera cartella perché quella potrebbe
+ * essere Download, con dentro di tutto; i file senza estensione dei CD restano insieme fra loro.
+ */
+export function siblingSlices(file: string) {
+  const folder = path.dirname(file);
+  const extension = path.extname(file).toLowerCase();
+  return readdirSync(folder, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        !entry.name.startsWith('.') &&
+        path.extname(entry.name).toLowerCase() === extension,
+    )
+    .map((entry) => path.join(folder, entry.name))
+    .sort();
+}
+
 async function sha256(file: string) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(file))
@@ -172,9 +194,14 @@ async function sha256(file: string) {
  */
 export async function importPaths(chosen: string[]) {
   if (!chosen.length) throw new Error('Choose a folder or the DICOM files.');
-  const paths = chosen.map(describePath);
+  let paths = chosen.map(describePath);
   const single = paths.length === 1 ? paths[0] : '';
-  const id = newJob(path.basename(single || path.dirname(paths[0])) || 'CBCT');
+  if (single && statSync(single).isFile() && !/\.zip$/i.test(single))
+    paths = siblingSlices(single);
+  const id = newJob(
+    path.basename(paths.length === 1 ? paths[0] : path.dirname(paths[0])) ||
+      'CBCT',
+  );
   const archive = path.join(dataRoot(), 'jobs', id, 'source.zip');
 
   try {
@@ -229,4 +256,21 @@ export async function importPaths(chosen: string[]) {
 /** La cartella scritta a mano: la stessa importazione, con un percorso solo. */
 export function importFolder(folder: string) {
   return importPaths([describeFolder(folder)]);
+}
+
+/**
+ * Il paziente che ha già l'archivio di questo lavoro, o una stringa vuota.
+ *
+ * Lo stesso esame impacchettato due volte dà lo stesso archivio, byte per byte, e quindi la
+ * stessa impronta: il motore la registra in `studies.source_hash`. È il solo modo sicuro di
+ * riconoscere un esame già importato — il nome del paziente non lo è, e due esami anonimi con
+ * lo stesso nome di cartella non sono la stessa persona.
+ */
+export function archiveOwner(jobId: string) {
+  const row = db()
+    .prepare(
+      "SELECT s.patient_id AS patient FROM studies s JOIN jobs j ON s.source_hash=j.sha256 WHERE j.id=? AND j.sha256<>'' LIMIT 1",
+    )
+    .get(identifier(jobId)) as { patient?: string } | undefined;
+  return row?.patient ? String(row.patient) : '';
 }

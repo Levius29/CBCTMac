@@ -42,7 +42,12 @@ Alla fine **Open in the 3D viewer** apre il visore di OpenMRI — volume 3D e le
 **Reconstruct** la panoramica con le sezioni trasversali.
 
 Si aprono anche le CBCT in un file solo (multiframe) e quelle compresse JPEG 2000 o JPEG-LS: il
-motore le converte con `dcm2niix`.
+motore le converte con `dcm2niix`, e se `dcm2niix` si rifiuta il volume lo costruisce un secondo
+convertitore, che ordina le fette per posizione come faceva 3DMED. Una CBCT più grande del tetto
+del motore — 268 milioni di voxel — si riduce per il visore invece di essere rifiutata.
+
+Se scegli un file solo, si prendono le fette che gli stanno accanto: una fetta da sola non è un
+volume.
 
 ### Dove stanno le cose
 
@@ -124,7 +129,7 @@ docs/       Architettura, decisioni, piano di lavoro.
 **`web/` si tocca il meno possibile.** Restiamo agganciati all'originale per poterne tirare le
 correzioni e le funzioni nuove; ogni riga che cambiamo dentro i loro file è un conflitto che
 torna al prossimo aggiornamento. Le aggiunte nostre vanno in file nostri. Le modifiche locali —
-oggi **quattro** — sono elencate in [`docs/openmri-dental.md`](docs/openmri-dental.md).
+oggi **cinque** — sono elencate in [`docs/openmri-dental.md`](docs/openmri-dental.md).
 
 ### La riserva Swift
 
