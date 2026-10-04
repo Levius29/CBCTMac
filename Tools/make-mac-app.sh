@@ -225,6 +225,25 @@ if [ "$SISTEMA" = "Darwin" ]; then
     echo "  firmata per questo Mac"
 fi
 
+# Un'app aperta mentre la si sostituisce continua a servire le pagine della versione di prima, che
+# chiedono pezzi ormai cancellati: il visore dice «The viewer module could not be loaded», ed è
+# successo davvero. La si chiude prima, insieme al suo motore.
+if [ "$SISTEMA" = "Darwin" ] && pgrep -f "$NOME.app/Contents/MacOS/" >/dev/null 2>&1; then
+    echo "  $NOME è aperta: la chiudo prima di sostituirla"
+    osascript -e 'tell application id "it.levius29.openmri-dental" to quit' >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        pgrep -f "$NOME.app/Contents/MacOS/" >/dev/null 2>&1 || break
+        sleep 1
+    done
+    if pgrep -f "$NOME.app/Contents/MacOS/" >/dev/null 2>&1; then
+        echo "$NOME non si chiude da sola: chiudila con ⌘Q e rilancia lo script." >&2
+        exit 1
+    fi
+fi
+if [ "$SISTEMA" = "Darwin" ]; then
+    pkill -f "$NOME.app/Contents/Resources/node/bin/node" 2>/dev/null || true
+fi
+
 DESTINAZIONE="$RADICE/$(basename "$APP")"
 rm -rf "$DESTINAZIONE"
 mv "$APP" "$DESTINAZIONE"
