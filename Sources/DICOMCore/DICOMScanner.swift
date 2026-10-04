@@ -9,6 +9,14 @@ public struct ScannedInstance: Sendable {
     public let instanceNumber: Int?
     public let positionMM: Vec3?
     public let orientation: SliceOrientation?
+    /// Quanti fotogrammi contiene il file: 1 nella forma classica, un file per fetta;
+    /// centinaia in un multiframe, dove il file è l'esame intero.
+    public let frameCount: Int
+    /// La posizione di ciascun fotogramma di un multiframe, nell'ordine del file. Vuoto per i
+    /// file a fotogramma singolo, la cui posizione è `positionMM`. Vedi `FrameLayout`.
+    public let framePositionsMM: [Vec3]
+    /// Vero se quelle posizioni sono dedotte invece che scritte nel file.
+    public let framePositionsAreDeduced: Bool
 
     public init(
         url: URL,
@@ -17,7 +25,10 @@ public struct ScannedInstance: Sendable {
         studyInstanceUID: String,
         instanceNumber: Int?,
         positionMM: Vec3?,
-        orientation: SliceOrientation?
+        orientation: SliceOrientation?,
+        frameCount: Int = 1,
+        framePositionsMM: [Vec3] = [],
+        framePositionsAreDeduced: Bool = false
     ) {
         self.url = url
         self.sopInstanceUID = sopInstanceUID
@@ -26,6 +37,9 @@ public struct ScannedInstance: Sendable {
         self.instanceNumber = instanceNumber
         self.positionMM = positionMM
         self.orientation = orientation
+        self.frameCount = max(frameCount, 1)
+        self.framePositionsMM = framePositionsMM
+        self.framePositionsAreDeduced = framePositionsAreDeduced
     }
 }
 
@@ -177,13 +191,18 @@ public struct DICOMScanner: Sendable {
         for url: URL in files {
             do {
                 let parsed = try DICOMParser.parse(url: url, depth: .metadataOnly)
-                let metadata = try makeMetadata(
-                    dataset: parsed.dataset,
-                    url: url)
-                add(
-                    metadata,
-                    to: &patientAccumulators,
-                    patientIndices: &patientIndices)
+                // Il DICOMDIR è l'indice del CD, non un'immagine: non ha UID di studio né di
+                // serie, e prima finiva fra i «file non letti» — l'unico avviso che chi apre
+                // un CD vedeva, e il meno utile di tutti.
+                if !isMediaDirectory(parsed.dataset) {
+                    let metadata = try makeMetadata(
+                        dataset: parsed.dataset,
+                        url: url)
+                    add(
+                        metadata,
+                        to: &patientAccumulators,
+                        patientIndices: &patientIndices)
+                }
             } catch let parsingError as DICOMParsingError {
                 switch parsingError {
                 case .notDICOM:
@@ -284,19 +303,9 @@ public struct DICOMScanner: Sendable {
         let seriesDescription = nonEmpty(dataset.string(DICOMTags.seriesDescription))
         let modality = nonEmpty(dataset.string(DICOMTags.modality))
 
-        var orientation: SliceOrientation?
-        if let values = dataset.doubles(DICOMTags.imageOrientationPatient) {
-            orientation = SliceOrientation(dicomValues: values)
-        }
-
-        var pixelSpacing: PixelSpacing?
-        if let values = dataset.doubles(DICOMTags.pixelSpacing), values.count >= 2 {
-            let row = values[0]
-            let column = values[1]
-            if row.isFinite, column.isFinite, row > 0, column > 0 {
-                pixelSpacing = PixelSpacing(rowMM: row, columnMM: column)
-            }
-        }
+        // Orientamento, spaziatura e posizioni stanno al primo livello nella forma classica e
+        // nei gruppi funzionali nei multiframe: `FrameLayout` li cerca in entrambi i posti.
+        let layout = FrameLayout(dataset: dataset)
 
         let instance = ScannedInstance(
             url: url,
@@ -304,8 +313,12 @@ public struct DICOMScanner: Sendable {
             seriesInstanceUID: seriesInstanceUID,
             studyInstanceUID: studyInstanceUID,
             instanceNumber: dataset.int(DICOMTags.instanceNumber),
-            positionMM: dataset.vec3(DICOMTags.imagePositionPatient),
-            orientation: orientation)
+            positionMM: dataset.vec3(DICOMTags.imagePositionPatient)
+                ?? layout.framePositionsMM.first,
+            orientation: layout.orientation,
+            frameCount: layout.frameCount,
+            framePositionsMM: layout.frameCount > 1 ? layout.framePositionsMM : [],
+            framePositionsAreDeduced: layout.positionsAreDeduced)
 
         return InstanceMetadata(
             patientKey: patientKey(
@@ -324,10 +337,18 @@ public struct DICOMScanner: Sendable {
             modality: modality,
             rows: dataset.int(DICOMTags.rows),
             columns: dataset.int(DICOMTags.columns),
-            pixelSpacing: pixelSpacing,
-            sliceThickness: dataset.double(DICOMTags.sliceThickness),
+            pixelSpacing: layout.pixelSpacing,
+            sliceThickness: layout.sliceThicknessMM,
             isImageSeries: isImageSeries(modality: modality),
             instance: instance)
+    }
+
+    /// Media Storage Directory Storage: la classe del `DICOMDIR`.
+    private static let mediaDirectorySOPClassUID = "1.2.840.10008.1.3.10"
+
+    private static func isMediaDirectory(_ dataset: DICOMDataset) -> Bool {
+        dataset.string(DICOMTags.mediaStorageSOPClassUID) == mediaDirectorySOPClassUID
+            || dataset[DICOMTags.directoryRecordSequence] != nil
     }
 
     private static func requiredString(

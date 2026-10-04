@@ -145,7 +145,10 @@ let moduleTargets: [Target] = [
 ]
 
 let testTargets: [Target] = [
-    .testTarget(name: "DICOMCoreTests", dependencies: ["DICOMCore"]),
+    // Le fixture sono file scritti da pydicom, non dal nostro scrittore: vedi
+    // Tools/make-dicom-fixtures.py per il perché e per rigenerarle.
+    .testTarget(
+        name: "DICOMCoreTests", dependencies: ["DICOMCore"], resources: [.copy("Fixtures")]),
     .testTarget(name: "MeasureKitTests", dependencies: ["MeasureKit", "DICOMCore"]),
     .testTarget(name: "MeshKitTests", dependencies: ["MeshKit", "DICOMCore"]),
     .testTarget(name: "VolumeKitTests", dependencies: ["VolumeKit", "DICOMCore"]),

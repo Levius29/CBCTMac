@@ -5,6 +5,12 @@ public struct DICOMElement: Sendable {
     public let tag: DICOMTag
     public let vr: VR
     public let value: Data
+    /// Gli item di una sequenza, ciascuno un dataset a sé; vuoto per ogni altro elemento.
+    ///
+    /// Le sequenze un tempo si saltavano per intero, e con loro la geometria dei file
+    /// multiframe: un'Enhanced CT tiene spaziatura, orientamento e posizione di ogni fotogramma
+    /// proprio lì dentro. `value` resta vuoto, come prima.
+    public let items: [DICOMDataset]
 
     // L'endianness appartiene all'elemento, non all'intero dataset: il gruppo file meta è
     // sempre little endian anche quando il dataset principale è big endian.
@@ -14,11 +20,14 @@ public struct DICOMElement: Sendable {
         self.init(tag: tag, vr: vr, value: value, isBigEndian: false)
     }
 
-    internal init(tag: DICOMTag, vr: VR, value: Data, isBigEndian: Bool) {
+    internal init(
+        tag: DICOMTag, vr: VR, value: Data, isBigEndian: Bool, items: [DICOMDataset] = []
+    ) {
         self.tag = tag
         self.vr = vr
         self.value = value
         self.isBigEndian = isBigEndian
+        self.items = items
     }
 }
 
@@ -47,6 +56,15 @@ public struct DICOMDataset: Sendable {
     /// Tutti gli elementi nell'ordine in cui compaiono nel file.
     public var allElements: [DICOMElement] {
         orderedElements
+    }
+
+    /// Gli item di una sequenza, o `nil` se il tag manca o non è stato letto come sequenza.
+    public func items(_ tag: DICOMTag) -> [DICOMDataset]? {
+        guard let element = elementsByTag[tag], element.vr == .SQ || !element.items.isEmpty
+        else {
+            return nil
+        }
+        return element.items
     }
 
     /// Legge un singolo valore testuale rimuovendo il padding DICOM finale.

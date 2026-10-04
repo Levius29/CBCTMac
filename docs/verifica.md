@@ -81,11 +81,14 @@ una macchina macOS — che è un cambiamento di ambiente, non di codice.
 
 ## Dove sta il resto della verifica
 
-- `swift test` — 1046 prove sulle librerie: 963 in 119 gruppi con
+- `swift test` — 1109 prove sulle librerie: 1026 in 127 gruppi con
   `swift-testing`, 83 con `XCTest` in dieci file. L'ultima corsa le ha viste
-  tutte verdi in 76 secondi, su macOS con la toolchain di Xcode; quella
-  registrata prima si fermava a 921, su Linux, ed era anteriore alle prove
-  della crescita confinata, della mesh stampabile e del taglio minimo.
+  tutte verdi in 93 secondi, su Linux con Swift 6.1.2. Su macOS l'ultima
+  corsa completa risale a quando erano 1046, e le 63 aggiunte dopo — confronto
+  fra date, forme vere delle esportazioni CBCT — lì restano da passare.
+- Le forme delle esportazioni — multiframe, CD con `DICOMDIR`, Implicit VR,
+  RLE — si provano su fixture scritte da pydicom, non dal nostro scrittore:
+  `Tools/make-dicom-fixtures.py` spiega perché e le rigenera.
 - Le prove nascono con una **mutazione**: si reintroduce il difetto e si
   controlla che cadano. Una prova che non è mai caduta non ha dimostrato niente.
 - Il fantoccio sintetico, con i suoi numeri noti — spigolo di 20,000 mm, densità

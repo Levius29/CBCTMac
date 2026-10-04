@@ -161,6 +161,18 @@ public enum DICOMTags: Sendable {
     public static let rescaleSlope = DICOMTag(group: 0x0028, element: 0x1053)
     public static let rescaleType = DICOMTag(group: 0x0028, element: 0x1054)
 
+    // I gruppi funzionali dei file multiframe (Enhanced CT e simili): è lì che un file unico
+    // tiene ciò che nella forma classica sta al primo livello — spaziatura, orientamento,
+    // posizione di ciascun fotogramma, rescale. Vedi `FrameLayout`.
+    public static let sharedFunctionalGroupsSequence = DICOMTag(group: 0x5200, element: 0x9229)
+    public static let perFrameFunctionalGroupsSequence = DICOMTag(
+        group: 0x5200, element: 0x9230)
+    public static let pixelMeasuresSequence = DICOMTag(group: 0x0028, element: 0x9110)
+    public static let planePositionSequence = DICOMTag(group: 0x0020, element: 0x9113)
+    public static let planeOrientationSequence = DICOMTag(group: 0x0020, element: 0x9116)
+    public static let pixelValueTransformationSequence = DICOMTag(
+        group: 0x0028, element: 0x9145)
+
     public static let pixelData = DICOMTag(group: 0x7FE0, element: 0x0010)
     public static let item = DICOMTag(group: 0xFFFE, element: 0xE000)
     public static let itemDelimitation = DICOMTag(group: 0xFFFE, element: 0xE00D)
@@ -201,6 +213,12 @@ public enum DICOMTags: Sendable {
         case pixelData:
             // Per il dataset implicito il progetto tratta sempre PixelData come Other Word.
             return .OW
+        case sharedFunctionalGroupsSequence, perFrameFunctionalGroupsSequence,
+             pixelMeasuresSequence, planePositionSequence, planeOrientationSequence,
+             pixelValueTransformationSequence:
+            // In Implicit VR una sequenza a lunghezza definita è indistinguibile da un blob:
+            // senza questa riga la geometria di un multiframe implicito andrebbe persa.
+            return .SQ
         default:
             return .UN
         }

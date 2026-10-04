@@ -179,7 +179,12 @@ public struct DICOMParser: Sendable {
         do {
             let tag = try cursor.readTag()
             let length = try cursor.readUInt32()
-            guard tag.group >= 0x0008, tag.group <= 0x7FE0 else {
+            // Il primo gruppo di un dataset senza preambolo è lo 0008: gli elementi stanno in
+            // ordine di tag, e lì vive anche SOPInstanceUID, senza il quale il file non serve.
+            // Prima si accettava qualunque gruppo fra 0008 e 7FE0, e un programma Windows —
+            // che comincia con «MZ», cioè il gruppo 5A4D — passava per DICOM: sul CD del centro
+            // ogni .exe e ogni .dll del visualizzatore diventava un «file non letto».
+            guard tag.group == 0x0008 else {
                 return false
             }
             if length == UInt32.max {
@@ -346,35 +351,22 @@ public struct DICOMParser: Sendable {
                 continue
             }
 
-            if header.vr == .SQ {
-                if header.length == UInt32.max {
-                    try skipUndefinedSequence(cursor: &cursor, explicitVR: explicitVR)
-                } else {
-                    let valueLength = try checkedLength(header, sourceName: cursor.sourceName)
-                    try cursor.skip(count: valueLength)
-                }
-                // TODO: un futuro tag inspector potrebbe conservare il contenuto della sequenza.
+            // In Implicit VR un tag di sequenza non presente nella tabella minima è
+            // indistinguibile da UN; la lunghezza indefinita e la struttura a item permettono
+            // comunque di leggerlo senza inventare il significato del tag.
+            if header.vr == .SQ || (header.vr == .UN && header.length == UInt32.max) {
+                let items = try readSequenceOrSkip(
+                    cursor: &cursor, header: header, explicitVR: explicitVR)
                 elements.append(DICOMElement(
                     tag: header.tag,
                     vr: header.vr,
                     value: Data(),
-                    isBigEndian: cursor.isBigEndian))
+                    isBigEndian: cursor.isBigEndian,
+                    items: items))
                 continue
             }
 
             if header.length == UInt32.max {
-                if header.vr == .UN {
-                    // In Implicit VR un tag di sequenza non presente nella tabella minima è
-                    // indistinguibile da UN. La lunghezza indefinita e la struttura a item
-                    // permettono di saltarlo senza inventare il significato del tag.
-                    try skipUndefinedSequence(cursor: &cursor, explicitVR: explicitVR)
-                    elements.append(DICOMElement(
-                        tag: header.tag,
-                        vr: header.vr,
-                        value: Data(),
-                        isBigEndian: cursor.isBigEndian))
-                    continue
-                }
                 throw DICOMParsingError.invalidLength(
                     sourceName: cursor.sourceName,
                     tag: header.tag,
@@ -472,6 +464,166 @@ public struct DICOMParser: Sendable {
                 length: header.length)
         }
         return valueLength
+    }
+
+    // MARK: Sequenze
+
+    /// Oltre questa profondità una sequenza non si legge, si salta: nessun file vero annida
+    /// tanto, e un file costruito per annidare all'infinito non deve esaurire lo stack.
+    private static let maximumSequenceNesting = 8
+
+    /// Legge gli item di una sequenza; se non ci riesce la salta, come si faceva prima che le
+    /// sequenze si leggessero.
+    ///
+    /// L'ordine conta: un file che si apriva saltando le sequenze deve continuare ad aprirsi.
+    /// Leggerle è un guadagno d'informazione, e non può diventare un modo nuovo di fallire —
+    /// tanto più che le sequenze private dei produttori sono le meno curate del file.
+    private static func readSequenceOrSkip(
+        cursor: inout DICOMByteCursor,
+        header: ElementHeader,
+        explicitVR: Bool
+    ) throws -> [DICOMDataset] {
+        let start = cursor.offset
+        do {
+            return try parseSequenceItems(
+                cursor: &cursor, length: header.length,
+                explicitVR: itemsAreExplicit(header, datasetIsExplicit: explicitVR),
+                nesting: 0)
+        } catch {
+            cursor.offset = start
+            if header.length == UInt32.max {
+                try skipUndefinedSequence(cursor: &cursor, explicitVR: explicitVR)
+            } else {
+                let valueLength = try checkedLength(header, sourceName: cursor.sourceName)
+                try cursor.skip(count: valueLength)
+            }
+            return []
+        }
+    }
+
+    private static func parseSequenceItems(
+        cursor: inout DICOMByteCursor,
+        length: UInt32,
+        explicitVR: Bool,
+        nesting: Int
+    ) throws -> [DICOMDataset] {
+        let sequenceOffset = cursor.offset
+        guard nesting < maximumSequenceNesting else {
+            throw DICOMParsingError.unexpectedTag(
+                sourceName: cursor.sourceName, tag: DICOMTags.item, atOffset: sequenceOffset)
+        }
+        var end: Int?
+        if length != UInt32.max {
+            guard let count = Int(exactly: length) else {
+                throw DICOMParsingError.truncated(
+                    sourceName: cursor.sourceName, atOffset: sequenceOffset)
+            }
+            end = try cursor.validatedRange(count: count).upperBound
+        }
+
+        var items: [DICOMDataset] = []
+        while true {
+            if let end {
+                if cursor.offset == end { return items }
+                guard cursor.offset < end else {
+                    throw DICOMParsingError.truncated(
+                        sourceName: cursor.sourceName, atOffset: end)
+                }
+            }
+            let tagOffset = cursor.offset
+            let tag = try cursor.readTag()
+            let itemLength = try cursor.readUInt32()
+
+            if tag == DICOMTags.sequenceDelimitation, end == nil, itemLength == 0 {
+                return items
+            }
+            guard tag == DICOMTags.item else {
+                throw DICOMParsingError.unexpectedTag(
+                    sourceName: cursor.sourceName, tag: tag, atOffset: tagOffset)
+            }
+
+            var itemEnd: Int?
+            if itemLength != UInt32.max {
+                guard let count = Int(exactly: itemLength) else {
+                    throw DICOMParsingError.truncated(
+                        sourceName: cursor.sourceName, atOffset: tagOffset)
+                }
+                itemEnd = try cursor.validatedRange(count: count).upperBound
+            }
+            var itemElements: [DICOMElement] = []
+            try parseItemElements(
+                cursor: &cursor, until: itemEnd, explicitVR: explicitVR, nesting: nesting,
+                elements: &itemElements)
+            items.append(DICOMDataset(elements: itemElements))
+        }
+    }
+
+    /// PS3.5 §6.2.2: il contenuto di un `UN` a lunghezza indefinita è codificato in Implicit VR
+    /// Little Endian, qualunque sia la sintassi del resto del file.
+    private static func itemsAreExplicit(_ header: ElementHeader, datasetIsExplicit: Bool)
+        -> Bool
+    {
+        header.vr == .UN ? false : datasetIsExplicit
+    }
+
+    /// Gli elementi di un item, fino alla sua fine dichiarata o al delimitatore.
+    private static func parseItemElements(
+        cursor: inout DICOMByteCursor,
+        until end: Int?,
+        explicitVR: Bool,
+        nesting: Int,
+        elements: inout [DICOMElement]
+    ) throws {
+        while true {
+            if let end {
+                if cursor.offset == end { return }
+                guard cursor.offset < end else {
+                    throw DICOMParsingError.truncated(
+                        sourceName: cursor.sourceName, atOffset: end)
+                }
+            }
+
+            var lookahead = cursor
+            let tagOffset = lookahead.offset
+            let tag = try lookahead.readTag()
+            if tag == DICOMTags.itemDelimitation {
+                let length = try lookahead.readUInt32()
+                guard end == nil, length == 0 else {
+                    throw DICOMParsingError.unexpectedTag(
+                        sourceName: cursor.sourceName, tag: tag, atOffset: tagOffset)
+                }
+                cursor = lookahead
+                return
+            }
+
+            let header = try readElementHeader(cursor: &cursor, explicitVR: explicitVR)
+
+            if header.vr == .SQ || (header.vr == .UN && header.length == UInt32.max) {
+                let items = try parseSequenceItems(
+                    cursor: &cursor, length: header.length,
+                    explicitVR: itemsAreExplicit(header, datasetIsExplicit: explicitVR),
+                    nesting: nesting + 1)
+                elements.append(DICOMElement(
+                    tag: header.tag, vr: header.vr, value: Data(),
+                    isBigEndian: cursor.isBigEndian, items: items))
+                continue
+            }
+
+            // L'icona di anteprima ha i suoi pixel dentro una sequenza, a volte compressi.
+            // Non servono a niente qui: si attraversano e basta.
+            if header.tag == DICOMTags.pixelData, header.length == UInt32.max {
+                _ = try scanEncapsulatedPixelData(cursor: &cursor)
+                elements.append(DICOMElement(
+                    tag: header.tag, vr: header.vr, value: Data(),
+                    isBigEndian: cursor.isBigEndian))
+                continue
+            }
+
+            let valueLength = try checkedLength(header, sourceName: cursor.sourceName)
+            let value = try cursor.readData(count: valueLength)
+            elements.append(DICOMElement(
+                tag: header.tag, vr: header.vr, value: value, isBigEndian: cursor.isBigEndian))
+        }
     }
 
     private static func skipUndefinedSequence(

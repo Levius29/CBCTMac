@@ -23,13 +23,13 @@ misurazioni, annotazioni e pianificazione implantare.
 
 ## Stato
 
-I moduli condivisi compilano e sono verificati da 1046 prove. L'applicazione SwiftUI compila su
+I moduli condivisi compilano e sono verificati da 1109 prove. L'applicazione SwiftUI compila su
 macOS; l'interfaccia non è ancora stata percorsa a mano.
 
 | Fase | Contenuto | Stato |
 |---|---|---|
 | 1 | MPR ortogonale, misure, annotazioni, rendering 3D | compila, da provare a mano |
-| 1b | Parser DICOM, decoder RLE e JPEG Lossless | **compilata e verificata** |
+| 1b | Parser DICOM, decoder RLE e JPEG Lossless, file multiframe, CD con `DICOMDIR` | **compilata e verificata** |
 | 2 | Panorex e sezioni trasversali d'arcata | compila, da provare a mano |
 | 3 | Nervo alveolare, pianificazione implantare, allarmi di prossimità | compila, da provare a mano |
 | 4 | Import mesh STL/PLY/OBJ e registrazione rigida | **compilata e verificata** |
@@ -37,6 +37,7 @@ macOS; l'interfaccia non è ancora stata percorsa a mano.
 | 5b | Separazione di denti e arcate, uscita STL/OBJ stampabile | **moduli verificati**, UI collegata e da compilare sul Mac |
 | 5c | Taglio minimo: separare il dente dall'osso che lo circonda | **modulo verificato**, manca la UI |
 | 5d | Segmentazione automatica: trova, separa e conta i denti senza marcatori | **provata su esame vero**, manca la UI e il numero FDI |
+| 5e | Confronto nel tempo: due CBCT di date diverse allineate fra loro | **modulo verificato**, manca la UI |
 | 6 | Segmentazione AI on-device (Core ML) | da fare |
 
 ## Requisiti
@@ -58,6 +59,7 @@ Sources/
                 referto d'integrità, lisciatura di Taubin, decimazione a quadriche
   SegmentKit/   ritaglio, soglie, crescita di regione e competitiva, morfologia, componenti
   GuideKit/     campi scalari, marching cubes, dime chirurgiche ed endodontiche
+  FollowUpKit/  registrazione rigida fra esami di date diverse, storia delle date
   CBCTMacApp/   applicazione SwiftUI
 Tools/          generatore e verificatore di fantocci, in Python senza dipendenze
 docs/           architettura, specifica grafica, mockup, brief per Codex
@@ -80,13 +82,14 @@ All'avvio l'applicazione genera un **fantoccio sintetico**: un cubo da 20,00 mm 
 densità note. Serve a verificare le misure contro valori esatti senza toccare dati di pazienti,
 e resta utile anche ora che si aprono studi veri.
 
-> **Stato della verifica.** `swift test` copre i moduli condivisi. La suite conta **963 prove
-> in 119 gruppi** con `swift-testing`, più **83 prove `XCTest`** in dieci file: 1046 in tutto.
+> **Stato della verifica.** `swift test` copre i moduli condivisi. La suite conta **1026 prove
+> in 127 gruppi** con `swift-testing`, più **83 prove `XCTest`** in dieci file: 1109 in tutto.
+> Una di esse, la segmentazione automatica su esame vero, si salta da sé se l'esame non c'è.
 >
-> L'ultima esecuzione le ha viste **tutte e 1046 verdi**, in 76 secondi, su macOS con la
-> toolchain di Xcode e Swift 6.3.3. È la prima corsa completa su questa piattaforma: quella
-> registrata prima si fermava a 921 prove su Swift 6.1.2 per Linux, ed era anteriore alle prove
-> della crescita confinata, della mesh stampabile e del taglio minimo.
+> L'ultima esecuzione le ha viste **tutte verdi**, in 93 secondi, su **Linux** con Swift 6.1.2.
+> Su macOS l'ultima corsa completa, con la toolchain di Xcode e Swift 6.3.3, risale a quando
+> erano 1046: le 63 aggiunte dopo — il confronto fra date e le forme vere delle esportazioni
+> CBCT — su macOS **restano da passare**.
 >
 > Il target dell'applicazione è condizionale a macOS e non entra in quella suite, perché importa
 > SwiftUI, AppKit e Metal; le sue chiamate verso i moduli sono però verificate da
@@ -176,7 +179,9 @@ distribuzione conviene comunque un target app in Xcode.
 Il pulsante **Apri** chiede una **cartella**, non un file: una serie CBCT è un insieme di file, e
 lo scanner li ordina proiettandone la posizione sulla normale del piano — mai per
 `InstanceNumber`, che su alcuni apparecchi è semplicemente sbagliato. Sono supportate le sintassi
-native (Explicit e Implicit VR, Little e Big Endian), RLE Lossless e JPEG Lossless.
+native (Explicit e Implicit VR, Little e Big Endian), RLE Lossless e JPEG Lossless; i file
+multiframe (Enhanced CT) e le cartelle dei CD, con il loro `DICOMDIR` e il visualizzatore per
+Windows accanto, si aprono come le serie a un file per fetta.
 
 ### Stampare un pezzo dell'esame
 

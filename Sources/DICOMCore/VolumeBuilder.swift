@@ -110,18 +110,49 @@ public enum VolumeBuilder {
 
         var warnings: [String] = []
 
-        // 1. Descrittori per l'ordinamento. Un'istanza senza geometria non è collocabile.
+        // 1. Descrittori per l'ordinamento, uno per fotogramma: nella forma classica uno per
+        //    file, in un multiframe tutti quelli del file, ciascuno con la sua posizione.
+        //    Un fotogramma senza geometria non è collocabile.
+        var slices: [(instance: Int, frame: Int)] = []
         var descriptors: [SliceDescriptor] = []
         descriptors.reserveCapacity(series.instances.count)
+        var positionsWereDeduced = false
 
         for (index, instance) in series.instances.enumerated() {
-            guard let position = instance.positionMM, let orientation = instance.orientation
-            else {
+            guard let orientation = instance.orientation else {
                 throw VolumeBuildError.missingGeometry(sopInstanceUID: instance.sopInstanceUID)
             }
-            descriptors.append(
-                SliceDescriptor(
-                    positionMM: position, orientation: orientation, sourceIndex: index))
+            if instance.frameCount > 1 {
+                guard instance.framePositionsMM.count == instance.frameCount else {
+                    throw VolumeBuildError.missingGeometry(
+                        sopInstanceUID: instance.sopInstanceUID)
+                }
+                positionsWereDeduced = positionsWereDeduced || instance.framePositionsAreDeduced
+                for (frame, position) in instance.framePositionsMM.enumerated() {
+                    descriptors.append(
+                        SliceDescriptor(
+                            positionMM: position, orientation: orientation,
+                            sourceIndex: slices.count))
+                    slices.append((instance: index, frame: frame))
+                }
+            } else {
+                guard let position = instance.positionMM else {
+                    throw VolumeBuildError.missingGeometry(
+                        sopInstanceUID: instance.sopInstanceUID)
+                }
+                descriptors.append(
+                    SliceDescriptor(
+                        positionMM: position, orientation: orientation,
+                        sourceIndex: slices.count))
+                slices.append((instance: index, frame: 0))
+            }
+        }
+
+        if positionsWereDeduced {
+            warnings.append(
+                "Il file non scrive la posizione di ogni fetta: sono dedotte dalla prima "
+                    + "posizione e dalla spaziatura. Controllare sulle viste sagittale e "
+                    + "coronale che l'esame non sia capovolto.")
         }
 
         // 2. Ordinamento per proiezione sulla normale, mai per InstanceNumber.
@@ -146,9 +177,22 @@ public enum VolumeBuilder {
         var densityUnit: DensityUnit = .greyValue
         var reportedRescaleVariation = false
 
-        // 4. Decodifica, nell'ordine geometrico.
+        // 4. Decodifica. Ogni file si legge **una volta sola**, anche quando contiene tutte le
+        //    fette: un multiframe da mezzo gigabyte riletto per ciascuno dei suoi cinquecento
+        //    fotogrammi non finirebbe più. I file si visitano nell'ordine geometrico della loro
+        //    prima fetta, che per la forma classica è esattamente l'ordine di prima.
+        var framesByInstance: [Int: [(destination: Int, frame: Int)]] = [:]
+        var instanceOrder: [Int] = []
         for (destinationIndex, sourceIndex) in sorted.order.enumerated() {
-            let instance = series.instances[sourceIndex]
+            let slice = slices[sourceIndex]
+            if framesByInstance[slice.instance] == nil { instanceOrder.append(slice.instance) }
+            framesByInstance[slice.instance, default: []].append(
+                (destination: destinationIndex, frame: slice.frame))
+        }
+
+        var completedSlices = 0
+        for instanceIndex in instanceOrder {
+            let instance = series.instances[instanceIndex]
 
             let parsed: ParsedFile
             do {
@@ -168,36 +212,51 @@ public enum VolumeBuilder {
             let descriptor = pixelDescriptor(
                 from: parsed.dataset, columns: columns, rows: rows)
 
-            let frame: DecodedFrame
-            do {
-                frame = try decoder.decode(
-                    pixelElement.value,
-                    frameIndex: 0,
-                    descriptor: descriptor,
-                    transferSyntax: parsed.transferSyntax)
-            } catch {
-                throw VolumeBuildError.sliceDecodingFailed(
-                    sopInstanceUID: instance.sopInstanceUID,
-                    reason: (error as? PixelDecodingError)?.localizedDescription
-                        ?? String(describing: error))
-            }
-
-            guard frame.samples.count == pixelsPerSlice else {
-                throw VolumeBuildError.inconsistentSliceSize(
-                    expected: pixelsPerSlice,
-                    found: frame.samples.count,
-                    sopInstanceUID: instance.sopInstanceUID)
-            }
-
-            // 5. Rescale. Si prende dalla prima slice; se una successiva dichiara valori
+            // 5. Rescale. Si prende dalla prima fetta; se una successiva dichiara valori
             //    diversi lo si segnala una volta sola. Mediarli produrrebbe un volume con due
-            //    scale cucite insieme, e nessun segno visibile del problema.
-            let slope = parsed.dataset.double(DICOMTags.rescaleSlope) ?? 1.0
-            let intercept = parsed.dataset.double(DICOMTags.rescaleIntercept) ?? 0.0
+            //    scale cucite insieme, e nessun segno visibile del problema. Nei multiframe il
+            //    rescale sta nei gruppi funzionali: `FrameLayout` lo cerca anche lì.
+            let layout = FrameLayout(dataset: parsed.dataset)
+            let slope = layout.rescaleSlope ?? 1.0
+            let intercept = layout.rescaleIntercept ?? 0.0
+            var differs = layout.rescaleVariesAcrossFrames
 
-            if let existingSlope = rescaleSlope, let existingIntercept = rescaleIntercept {
-                let differs =
-                    abs(existingSlope - slope) > 1e-9 || abs(existingIntercept - intercept) > 1e-9
+            for (destinationIndex, frameIndex) in framesByInstance[instanceIndex] ?? [] {
+                let frame: DecodedFrame
+                do {
+                    frame = try decoder.decode(
+                        pixelElement.value,
+                        frameIndex: frameIndex,
+                        descriptor: descriptor,
+                        transferSyntax: parsed.transferSyntax)
+                } catch {
+                    let reason =
+                        (error as? PixelDecodingError)?.localizedDescription
+                        ?? String(describing: error)
+                    throw VolumeBuildError.sliceDecodingFailed(
+                        sopInstanceUID: instance.sopInstanceUID,
+                        reason: instance.frameCount > 1
+                            ? "fotogramma \(frameIndex + 1) di \(instance.frameCount): \(reason)"
+                            : reason)
+                }
+
+                guard frame.samples.count == pixelsPerSlice else {
+                    throw VolumeBuildError.inconsistentSliceSize(
+                        expected: pixelsPerSlice,
+                        found: frame.samples.count,
+                        sopInstanceUID: instance.sopInstanceUID)
+                }
+
+                if let existingSlope = rescaleSlope, let existingIntercept = rescaleIntercept {
+                    differs =
+                        differs || abs(existingSlope - slope) > 1e-9
+                        || abs(existingIntercept - intercept) > 1e-9
+                } else {
+                    rescaleSlope = slope
+                    rescaleIntercept = intercept
+                    interceptAdjustment = frame.interceptAdjustment
+                    densityUnit = inferDensityUnit(from: parsed.dataset, series: series)
+                }
                 if differs, !reportedRescaleVariation {
                     warnings.append(
                         "Il rescale varia fra le immagini della serie. Si usa quello della "
@@ -205,20 +264,16 @@ public enum VolumeBuilder {
                             + "spostati.")
                     reportedRescaleVariation = true
                 }
-            } else {
-                rescaleSlope = slope
-                rescaleIntercept = intercept
-                interceptAdjustment = frame.interceptAdjustment
-                densityUnit = inferDensityUnit(from: parsed.dataset, series: series)
+
+                let destination = destinationIndex * pixelsPerSlice
+                samples.replaceSubrange(
+                    destination..<(destination + pixelsPerSlice), with: frame.samples)
+
+                completedSlices += 1
+                progress?(
+                    VolumeLoadProgress(
+                        completedSlices: completedSlices, totalSlices: totalSlices))
             }
-
-            let destination = destinationIndex * pixelsPerSlice
-            samples.replaceSubrange(
-                destination..<(destination + pixelsPerSlice), with: frame.samples)
-
-            progress?(
-                VolumeLoadProgress(
-                    completedSlices: destinationIndex + 1, totalSlices: totalSlices))
         }
 
         // 6. Compensazione della traslazione applicata ai dati senza segno a 16 bit.
@@ -286,8 +341,10 @@ public enum VolumeBuilder {
     static func inferDensityUnit(from dataset: DICOMDataset, series: ScannedSeries)
         -> DensityUnit
     {
-        let intercept = dataset.double(DICOMTags.rescaleIntercept) ?? 0
-        let rescaleType = (dataset.string(DICOMTags.rescaleType) ?? "").uppercased()
+        // Dal primo livello nella forma classica, dai gruppi funzionali nei multiframe.
+        let layout = FrameLayout(dataset: dataset)
+        let intercept = layout.rescaleIntercept ?? 0
+        let rescaleType = (layout.rescaleType ?? "").uppercased()
         let modality = (series.modality ?? "").uppercased()
         let manufacturer = (dataset.string(DICOMTags.manufacturer) ?? "").uppercased()
 
