@@ -25,6 +25,9 @@ struct FollowUpTimelineTests {
         timeline.add(FollowUpStudy(id: ids[1], label: "sei mesi", acquiredOn: day(180)))
         timeline.add(FollowUpStudy(id: ids[0], label: "prima", acquiredOn: day(0)))
         timeline.add(FollowUpStudy(id: ids[2], label: "un anno", acquiredOn: day(365)))
+        // La prima aggiunta è «sei mesi», e sarebbe lei il riferimento: qui serve la prima data,
+        // e va chiesta, come la chiede chi usa il programma.
+        timeline.setReference(ids[0])
         return timeline
     }
 

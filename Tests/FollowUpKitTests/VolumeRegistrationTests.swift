@@ -197,11 +197,37 @@ struct VolumeRegistrationTests {
             of: reference, over: reference.geometry, pose: .identity)
         #expect(abs(full - 1.0) < 1e-9)
 
-        let shifted = VolumeRegistration.coverage(
+        // Metà volume fuori, lungo la direzione misurata in forma chiusa e lungo una campionata:
+        // la precisione dichiarata — mezzo punto percentuale — vale per entrambe.
+        let alongColumns = VolumeRegistration.coverage(
             of: reference,
             over: reference.geometry,
             pose: RigidPose(translationMM: Vec3(10, 0, 0))
         )
-        #expect(shifted > 0.4 && shifted < 0.6)
+        #expect(abs(alongColumns - 0.5) < 0.005)
+        let alongRows = VolumeRegistration.coverage(
+            of: reference,
+            over: reference.geometry,
+            pose: RigidPose(translationMM: Vec3(0, 7, 0))
+        )
+        #expect(abs(alongRows - 0.65) < 0.005)
+    }
+
+    @Test("Uno spostamento più corto del voxel non fa scattare la copertura")
+    func coverageFollowsSubVoxelShifts() throws {
+        // Il difetto della prima versione: un reticolo con i punti sui bordi perdeva una faccia
+        // intera per qualunque spostamento, e 0,3 mm valevano quanto 2.
+        let reference = try makeRampVolume(
+            columns: 20, rows: 20, slices: 20, spacingMM: Vec3(1, 1, 1))
+        let small = VolumeRegistration.coverage(
+            of: reference, over: reference.geometry,
+            pose: RigidPose(translationMM: Vec3(0.3, 0.3, 0.3)))
+        let large = VolumeRegistration.coverage(
+            of: reference, over: reference.geometry,
+            pose: RigidPose(translationMM: Vec3(2, 2, 2)))
+        // Due direzioni campionate, mezzo punto ciascuna: un punto e mezzo di margine basta, e la
+        // versione a reticolo dava 0,88 dove qui si chiede 0,96.
+        #expect(abs(small - 0.985 * 0.985 * 0.985) < 0.015)
+        #expect(abs(large - 0.9 * 0.9 * 0.9) < 0.015)
     }
 }

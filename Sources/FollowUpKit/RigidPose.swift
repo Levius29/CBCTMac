@@ -65,7 +65,8 @@ public struct RigidPose: Hashable, Sendable, Codable {
         return Transform3D(
             columnX: Vec3(cy * cz, cy * sz, -sy),
             columnY: Vec3(sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy),
-            columnZ: Vec3(cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy)
+            columnZ: Vec3(cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy),
+            origin: .zero
         )
     }
 

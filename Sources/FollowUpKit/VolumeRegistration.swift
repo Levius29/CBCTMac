@@ -289,31 +289,73 @@ public enum VolumeRegistration: Sendable {
 
     /// Quanta parte della griglia del riferimento trova un dato nell'esame di confronto.
     ///
-    /// Si misura su un reticolo regolare e non su tutti i voxel: la frazione è la stessa a meno
-    /// di una parte su mille, e costa un millesimo del tempo.
+    /// # Perché si misura per rette e non per punti
+    ///
+    /// La prima versione contava i punti di un reticolo 24³ steso da centro a centro dei voxel di
+    /// bordo. Due difetti insieme: i punti stavano **sui** bordi, quindi ogni spostamento più
+    /// corto del passo buttava fuori una faccia intera — un ventiquattresimo per asse, a scatti —
+    /// e il reticolo copriva `[0, n−1]` mentre il volume occupa `[−½, n−½]`. Su tre millimetri di
+    /// spostamento dava 0,88 dove il valore vero è 0,92.
+    ///
+    /// Ora si prendono rette lungo le colonne, una per cella di un reticolo 100 × 100 su righe e
+    /// fette, e di ciascuna si calcola **in forma chiusa** il tratto che cade nell'altro esame:
+    /// una posa rigida porta una retta in una retta, e il tratto di retta dentro una scatola si
+    /// ritaglia esattamente. L'errore resta solo sulle altre due direzioni, sotto mezzo punto
+    /// percentuale per asse — più di quanto serva a un numero che si mostra con due cifre.
     public static func coverage(of followUp: Volume, over grid: VolumeGeometry, pose: RigidPose)
         -> Double
     {
-        let steps = 24
+        let steps = 100
         let transform = pose.transform
-        var inside = 0
-        var total = 0
-        for a in 0..<steps {
-            for b in 0..<steps {
-                for c in 0..<steps {
-                    let voxel = Vec3(
-                        Double(grid.columnCount - 1) * Double(a) / Double(steps - 1),
-                        Double(grid.rowCount - 1) * Double(b) / Double(steps - 1),
-                        Double(grid.sliceCount - 1) * Double(c) / Double(steps - 1)
-                    )
-                    let point = transform.apply(toPoint: grid.patientPoint(fromVoxel: voxel))
-                    total += 1
-                    if followUp.geometry.containsPatientPoint(point) { inside += 1 }
-                }
+        let target = followUp.geometry
+        let upper = Vec3(
+            Double(target.columnCount) - 0.5,
+            Double(target.rowCount) - 0.5,
+            Double(target.sliceCount) - 0.5
+        )
+        let lower = Vec3(-0.5, -0.5, -0.5)
+        let firstColumn = -0.5
+        let lastColumn = Double(grid.columnCount) - 0.5
+        var covered = 0.0
+        for b in 0..<steps {
+            let row = (Double(b) + 0.5) / Double(steps) * Double(grid.rowCount) - 0.5
+            for c in 0..<steps {
+                let slice = (Double(c) + 0.5) / Double(steps) * Double(grid.sliceCount) - 0.5
+                let start = target.voxelPoint(
+                    fromPatient: transform.apply(
+                        toPoint: grid.patientPoint(fromVoxel: Vec3(firstColumn, row, slice))))
+                let end = target.voxelPoint(
+                    fromPatient: transform.apply(
+                        toPoint: grid.patientPoint(fromVoxel: Vec3(lastColumn, row, slice))))
+                covered += insideFraction(from: start, to: end, lower: lower, upper: upper)
             }
         }
-        guard total > 0 else { return 0 }
-        return Double(inside) / Double(total)
+        return covered / Double(steps * steps)
+    }
+
+    /// La frazione del segmento `start → end` che cade dentro la scatola `lower…upper`: il
+    /// ritaglio di Liang–Barsky, un asse alla volta.
+    static func insideFraction(from start: Vec3, to end: Vec3, lower: Vec3, upper: Vec3) -> Double {
+        var entry = 0.0
+        var exit = 1.0
+        let axes = [
+            (start.x, end.x - start.x, lower.x, upper.x),
+            (start.y, end.y - start.y, lower.y, upper.y),
+            (start.z, end.z - start.z, lower.z, upper.z),
+        ]
+        for (origin, direction, low, high) in axes {
+            if abs(direction) < 1e-12 {
+                // Parallelo alle facce di quest'asse: o sta tutto fra le due, o è tutto fuori.
+                if origin < low || origin > high { return 0 }
+                continue
+            }
+            let a = (low - origin) / direction
+            let b = (high - origin) / direction
+            entry = max(entry, min(a, b))
+            exit = min(exit, max(a, b))
+            if entry >= exit { return 0 }
+        }
+        return exit - entry
     }
 
     // MARK: Discesa
