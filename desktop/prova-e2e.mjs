@@ -171,6 +171,26 @@ try {
   await page.getByText('Arch curve').waitFor({ timeout: 300_000 });
   await page.waitForTimeout(3000);
   await shot(page, '05-panoramica.png');
+
+  step('una quota senza arcata: la curva si posa a mano');
+  // Sulla prima CBCT vera l'arcata non si trovava, e la pagina si fermava su una frase senza un
+  // posto dove fare ciò che chiedeva. In cima al volume di prova non c'è osso: è lo stesso caso.
+  const level = page.getByLabel(/Axial level for the arch/);
+  await level.focus();
+  await level.press('End');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await page.getByRole('heading', { name: 'Draw the arch' }).waitFor({ timeout: 300_000 });
+  const surface = page.getByLabel('Axial slice: click to place the points of the arch');
+  const box = await surface.boundingBox();
+  for (const [x, y] of [[0.25, 0.7], [0.32, 0.4], [0.5, 0.3], [0.68, 0.4], [0.75, 0.7]])
+    await surface.click({ position: { x: box.width * x, y: box.height * y } });
+  await page.getByText('5 points').waitFor({ timeout: 10_000 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shot(page, '06-curva-da-posare.png');
+  await page.getByRole('button', { name: 'Use this curve' }).click();
+  await page.getByText('set by hand').waitFor({ timeout: 300_000 });
+  await page.waitForTimeout(2000);
+  await shot(page, '07-curva-posata.png');
   console.log('FATTO');
 } catch (error) {
   // La foto dell'errore vale più del messaggio: dice che cosa c'era sullo schermo.

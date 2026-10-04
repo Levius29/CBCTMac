@@ -122,6 +122,38 @@ def otsu_threshold(values, bin_count=256):
     return float(minimum + (best + 1) / bin_count * (maximum - minimum))
 
 
+def bone_thresholds(values):
+    """Le soglie dell'osso da provare su una fetta, dalla più ingenua alla più mirata.
+
+    # Il difetto che toglie
+
+    La sola soglia di Otsu sulla fetta intera funziona sul fantoccio e fallisce sulle CBCT vere:
+    fuori dal cilindro ricostruito molti apparecchi scrivono un valore molto basso — −3000, o il
+    minimo dei sedici bit — e Otsu separa «fuori» da «dentro» invece di «tessuto» da «osso».
+    L'«osso» diventa tutta la testa, la U dell'arcata sparisce, e l'arcata non si trova: è
+    successo alla prima CBCT vera aperta con il programma.
+
+    Si prova quindi anche **dentro** la testa: Otsu sui soli valori sopra la prima soglia, e la
+    parte più densa di quei valori, dove stanno corticale e denti. Ogni soglia passa per gli
+    stessi criteri di rifiuto della prima: una soglia in più è una proposta in più, non una
+    proposta meno controllata.
+    """
+    finite = values[np.isfinite(values)]
+    first = otsu_threshold(finite)
+    if first is None:
+        return []
+    thresholds = [first]
+    body = finite[finite >= first]
+    if body.size >= 400:
+        second = otsu_threshold(body)
+        if second is not None and second > thresholds[-1]:
+            thresholds.append(second)
+        dense = float(np.percentile(body, 90))
+        if dense > thresholds[-1]:
+            thresholds.append(dense)
+    return thresholds
+
+
 def largest_component(mask):
     """La macchia connessa più grande, a quattro vicini.
 
@@ -144,7 +176,9 @@ def largest_component(mask):
 # MARK: - Rilevamento dell'arcata
 
 
-def suggest_arch_points(slice_values, origin_x, origin_y, step, vertical_mm, point_count=9):
+def suggest_arch_points(
+    slice_values, origin_x, origin_y, step, vertical_mm, point_count=9, threshold=None
+):
     """Punti di controllo proposti per la curva, o `None` se qui non c'è un'arcata riconoscibile.
 
     Il metodo è dichiarato perché è euristico: si soglia l'osso, si tiene la componente connessa
@@ -155,7 +189,8 @@ def suggest_arch_points(slice_values, origin_x, origin_y, step, vertical_mm, poi
     finite = slice_values[np.isfinite(slice_values)]
     if finite.size < 400:
         return None
-    threshold = otsu_threshold(finite)
+    if threshold is None:
+        threshold = otsu_threshold(finite)
     if threshold is None:
         return None
 
@@ -400,17 +435,46 @@ def detect_arch(volume, vertical_mm=None, point_count=9, candidates=17):
         values, grid = volume.axial_slice(level)
         if values is None:
             continue
-        points = suggest_arch_points(
-            values, grid["originMM"][0], grid["originMM"][1], grid["stepMM"], level, point_count
-        )
-        if points is None:
+        for threshold in bone_thresholds(values):
+            points = suggest_arch_points(
+                values,
+                grid["originMM"][0],
+                grid["originMM"][1],
+                grid["stepMM"],
+                level,
+                point_count,
+                threshold=threshold,
+            )
+            if points is None:
+                continue
+            dense, lengths = catmull_rom_polyline(points)
+            length = float(lengths[-1])
+            plausible = PLAUSIBLE_ARCH_LENGTH_MM[0] <= length <= PLAUSIBLE_ARCH_LENGTH_MM[1]
+            score = length * (1.0 if plausible else 0.05)
+            if best is None or score > best["score"]:
+                best = {"score": score, "points": points, "verticalMM": float(level), "grid": grid}
+    return best
+
+
+def likely_arch_level(volume, candidates=31):
+    """La quota da proporre quando il rilevamento non trova l'arcata: quella con più smalto.
+
+    Smalto, otturazioni e corone sono le cose più dense di una CBCT dentale, e stanno tutte sui
+    denti: la fetta che ne contiene di più è quasi sempre all'altezza delle corone. È una proposta,
+    non un rilevamento — chi guarda la sposta con il cursore se non è quella giusta.
+    """
+    lower, upper = volume.world_bounds()
+    height = upper[2] - lower[2]
+    sample = volume.data.ravel()[:: max(1, volume.data.size // 200_000)]
+    dense = float(np.percentile(sample, 99.5))
+    best, best_count = float((lower[2] + upper[2]) / 2), 0
+    for level in np.linspace(lower[2] + 0.05 * height, upper[2] - 0.05 * height, candidates):
+        values, _ = volume.axial_slice(level)
+        if values is None:
             continue
-        dense, lengths = catmull_rom_polyline(points)
-        length = float(lengths[-1])
-        plausible = PLAUSIBLE_ARCH_LENGTH_MM[0] <= length <= PLAUSIBLE_ARCH_LENGTH_MM[1]
-        score = length * (1.0 if plausible else 0.05)
-        if best is None or score > best["score"]:
-            best = {"score": score, "points": points, "verticalMM": float(level), "grid": grid}
+        count = int(np.count_nonzero(values > dense))
+        if count > best_count:
+            best, best_count = float(level), count
     return best
 
 
@@ -631,24 +695,105 @@ def write_png(array, path):
     sitk.WriteImage(sitk.GetImageFromArray(np.ascontiguousarray(array)), str(path))
 
 
+def axial_view(volume, output, vertical_mm, points=(), cut_ends=()):
+    """La fetta assiale in `axial.png`, con curva e tagli già convertiti in pixel dell'immagine.
+
+    Restituisce la geometria che l'interfaccia usa per disegnarci sopra, o `None` se il volume non
+    ha una fetta a quella quota.
+    """
+    values, axial = volume.axial_slice(vertical_mm)
+    if values is None:
+        return None
+    lo, hi = window(values)
+    # Convenzione radiologica: la destra del paziente a sinistra dell'immagine, l'anteriore in
+    # alto. In RAS `+x` è destra e `+y` è avanti, quindi entrambi gli assi vanno rovesciati.
+    write_png(to_bytes(values[::-1, ::-1], lo, hi), Path(output) / "axial.png")
+
+    columns, rows = axial["columns"], axial["rows"]
+    step, origin = axial["stepMM"], axial["originMM"]
+
+    # La curva in coordinate immagine, calcolata qui e non nell'interfaccia: la conversione fra
+    # millimetri e pixel è geometria, e tenerla in due posti è il modo di farne divergere uno dei
+    # due senza accorgersene.
+    def to_pixels(points):
+        return [
+            [
+                float(columns - 1 - (point[0] - origin[0]) / step),
+                float(rows - 1 - (point[1] - origin[1]) / step),
+            ]
+            for point in points
+        ]
+
+    points = np.asarray(points, dtype=np.float64)
+    dense = catmull_rom_polyline(points)[0] if len(points) >= 2 else points
+    axial["file"] = "axial.png"
+    axial["curvePixels"] = to_pixels(dense[:: max(1, len(dense) // 240)])
+    axial["controlPixels"] = to_pixels(points)
+    axial["orientation"] = "radiological"
+
+    # Dove taglia ciascuna sezione, sulla stessa immagine. Chi guarda una sezione vede così da che
+    # parte dell'arcata viene, e le tre viste dicono la stessa cosa invece di tre cose vicine.
+    axial["cutPixels"] = [[point for end in to_pixels(ends) for point in end] for ends in cut_ends]
+
+    # La trasformazione **inversa**, in forma di affine esplicita: serve a chi trascina o posa un
+    # punto sull'immagine e deve dire in millimetri dove l'ha messo. Scriverla qui e non
+    # nell'interfaccia è la stessa ragione di `to_pixels`: una conversione tenuta in due posti è una
+    # conversione che prima o poi diverge, e lo fa in silenzio.
+    #
+    #   X = x[0]·colonna + x[1]·riga + x[2]      Y = y[0]·colonna + y[1]·riga + y[2]
+    axial["worldFromPixel"] = {
+        "x": [-step, 0.0, origin[0] + (columns - 1) * step],
+        "y": [0.0, -step, origin[1] + (rows - 1) * step],
+        "z": float(vertical_mm),
+    }
+    lower, upper = volume.world_bounds()
+    axial["levelRangeMM"] = [float(lower[2]), float(upper[2])]
+    return axial
+
+
+def volume_summary(volume):
+    return {
+        "dimensions": [int(v) for v in volume.shape],
+        "voxelMM": [float(v) for v in volume.spacing],
+    }
+
+
 def build(volume_path, output_dir, options=None):
-    """Tutto il lavoro: rileva l'arcata, ricostruisce panoramica e sezioni, scrive le immagini."""
+    """Tutto il lavoro: rileva l'arcata, ricostruisce panoramica e sezioni, scrive le immagini.
+
+    Se l'arcata non si trova non è un errore: si restituisce `needsCurve` con la sola fetta
+    assiale, e la curva la posa chi guarda. Prima era un errore, e la pagina restava vuota con una
+    frase — «impostate la quota a mano, o date i punti» — senza un posto dove farlo: è successo alla
+    prima CBCT vera aperta con il programma. Un rilevamento euristico che fallisce non deve fermare
+    la funzione intera.
+    """
     options = dict(options or {})
     output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
     volume = Volume(volume_path)
 
     control_points = options.get("controlPointsMM")
     if control_points:
         points = orient_curve(np.asarray(control_points, dtype=np.float64))
         vertical = float(options.get("archVerticalMM", float(points[:, 2].mean())))
-        detection = {"points": points, "verticalMM": vertical, "grid": None}
+        detection = {"points": points, "verticalMM": vertical}
     else:
-        detection = detect_arch(volume, options.get("archVerticalMM"), int(options.get("archPointCount", 9)))
+        level = options.get("archVerticalMM")
+        detection = detect_arch(volume, level, int(options.get("archPointCount", 9)))
         if detection is None:
-            raise ValueError(
-                "No dental arch was recognised in this volume. "
-                "Set the axial level by hand, or give the curve points."
-            )
+            level = float(level) if level is not None else likely_arch_level(volume)
+            axial = axial_view(volume, output, level)
+            if axial is None:
+                raise ValueError("This volume has no axial slice to draw the dental arch on.")
+            return {
+                "needsCurve": True,
+                "curve": None,
+                "panorama": None,
+                "sections": None,
+                "axial": axial,
+                "volume": volume_summary(volume),
+                "notes": [],
+            }
         detection["points"] = orient_curve(detection["points"])
 
     curve = {
@@ -667,62 +812,12 @@ def build(volume_path, output_dir, options=None):
     for index in range(sections.shape[0]):
         write_png(to_bytes(sections[index], section_lo, section_hi), output / f"sections/{index:04d}.png")
 
-    axial_geometry = detection.get("grid")
-    if axial_geometry is None:
-        _, axial_geometry = volume.axial_slice(detection["verticalMM"])
-    if axial_geometry is not None:
-        values, _ = volume.axial_slice(detection["verticalMM"])
-        axial_lo, axial_hi = window(values)
-        # Convenzione radiologica: la destra del paziente a sinistra dell'immagine, l'anteriore in
-        # alto. In RAS `+x` è destra e `+y` è avanti, quindi entrambi gli assi vanno rovesciati.
-        write_png(to_bytes(values[::-1, ::-1], axial_lo, axial_hi), output / "axial.png")
-
-        # La curva in coordinate immagine, calcolata qui e non nell'interfaccia: la conversione
-        # fra millimetri e pixel è geometria, e tenerla in due posti è il modo di farne divergere
-        # uno dei due senza accorgersene.
-        def to_pixels(points):
-            columns = axial_geometry["columns"]
-            rows = axial_geometry["rows"]
-            step = axial_geometry["stepMM"]
-            origin = axial_geometry["originMM"]
-            return [
-                [
-                    float(columns - 1 - (point[0] - origin[0]) / step),
-                    float(rows - 1 - (point[1] - origin[1]) / step),
-                ]
-                for point in points
-            ]
-
-        dense, _ = catmull_rom_polyline(detection["points"])
-        axial_geometry["curvePixels"] = to_pixels(dense[:: max(1, len(dense) // 240)])
-        axial_geometry["controlPixels"] = to_pixels(detection["points"])
-        axial_geometry["orientation"] = "radiological"
-
-        # Dove taglia ciascuna sezione, sulla stessa immagine. Chi guarda una sezione vede così da
-        # che parte dell'arcata viene, e le tre viste dicono la stessa cosa invece di tre cose
-        # vicine.
-        axial_geometry["cutPixels"] = [
-            [point for end in to_pixels(ends) for point in end]
-            for ends in section_geometry["cutEndsMM"]
-        ]
-
-        # La trasformazione **inversa**, in forma di affine esplicita: serve a chi trascina un punto
-        # di controllo sull'immagine e deve dire in millimetri dove l'ha portato. Scriverla qui e
-        # non nell'interfaccia è la stessa ragione di `to_pixels`: una conversione tenuta in due
-        # posti è una conversione che prima o poi diverge, e lo fa in silenzio.
-        #
-        #   X = x[0]·colonna + x[1]·riga + x[2]      Y = y[0]·colonna + y[1]·riga + y[2]
-        step = axial_geometry["stepMM"]
-        origin = axial_geometry["originMM"]
-        axial_geometry["worldFromPixel"] = {
-            "x": [-step, 0.0, origin[0] + (axial_geometry["columns"] - 1) * step],
-            "y": [0.0, -step, origin[1] + (axial_geometry["rows"] - 1) * step],
-            "z": detection["verticalMM"],
-        }
-        lower, upper = volume.world_bounds()
-        axial_geometry["levelRangeMM"] = [float(lower[2]), float(upper[2])]
+    axial = axial_view(
+        volume, output, detection["verticalMM"], detection["points"], section_geometry["cutEndsMM"]
+    )
 
     return {
+        "needsCurve": False,
         "curve": {
             "controlPointsMM": [[float(v) for v in point] for point in detection["points"]],
             "archVerticalMM": detection["verticalMM"],
@@ -735,11 +830,8 @@ def build(volume_path, output_dir, options=None):
             **section_geometry,
             "window": [section_lo, section_hi],
         },
-        "axial": ({"file": "axial.png", **axial_geometry} if axial_geometry is not None else None),
-        "volume": {
-            "dimensions": [int(v) for v in volume.shape],
-            "voxelMM": [float(v) for v in volume.spacing],
-        },
+        "axial": axial,
+        "volume": volume_summary(volume),
         # In inglese perché finiscono a schermo: l'interfaccia parla la lingua dell'originale,
         # la prosa del progetto resta italiana.
         "notes": [

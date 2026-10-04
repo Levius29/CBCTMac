@@ -47,6 +47,8 @@ import {
 import Image from 'next/image';
 import PageLink from '@/components/page-link';
 import { Button } from '@/components/ui/button';
+import ArchSketch, { type Sketch } from './arch-sketch';
+import { catmullRom, insertionIndex, worldFromPixels } from './curve';
 import FolderImport, { type Imported } from './folder-import';
 
 type Patient = { id: string; name: string };
@@ -67,6 +69,7 @@ type Axial = {
 
 type Build = {
   key: string;
+  needsCurve?: false;
   cached: boolean;
   curveSource: 'automatic' | 'manual' | 'saved';
   curve: {
@@ -136,61 +139,15 @@ async function api<T>(route: string, init?: RequestInit): Promise<T> {
 }
 
 /**
- * Anteprima della spline mentre si trascina.
+ * I menu a tendina della pagina.
  *
- * Catmull-Rom con tensione 0,5, la stessa di `scripts/dental_panorama.py`: passa esattamente per i
- * punti posati. Qui è disegno, non geometria — la curva su cui si ricostruisce la calcola Python.
+ * `workspace.css` di OpenMRI dà a ogni `select` undici pixel d'imbottitura sopra e sotto, fuori dai
+ * livelli di Tailwind — e uno stile fuori dai livelli vince su qualunque classe. Con l'altezza
+ * della riga il testo restava tagliato a metà; il `!` di Tailwind è l'unico modo di batterlo senza
+ * toccare il loro foglio di stile.
  */
-function catmullRom(points: number[][], perSegment = 20): number[][] {
-  if (points.length < 2) return points;
-  const out: number[][] = [];
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const p0 = points[Math.max(index - 1, 0)];
-    const p1 = points[index];
-    const p2 = points[Math.min(index + 1, points.length - 1)];
-    const p3 = points[Math.min(index + 2, points.length - 1)];
-    for (let step = 0; step < perSegment; step += 1) {
-      const t = step / perSegment;
-      const t2 = t * t;
-      const t3 = t2 * t;
-      out.push(
-        [0, 1].map(
-          (axis) =>
-            0.5 *
-            (2 * p1[axis] +
-              (p2[axis] - p0[axis]) * t +
-              (2 * p0[axis] - 5 * p1[axis] + 4 * p2[axis] - p3[axis]) * t2 +
-              (3 * p1[axis] - p0[axis] - 3 * p2[axis] + p3[axis]) * t3),
-        ),
-      );
-    }
-  }
-  out.push(points[points.length - 1]);
-  return out;
-}
-
-/** Fra quali due punti di controllo cade un clic: è lì che il punto nuovo si inserisce. */
-function insertionIndex(points: number[][], x: number, y: number) {
-  let best = points.length;
-  let bestDistance = Infinity;
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const [ax, ay] = points[index];
-    const [bx, by] = points[index + 1];
-    const dx = bx - ax;
-    const dy = by - ay;
-    const length = dx * dx + dy * dy || 1;
-    const t = Math.min(
-      Math.max(((x - ax) * dx + (y - ay) * dy) / length, 0),
-      1,
-    );
-    const distance = Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = index + 1;
-    }
-  }
-  return best;
-}
+const pickerClass =
+  'border-border bg-card h-9 rounded-lg border px-2! py-0! text-sm';
 
 export default function DentalWorkspace({
   initialPaths = [],
@@ -207,6 +164,8 @@ export default function DentalWorkspace({
   const [seriesId, setSeriesId] = useState('');
   const [options, setOptions] = useState<Options>(initialOptions);
   const [build, setBuild] = useState<Build | null>(null);
+  // L'arcata non trovata: la sola fetta assiale, su cui la curva si posa a mano.
+  const [sketch, setSketch] = useState<Sketch | null>(null);
   const [section, setSection] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -267,18 +226,25 @@ export default function DentalWorkspace({
       setBusy(true);
       setError('');
       try {
-        const result = await api<Build>('/api/dental/panorama', {
+        const result = await api<Build | Sketch>('/api/dental/panorama', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ seriesId, options: wanted, curveAction }),
         });
         setOptions(wanted);
-        setBuild(result);
         setDraft(null);
         setEditing(false);
-        setSection(Math.floor(result.sections.count / 2));
+        if (result.needsCurve === true) {
+          setBuild(null);
+          setSketch(result);
+        } else {
+          setSketch(null);
+          setBuild(result);
+          setSection(Math.floor(result.sections.count / 2));
+        }
       } catch (e) {
         setBuild(null);
+        setSketch(null);
         setError((e as Error).message);
       } finally {
         setBusy(false);
@@ -293,6 +259,14 @@ export default function DentalWorkspace({
     if (!build) return;
     function onKey(event: KeyboardEvent) {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      // Su un cursore o un menu le frecce sono sue: rubarle lo lasciava fermo, e un cursore che
+      // non si muove con la tastiera non si regola al millimetro.
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLSelectElement ||
+        event.target instanceof HTMLTextAreaElement
+      )
+        return;
       event.preventDefault();
       setSection((current) =>
         Math.min(
@@ -374,17 +348,12 @@ export default function DentalWorkspace({
 
   function applyCurve() {
     if (!axial || !draft) return;
-    const { x, y, z } = axial.worldFromPixel;
     // `reconstruct` gestisce da sé l'errore e lo stato: qui l'attesa non serve a nessuno.
     // La curva si salva con la serie: correggerla una volta deve bastare.
     void reconstruct(
       {
-        controlPointsMM: draft.map((point) => [
-          x[0] * point[0] + x[1] * point[1] + x[2],
-          y[0] * point[0] + y[1] * point[1] + y[2],
-          z,
-        ]),
-        archVerticalMM: z,
+        controlPointsMM: worldFromPixels(draft, axial.worldFromPixel),
+        archVerticalMM: axial.worldFromPixel.z,
       },
       'save',
     );
@@ -413,13 +382,15 @@ export default function DentalWorkspace({
           Library
         </PageLink>
         <select
-          className="border-border bg-card h-8 rounded-lg border px-2 text-sm"
+          aria-label="Study"
+          className={`${pickerClass} max-w-[26rem]`}
           value={studyId}
           onChange={(event) => {
             // La ricostruzione mostrata appartiene alla serie di prima: sparisce qui, nel gesto, e
             // non in un effetto — altrimenti resterebbe a schermo per un fotogramma sotto il nome
             // dello studio nuovo.
             setBuild(null);
+            setSketch(null);
             setStudyId(event.target.value);
           }}
         >
@@ -430,9 +401,15 @@ export default function DentalWorkspace({
           ))}
         </select>
         <select
-          className="border-border bg-card h-8 max-w-[22rem] rounded-lg border px-2 text-sm"
+          aria-label="Series"
+          className={`${pickerClass} max-w-[22rem]`}
           value={seriesId}
-          onChange={(event) => setSeriesId(event.target.value)}
+          onChange={(event) => {
+            // Come per lo studio: una curva posata su un'altra serie non vale per questa.
+            setBuild(null);
+            setSketch(null);
+            setSeriesId(event.target.value);
+          }}
         >
           {series.map((item) => (
             <option key={item.id} value={item.id}>
@@ -460,6 +437,7 @@ export default function DentalWorkspace({
           onDone={(result) => {
             setImporting(false);
             setBuild(null);
+            setSketch(null);
             setImported(result);
             loadLibrary('newest');
           }}
@@ -487,7 +465,25 @@ export default function DentalWorkspace({
         </p>
       ) : null}
 
-      {busy && !build ? (
+      {sketch ? (
+        <ArchSketch
+          key={sketch.key}
+          sketch={sketch}
+          busy={busy}
+          onLevel={(level) =>
+            void reconstruct({ archVerticalMM: level, controlPointsMM: null })
+          }
+          onCurve={(points, level) =>
+            // Come la curva corretta: si salva con la serie, e non va riposata domani.
+            void reconstruct(
+              { controlPointsMM: points, archVerticalMM: level },
+              'save',
+            )
+          }
+        />
+      ) : null}
+
+      {busy && !build && !sketch ? (
         <p className="text-muted-foreground text-sm">
           Reconstructing. The first run on a large volume takes a minute; the
           result is kept, so the same settings come back instantly.
@@ -822,7 +818,7 @@ export default function DentalWorkspace({
                 Panoramic projection
               </span>
               <select
-                className="border-border bg-background h-8 rounded-lg border px-2"
+                className={pickerClass}
                 value={options.projection}
                 onChange={(event) =>
                   setOptions((o) => ({

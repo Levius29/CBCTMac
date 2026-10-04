@@ -134,15 +134,23 @@ denti stanno su una curva, e qualunque taglio piatto li attraversa di sbieco.
 - `web/scripts/dental_panorama.py` — il calcolo: rilevamento automatico dell'arcata, panoramica
   come slab curvo, sezioni perpendicolari. È il porto fedele di `Sources/DentalKit` e di
   `Sources/SegmentKit/ArchDetection.swift`, scelte non ovvie comprese — Catmull-Rom, passo d'arco
-  costante, scala isotropa, slab centrato, soglia di Otsu, i tre criteri di rifiuto.
-- `web/tests/test_dental_panorama.py` — diciassette prove su un'arcata **nota per costruzione**:
-  la curva trovata deve coincidere con quella vera, la banda d'osso deve cadere alla quota giusta,
-  la sezione deve tagliare il tubo d'osso al centro, e un blocco pieno o un volume vuoto devono
-  essere **rifiutati**.
+  costante, scala isotropa, slab centrato, soglia di Otsu, i tre criteri di rifiuto. Una cosa in
+  più della riserva: le soglie provate sono tre, perché sulle CBCT vere il fuori campo vale −3000
+  e una soglia sola separa «fuori» da «dentro» invece di «tessuto» da «osso». E se l'arcata non si
+  trova lo stesso, il risultato non è un errore: è la fetta assiale, su cui la curva si posa a
+  mano.
+- `web/tests/test_dental_panorama.py` — ventotto prove su un'arcata **nota per costruzione**:
+  la curva trovata deve coincidere con quella vera, anche dentro un campo di vista con il fuori
+  campo a −3000; la banda d'osso deve cadere alla quota giusta, la sezione deve tagliare il tubo
+  d'osso al centro, un blocco pieno o un volume vuoto devono essere **rifiutati**, e i punti
+  cliccati sulla fetta devono tornare, dopo la ricostruzione, dove si sono cliccati.
 - `web/lib/dental.ts` e `web/app/api/dental/**` — il contorno: dove sta il volume, quali opzioni
-  sono ammesse, la cache indicizzata sulle opzioni.
+  sono ammesse, la cache indicizzata sulle opzioni **e sul codice** che ricostruisce, perché un
+  aggiornamento non lasci tornare i risultati della versione di prima.
 - `web/app/dental/**` — la pagina: panoramica in alto, fetta assiale con la curva disegnata sopra,
-  sezione trasversale, e i comandi che rifanno la ricostruzione.
+  sezione trasversale, e i comandi che rifanno la ricostruzione. `arch-sketch.tsx` è il pannello
+  per posare la curva quando il rilevamento non la trova, `curve.ts` la geometria dei clic che le
+  due viste condividono, con le sue prove in `web/tests/dental-curve.test.mjs`.
 
 ### L'importazione da cartella
 
@@ -194,13 +202,19 @@ sbagliata è peggio di nessuna proposta: chi la riceve la corregge invece di rif
 la curva sopra è l'unica immagine su cui si può giudicare, e sta nella pagina per questo, non per
 decorazione.
 
+**Perché un'arcata non trovata non è un errore.** Lo era, e la pagina si fermava su una frase —
+«impostate la quota a mano, o date i punti» — senza un posto dove farlo: è successo alla prima
+CBCT vera aperta con il programma. Ora la pagina mostra la fetta assiale alla quota con più smalto,
+si sposta la quota se non è quella dei denti — e lì il rilevamento riprova — e la curva si posa
+con un clic per punto. Si salva con la serie, come quella corretta.
+
 ## Le prove, e una che chiede una cosa in più
 
 ```sh
 cd web
 npm run check                     # lint, tipi, prove Node
 Tools/../../Tools/fetch-demo-study.sh   # solo la prima volta
-npm run test:import               # 26 prove Python, 17 nostre
+npm run test:import               # 65 prove Python, 56 nostre
 ```
 
 Una delle prove dell'originale importa lo studio demo, che qui non è versionato: senza,
@@ -219,11 +233,8 @@ Una delle prove dell'originale importa lo studio demo, che qui non è versionato
 
 Nell'ordine in cui conviene, ciascuno con il suo modulo Swift già provato da cui leggere:
 
-1. **Correggere la curva a mano** — trascinare i punti di controllo sulla fetta assiale.
-   `Sources/DentalKit/ArchEditing.swift`. È la cosa che manca di più: il rilevamento automatico
-   funziona o non funziona, e quando non funziona adesso non c'è rimedio dentro la pagina.
+1. **Volume a piena risoluzione** per il dentale, vedi il limite qui sopra.
 2. **Misure sulle sezioni** — altezza e spessore della cresta, con l'incertezza dichiarata
    (Contratto 5). `Sources/MeasureKit`.
 3. **Canale alveolare e impianti** — `Sources/ImplantKit`, che è il cuore del pianificatore e
    pretende le misure già pronte sotto.
-4. **Volume a piena risoluzione** per il dentale, vedi il limite qui sopra.

@@ -10,6 +10,7 @@ ricostruzione sia clinicamente adeguata.
 """
 
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,8 +37,12 @@ def true_arch_point(theta):
     return np.array([ARCH_A * np.cos(theta), ARCH_B * np.sin(theta), 0.0])
 
 
-def make_arch_volume(path, spacing=0.5, columns=160, rows=160, slices=96):
-    """Un volume NIfTI con dentro un'arcata: tubo d'osso, denti più densi, fondo d'aria."""
+def make_arch_volume(path, spacing=0.5, columns=160, rows=160, slices=96, outside_fov=None):
+    """Un volume NIfTI con dentro un'arcata: tubo d'osso, denti più densi, fondo d'aria.
+
+    Con `outside_fov` il fantoccio somiglia a una CBCT vera: tessuto molle attorno all'osso, e
+    fuori dal cilindro ricostruito il valore fisso che l'apparecchio scrive dove non ha misurato.
+    """
     origin = np.array(
         [-(columns - 1) * spacing / 2, -(rows - 1) * spacing / 2, -(slices - 1) * spacing / 2]
     )
@@ -68,6 +73,11 @@ def make_arch_volume(path, spacing=0.5, columns=160, rows=160, slices=96):
         dy = ys[None, :, None] - centre[1]
         dz = zs[None, None, :] - centre[2]
         data[(dx * dx + dy * dy + dz * dz) <= 3.0**2] = 2800.0
+
+    if outside_fov is not None:
+        head = (grid_x / 42.0) ** 2 + ((grid_y - 5.0) / 48.0) ** 2 <= 1.0
+        data[head[:, :, None] & (data < 0)] = 40.0
+        data[np.hypot(grid_x, grid_y) > 38.0] = outside_fov
 
     image = nib.Nifti1Image(data, affine)
     image.header["cal_min"] = -1000.0
@@ -141,8 +151,7 @@ class ArchDetectionTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def test_finds_the_arch_where_it_is(self):
-        detection = dental.detect_arch(self.volume)
+    def assert_on_the_arch(self, detection):
         self.assertIsNotNone(detection, "l'arcata del fantoccio non è stata riconosciuta")
         points = detection["points"]
         self.assertGreaterEqual(len(points), 3)
@@ -153,6 +162,20 @@ class ArchDetectionTests(unittest.TestCase):
         for point in points:
             distance = np.min(np.linalg.norm(curve - point[:2], axis=1))
             self.assertLess(distance, ARCH_RADIUS + 1.0, f"punto fuori dall'arcata: {point}")
+
+    def test_finds_the_arch_where_it_is(self):
+        self.assert_on_the_arch(dental.detect_arch(self.volume))
+
+    def test_finds_the_arch_inside_a_cbct_field_of_view(self):
+        """Il caso della prima CBCT vera: fuori dal campo un valore fisso, molto più basso dell'aria.
+
+        Con la sola soglia di Otsu sulla fetta intera l'«osso» diventava tutta la testa e l'arcata
+        non si trovava; qui deve trovarsi, con la stessa tolleranza del fantoccio pulito.
+        """
+        for outside in (-3000.0, -32768.0):
+            with self.subTest(outside=outside), tempfile.TemporaryDirectory() as folder:
+                path = make_arch_volume(Path(folder) / "fov.nii.gz", outside_fov=outside)
+                self.assert_on_the_arch(dental.detect_arch(dental.Volume(path)))
 
     def test_refuses_a_solid_block(self):
         """Un blocco pieno non ha apertura: circonda il proprio baricentro, quindi non è un'arcata."""
@@ -245,9 +268,6 @@ class ReconstructionTests(unittest.TestCase):
         self.assertEqual(len(self.result["notes"]), 2)
         self.assertIn("reconstructed surface", self.result["notes"][0])
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class AxialOverlayTests(unittest.TestCase):
@@ -397,3 +417,88 @@ class ManualCurveTests(unittest.TestCase):
                 given = given[::-1]
             np.testing.assert_allclose(used, given, atol=1e-9)
             self.assertAlmostEqual(result["curve"]["archVerticalMM"], 2.0, places=6)
+
+
+class NeedsCurveTests(unittest.TestCase):
+    """Quando l'arcata non si trova: niente errore, la fetta assiale su cui posarla a mano."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        folder = Path(cls.temp.name)
+        cls.path = make_arch_volume(folder / "arch.nii.gz")
+        # Venti millimetri sopra l'osso del fantoccio: a questa quota non c'è nessuna arcata.
+        cls.output = folder / "vuota"
+        cls.result = dental.build(cls.path, cls.output, {"archVerticalMM": 20.0})
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def test_returns_the_axial_slice_instead_of_failing(self):
+        self.assertTrue(self.result["needsCurve"])
+        self.assertIsNone(self.result["panorama"])
+        self.assertIsNone(self.result["sections"])
+        self.assertTrue((self.output / "axial.png").exists())
+        self.assertFalse((self.output / "panorama.png").exists())
+        axial = self.result["axial"]
+        self.assertEqual(axial["controlPixels"], [])
+        self.assertEqual(axial["curvePixels"], [])
+        self.assertEqual(axial["cutPixels"], [])
+        # È il risultato che `main` stampa: deve passare per JSON così com'è.
+        json.dumps(self.result)
+
+    def test_keeps_the_level_that_was_asked(self):
+        axial = self.result["axial"]
+        self.assertAlmostEqual(axial["verticalMM"], 20.0, places=6)
+        self.assertAlmostEqual(axial["worldFromPixel"]["z"], 20.0, places=6)
+        low, high = axial["levelRangeMM"]
+        self.assertLess(low, 20.0)
+        self.assertGreater(high, 20.0)
+
+    def test_points_clicked_on_the_slice_come_back_where_they_were_clicked(self):
+        """Il giro completo della curva posata a mano: pixel → millimetri → ricostruzione → pixel.
+
+        È esattamente quello che fa la pagina: converte i clic con `worldFromPixel` e chiede la
+        ricostruzione con quei punti. Se la conversione fosse specchiata o spostata, la curva
+        ricostruita cadrebbe altrove rispetto a dove si è cliccato.
+        """
+        axial = self.result["axial"]
+        clicks = [[40.0, 90.0], [62.0, 40.0], [80.0, 30.0], [98.0, 40.0], [120.0, 90.0]]
+        x, y, z = (axial["worldFromPixel"][key] for key in ("x", "y", "z"))
+        points = [
+            [x[0] * c + x[1] * r + x[2], y[0] * c + y[1] * r + y[2], z] for c, r in clicks
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            result = dental.build(
+                self.path,
+                Path(folder) / "out",
+                {"controlPointsMM": points, "archVerticalMM": z, "sectionIntervalMM": 8.0},
+            )
+        self.assertFalse(result["needsCurve"])
+        self.assertFalse(result["curve"]["automatic"])
+        back = np.asarray(result["axial"]["controlPixels"])
+        clicked = np.asarray(clicks)
+        # La curva si orienta dalla destra del paziente: l'ordine può tornare rovesciato.
+        if np.linalg.norm(back[0] - clicked[0]) > np.linalg.norm(back[0] - clicked[-1]):
+            clicked = clicked[::-1]
+        np.testing.assert_allclose(back, clicked, atol=1e-6)
+
+    def test_proposes_the_level_of_the_teeth(self):
+        """Senza quota chiesta si propone quella con più smalto: i denti del fantoccio, a +6 mm."""
+        self.assertLess(abs(dental.likely_arch_level(dental.Volume(self.path)) - 6.0), 3.0)
+
+    def test_a_volume_without_an_arch_still_gives_a_slice(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "block.nii.gz"
+            data = np.full((80, 80, 60), -1000.0, dtype=np.float32)
+            data[20:60, 20:60, 10:50] = 1200.0
+            nib.save(nib.Nifti1Image(data, np.diag([0.5, 0.5, 0.5, 1.0])), str(path))
+            result = dental.build(path, Path(folder) / "out")
+            self.assertTrue(result["needsCurve"])
+            low, high = result["axial"]["levelRangeMM"]
+            self.assertTrue(low <= result["axial"]["verticalMM"] <= high)
+
+
+if __name__ == "__main__":
+    unittest.main()

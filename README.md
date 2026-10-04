@@ -96,6 +96,11 @@ assiale con sopra la curva trovata: il rilevamento è un'euristica, e quella è 
 cui si vede se ha trovato l'arcata o la colonna cervicale. **Edit** la corregge a mano, punto per
 punto, e la correzione resta.
 
+**Se l'arcata non si trova**, la pagina mostra la fetta assiale e chiede di disegnarla: sposta
+**Axial level** sulla quota dei denti e premi **Show level** — lì il programma ritenta da solo —
+poi clicca lungo il centro dell'arcata, da un capo all'altro, e premi **Use this curve**. Bastano
+tre punti; i punti si trascinano, e Alt-clic ne toglie uno.
+
 I comandi in fondo rifanno la ricostruzione: spessore dello slab, altezza, passo e misure delle
 sezioni, proiezione massima o media. Ogni combinazione resta in cache, quindi tornare su un valore
 di prima è immediato.
@@ -147,8 +152,8 @@ for controllo in Tools/check-*.py; do python3 "$controllo" || break; done
 
 ### Che cosa manca, e in che ordine
 
-Portate: **panoramica e curva d'arcata**, con le sezioni trasversali e la correzione a mano della
-curva. Restano, in quest'ordine: la **piena risoluzione** — oggi il motore riduce ogni asse a 320
+Portate: **panoramica e curva d'arcata**, con le sezioni trasversali, la correzione a mano della
+curva e il disegno da capo quando il rilevamento non la trova. Restano, in quest'ordine: la **piena risoluzione** — oggi il motore riduce ogni asse a 320
 voxel, e su una CBCT da un quarto di millimetro le sezioni ne soffrono — poi le misure con
 l'incertezza dichiarata, il canale alveolare con gli impianti e i loro allarmi, la segmentazione
 di denti e osso con l'uscita STL, le scansioni intraorali, le dime, la cefalometria, i referti.

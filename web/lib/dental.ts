@@ -31,6 +31,24 @@ import {
 /** Quanto si aspetta una ricostruzione prima di dichiararla persa. */
 const TIMEOUT_MS = 10 * 60 * 1000;
 
+const SCRIPT = path.join(process.cwd(), 'scripts/dental_panorama.py');
+let scriptHash = '';
+
+/**
+ * L'impronta del codice che ricostruisce, che entra nella chiave della cache.
+ *
+ * Senza, un risultato calcolato da una versione vecchia del programma tornerebbe per sempre con le
+ * stesse opzioni: un'arcata «non trovata» resterebbe non trovata anche dopo l'aggiornamento che
+ * insegna a trovarla, e nessuno capirebbe perché.
+ */
+function scriptDigest() {
+  if (!scriptHash)
+    scriptHash = createHash('sha256')
+      .update(readFileSync(SCRIPT))
+      .digest('hex');
+  return scriptHash;
+}
+
 export type DentalOptions = {
   /** Millimetri per pixel della panoramica. La scala è isotropa: vale per entrambi gli assi. */
   mmPerPixel: number;
@@ -212,7 +230,12 @@ export function outputDirectory(seriesId: string, key: string) {
 }
 
 type PythonResult = Record<string, unknown> & {
-  sections: { count: number; directory: string };
+  /**
+   * Vero quando l'arcata non si è trovata: c'è soltanto la fetta assiale, su cui la pagina fa
+   * posare la curva a mano. Panoramica e sezioni allora mancano.
+   */
+  needsCurve?: boolean;
+  sections: { count: number; directory: string } | null;
   axial: Record<string, unknown> | null;
 };
 
@@ -221,7 +244,7 @@ export type DentalBuild = PythonResult & {
   cached: boolean;
   /** Da dove viene la curva: trovata ora, posata adesso, o ripresa da quella salvata. */
   curveSource: 'automatic' | 'manual' | 'saved';
-  images: { panorama: string; axial: string | null; sections: string[] };
+  images: { panorama: string | null; axial: string | null; sections: string[] };
 };
 
 /** Che cosa fare della curva salvata, se il gesto lo chiede. */
@@ -261,18 +284,21 @@ export async function buildDental(
   }
   const volume = seriesVolumePath(seriesId);
   const key = createHash('sha256')
+    .update(scriptDigest())
     .update(JSON.stringify(options))
     .digest('hex')
     .slice(0, 16);
   const directory = outputDirectory(seriesId, key);
   const resultPath = path.join(directory, 'result.json');
   const images = (result: PythonResult) => ({
-    panorama: `/api/dental/image/${seriesId}/${key}/panorama.png`,
+    panorama: result.needsCurve
+      ? null
+      : `/api/dental/image/${seriesId}/${key}/panorama.png`,
     axial: result.axial
       ? `/api/dental/image/${seriesId}/${key}/axial.png`
       : null,
     sections: Array.from(
-      { length: result.sections.count },
+      { length: result.sections?.count ?? 0 },
       (_, index) =>
         `/api/dental/image/${seriesId}/${key}/sections/${String(index).padStart(4, '0')}.png`,
     ),
@@ -296,12 +322,7 @@ export async function buildDental(
   const stdout = await new Promise<string>((resolve, reject) => {
     execFile(
       python,
-      [
-        path.join(process.cwd(), 'scripts/dental_panorama.py'),
-        volume,
-        directory,
-        JSON.stringify(options),
-      ],
+      [SCRIPT, volume, directory, JSON.stringify(options)],
       { timeout: TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 },
       (error, out, errorOutput) => {
         if (!error) return resolve(out);
