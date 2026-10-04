@@ -35,6 +35,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Box,
   ChevronLeft,
   ChevronRight,
   FolderPlus,
@@ -44,9 +45,9 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import Image from 'next/image';
-import Link from 'next/link';
+import PageLink from '@/components/page-link';
 import { Button } from '@/components/ui/button';
-import FolderImport from './folder-import';
+import FolderImport, { type Imported } from './folder-import';
 
 type Patient = { id: string; name: string };
 type Study = { id: string; patient_id: string; date: string; label: string };
@@ -192,9 +193,12 @@ function insertionIndex(points: number[][], x: number, y: number) {
 }
 
 export default function DentalWorkspace({
-  initialFolder = '',
+  initialPaths = [],
+  chosenInApp = false,
 }: {
-  initialFolder?: string;
+  initialPaths?: string[];
+  /** Vero se l'app del Mac ha appena fatto scegliere un esame, che il pannello ritirerà. */
+  chosenInApp?: boolean;
 }) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [studies, setStudies] = useState<Study[]>([]);
@@ -211,7 +215,12 @@ export default function DentalWorkspace({
   const [dragging, setDragging] = useState<number | null>(null);
   // Dall'app del Mac si arriva qui con la cartella già scelta (⌘O): il pannello d'importazione
   // nasce aperto, o la scelta resterebbe invisibile.
-  const [importing, setImporting] = useState(Boolean(initialFolder));
+  const [importing, setImporting] = useState(
+    initialPaths.length > 0 || chosenInApp,
+  );
+  // Lo studio appena importato: la pagina offre di aprirlo nel visore 3D di OpenMRI, che è dove
+  // chi importa una CBCT di solito vuole andare per primo.
+  const [imported, setImported] = useState<Imported | null>(null);
   const panorama = useRef<HTMLButtonElement>(null);
   /** Lo studio scelto, letto dentro `loadLibrary` senza rifare la funzione a ogni cambio. */
   const studyIdRef = useRef('');
@@ -400,13 +409,9 @@ export default function DentalWorkspace({
             it.
           </p>
         </div>
-        <Link
-          prefetch={false}
-          className="text-muted-foreground text-xs underline"
-          href="/"
-        >
+        <PageLink className="text-muted-foreground text-xs underline" href="/">
           Library
-        </Link>
+        </PageLink>
         <select
           className="border-border bg-card h-8 rounded-lg border px-2 text-sm"
           value={studyId}
@@ -450,13 +455,30 @@ export default function DentalWorkspace({
 
       {importing ? (
         <FolderImport
-          initialFolder={initialFolder}
-          onDone={() => {
+          initialPaths={initialPaths}
+          chosenInApp={chosenInApp}
+          onDone={(result) => {
             setImporting(false);
             setBuild(null);
+            setImported(result);
             loadLibrary('newest');
           }}
         />
+      ) : null}
+
+      {imported?.studyIds?.length ? (
+        <section className="border-border bg-card flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm">
+          <span>Imported. The exam is in the library.</span>
+          <PageLink
+            className="bg-primary text-primary-foreground inline-flex h-8 items-center gap-2 rounded-lg px-3 text-sm"
+            href={`/?study=${encodeURIComponent(imported.studyIds[0])}`}
+          >
+            <Box size={16} /> Open in the 3D viewer
+          </PageLink>
+          <span className="text-muted-foreground text-xs">
+            or press Reconstruct for the panoramic view.
+          </span>
+        </section>
       ) : null}
 
       {error ? (

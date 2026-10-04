@@ -17,8 +17,9 @@
  * ispezione, stessa conferma del paziente, stessa conversione.
  */
 import { execFile } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { copyFile, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import {
   SETUP_HINT,
@@ -135,36 +136,77 @@ export async function finishUpload(id: string) {
   }
 }
 
+/** Un percorso scritto o scelto, reso assoluto e controllato prima di toccarlo. */
+export function describePath(chosen: string) {
+  const full = path.resolve(
+    chosen.trim().replace(/^~(?=\/|$)/, process.env.HOME || '~'),
+  );
+  if (!existsSync(full)) throw new Error(`There is nothing at «${full}».`);
+  return full;
+}
+
 /** Che cosa c'è dentro la cartella, prima di toccarla. */
 export function describeFolder(folder: string) {
-  const full = path.resolve(
-    folder.replace(/^~(?=\/|$)/, process.env.HOME || '~'),
-  );
-  if (!existsSync(full) || !statSync(full).isDirectory())
+  const full = describePath(folder);
+  if (!statSync(full).isDirectory())
     throw new Error(`There is no folder at «${full}».`);
   return full;
 }
 
+async function sha256(file: string) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(file))
+    hash.update(chunk as Buffer);
+  return hash.digest('hex');
+}
+
 /**
- * Prepara l'importazione di una cartella e la consegna al motore di OpenMRI.
+ * Prepara l'importazione di ciò che si è scelto e la consegna al motore di OpenMRI.
+ *
+ * Cartelle, file `.dcm`, o un misto: nell'app del Mac il pannello accetta tutto, perché chi ha in
+ * mano una CBCT non deve sapere se il programma vuole la cartella o i file. Un archivio ZIP scelto
+ * da solo è già ciò che il motore vuole, e si copia com'è.
  *
  * Restituisce l'identificativo del lavoro: da lì in avanti valgono le rotte dell'originale —
  * `GET /api/library/imports/<id>` per seguirlo, `POST` con il paziente per confermarlo.
  */
-export async function importFolder(folder: string) {
-  const full = describeFolder(folder);
-  const id = newJob(path.basename(full) || 'folder');
+export async function importPaths(chosen: string[]) {
+  if (!chosen.length) throw new Error('Choose a folder or the DICOM files.');
+  const paths = chosen.map(describePath);
+  const single = paths.length === 1 ? paths[0] : '';
+  const id = newJob(path.basename(single || path.dirname(paths[0])) || 'CBCT');
   const archive = path.join(dataRoot(), 'jobs', id, 'source.zip');
 
   try {
     db()
       .prepare(
-        "UPDATE jobs SET status='uploading',stage='Reading the folder' WHERE id=?",
+        "UPDATE jobs SET status='uploading',stage='Reading the files' WHERE id=?",
       )
       .run(id);
-    const summary = JSON.parse(
-      await runPython('scripts/zip_folder.py', [full, archive], ZIP_TIMEOUT_MS),
-    ) as { files: number; bytes: number; sha256: string };
+    let summary: {
+      files: number;
+      bytes: number;
+      sha256: string;
+      folder?: string;
+    };
+    if (single && /\.zip$/i.test(single) && statSync(single).isFile()) {
+      await mkdir(path.dirname(archive), { recursive: true });
+      await copyFile(single, archive);
+      summary = {
+        files: 1,
+        bytes: statSync(archive).size,
+        sha256: await sha256(archive),
+        folder: path.dirname(single),
+      };
+    } else {
+      summary = JSON.parse(
+        await runPython(
+          'scripts/zip_folder.py',
+          [...paths, archive],
+          ZIP_TIMEOUT_MS,
+        ),
+      ) as typeof summary;
+    }
 
     db()
       .prepare(
@@ -172,14 +214,19 @@ export async function importFolder(folder: string) {
       )
       .run(summary.sha256, new Date().toISOString(), id);
     startWorker(id, 'inspect');
-    return { id, ...summary, folder: full };
+    return { id, ...summary, paths };
   } catch (error) {
     db()
       .prepare("UPDATE jobs SET status='error',error=? WHERE id=?")
       .run(
-        error instanceof Error ? error.message : 'The folder could not be read',
+        error instanceof Error ? error.message : 'The files could not be read',
         id,
       );
     throw error;
   }
+}
+
+/** La cartella scritta a mano: la stessa importazione, con un percorso solo. */
+export function importFolder(folder: string) {
+  return importPaths([describeFolder(folder)]);
 }

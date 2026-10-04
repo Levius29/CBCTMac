@@ -12,7 +12,7 @@ import type { Patient, StudyRecord } from './library-workspace';
 import { displayDate } from '@/lib/dates';
 // CBCTMac: la ricostruzione dentale è una pagina nostra, e questo è il solo punto in cui
 // l'interfaccia dell'originale la nomina. Vedi docs/openmri-dental.md § Modifiche locali.
-import Link from 'next/link';
+import PageLink from '@/components/page-link';
 
 import {
   Orbit,
@@ -733,9 +733,9 @@ export default function Viewer({
           >
             <Crosshair size={17} /> Focus over time
           </button>
-          <Link className="header-toggle" href="/dental" prefetch={false}>
+          <PageLink className="header-toggle" href="/dental">
             <Scan size={17} /> Dental
-          </Link>
+          </PageLink>
           <button className="export-button library-button" onClick={onLibrary}>
             <FolderOpen size={17} />
             <span>Library</span>

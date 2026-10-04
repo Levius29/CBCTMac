@@ -1,17 +1,26 @@
 import DentalWorkspace from './dental-workspace';
 
 /**
- * `?folder=` arriva dall'app del Mac: ⌘O sceglie la cartella e apre questa pagina con il percorso
- * già scritto. Letto qui, sul server, il pannello nasce aperto e compilato — invece di aprirsi un
- * istante dopo, quando il browser avrebbe letto l'indirizzo da sé.
+ * Due modi di arrivare qui con un esame già scelto, letti sul server perché il pannello
+ * d'importazione nasca aperto e l'importazione parta da sola:
+ *
+ * - `?import=chosen` — dall'app del Mac: ⌘O, o un pulsante d'importazione, ha aperto il pannello
+ *   del sistema, e ciò che si è scelto aspetta nell'app che la pagina lo ritiri;
+ * - `?path=` — un percorso per parametro, scritto a mano o da uno script.
  */
 export default async function Page({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { folder } = await searchParams;
+  const { path, import: chosen } = await searchParams;
+  const initialPaths = (Array.isArray(path) ? path : [path]).filter(
+    (item): item is string => typeof item === 'string' && !!item,
+  );
   return (
-    <DentalWorkspace initialFolder={typeof folder === 'string' ? folder : ''} />
+    <DentalWorkspace
+      initialPaths={initialPaths}
+      chosenInApp={chosen === 'chosen'}
+    />
   );
 }

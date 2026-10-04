@@ -1,4 +1,4 @@
-import { chooseFolder, importFolder } from '@/lib/dental-import';
+import { chooseFolder, importFolder, importPaths } from '@/lib/dental-import';
 import { failure, localMutation } from '@/lib/library';
 
 /**
@@ -7,6 +7,8 @@ import { failure, localMutation } from '@/lib/library';
  * Due gesti sulla stessa rotta perché sono lo stesso gesto diviso in due: `choose` apre il
  * pannello del sistema e restituisce un percorso, `import` prende un percorso e avvia
  * l'importazione. Chi non è su macOS salta il primo e scrive il percorso a mano.
+ *
+ * Dall'app del Mac arriva invece `paths`: ciò che si è scelto nel suo pannello, cartelle o file.
  */
 export async function POST(request: Request) {
   try {
@@ -16,6 +18,12 @@ export async function POST(request: Request) {
     if (body.action === 'choose')
       return Response.json({ folder: await chooseFolder() });
 
+    if (Array.isArray(body.paths)) {
+      const paths = body.paths.filter(
+        (item): item is string => typeof item === 'string' && !!item.trim(),
+      );
+      return Response.json(await importPaths(paths));
+    }
     if (typeof body.folder !== 'string' || !body.folder.trim())
       throw new Error('Choose the folder with the DICOM files.');
     return Response.json(await importFolder(body.folder.trim()));

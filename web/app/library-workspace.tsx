@@ -21,6 +21,8 @@ import Welcome from './welcome';
 import Intro from './intro';
 import { displayDate } from '@/lib/dates';
 import { rememberOpened } from '@/lib/recent';
+// CBCTMac: il ponte verso l'app del Mac. Vedi docs/openmri-dental.md § Modifiche locali.
+import { desktopBridge } from '@/lib/desktop';
 export type Patient = {
   id: string;
   name: string;
@@ -156,7 +158,22 @@ export default function LibraryWorkspace() {
     let active = true;
     void api<Catalog>('/api/library')
       .then((d) => {
-        if (active) setCatalog(d);
+        if (!active) return;
+        setCatalog(d);
+        // CBCTMac: `/?study=<id>` apre quello studio nel visore. Ci arriva la pagina dentale
+        // dopo un'importazione, che altrimenti finirebbe sulla schermata iniziale.
+        const wanted = new URLSearchParams(window.location.search).get('study');
+        const found = wanted
+          ? d.studies.find((s) => s.id === wanted)
+          : undefined;
+        if (!found) return;
+        setPatientId(found.patient_id);
+        writeStorage(PATIENT_STORAGE_KEY, found.patient_id);
+        setView({
+          patientId: found.patient_id,
+          studyId: found.id,
+          entered: Date.now(),
+        });
       })
       .catch((e) => {
         if (active) setError(e instanceof Error ? e.message : String(e));
@@ -189,6 +206,13 @@ export default function LibraryWorkspace() {
     }
   }
   function upload(id = '') {
+    // CBCTMac: nell'app del Mac importare vuol dire il pannello del sistema, che accetta cartelle
+    // e file `.dcm`. Il pannello dell'originale vuole uno ZIP, e i `.dcm` vi comparivano in grigio.
+    const bridge = desktopBridge();
+    if (bridge && !id) {
+      void bridge.openExam();
+      return;
+    }
     setJobId(id);
     setWizard(true);
   }

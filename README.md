@@ -31,16 +31,18 @@ finestra.
 
 ### Aprire una CBCT
 
-**File → Open DICOM Folder…**, oppure **⌘O**, e scegli la cartella dell'esame: quella che hai
-copiato dal CD o dalla chiavetta del centro va bene così com'è, con il suo `DICOMDIR`, le
-sottocartelle e il visualizzatore per Windows accanto. Niente ZIP: l'app legge la cartella dal
-disco. Scrivi il nome del paziente e premi **Import**.
+Il pulsante viola **Import**, oppure **File → Open CBCT…** (**⌘O**): si apre il pannello del Mac,
+e va bene tutto ciò che hai in mano — la **cartella** dell'esame, così com'è arrivata dal CD o
+dalla chiavetta, oppure i **file** `.dcm` che ci stanno dentro, anche tutti insieme con ⌘A. Niente
+ZIP: l'app legge dal disco.
+
+L'importazione parte da sola, e il paziente prende il nome scritto nell'esame; se preferisci un
+altro nome, nella pagina **Dental** c'è il campo *Patient name* da riempire prima di scegliere.
+Alla fine **Open in the 3D viewer** apre il visore di OpenMRI — volume 3D e le tre sezioni — e
+**Reconstruct** la panoramica con le sezioni trasversali.
 
 Si aprono anche le CBCT in un file solo (multiframe) e quelle compresse JPEG 2000 o JPEG-LS: il
 motore le converte con `dcm2niix`.
-
-Poi **Library** porta al visore di OpenMRI — volume 3D e le tre sezioni — e **Dental** alla
-panoramica.
 
 ### Dove stanno le cose
 

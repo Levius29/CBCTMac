@@ -8,7 +8,7 @@ import {
   Scan,
   ShieldCheck,
 } from 'lucide-react';
-import Link from 'next/link';
+import PageLink from '@/components/page-link';
 import { displayDate } from '@/lib/dates';
 import { recentStudies } from '@/lib/recent';
 import type { Patient, StudyRecord } from './library-workspace';
@@ -78,9 +78,9 @@ export default function Welcome({
           {/* CBCTMac: la ricostruzione dentale apre i .dcm direttamente, senza archivio. Senza
               questo ingresso ci si arrivava solo da uno studio già aperto — cioè mai, alla prima
               volta. Vedi docs/openmri-dental.md § Modifiche locali. */}
-          <Link className="export-button" href="/dental" prefetch={false}>
+          <PageLink className="export-button" href="/dental">
             <Scan size={17} /> Dental · open .dcm files
-          </Link>
+          </PageLink>
         </div>
         {loading && (
           <LoaderCircle className="spin" aria-label="Loading the library" />

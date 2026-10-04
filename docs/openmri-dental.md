@@ -62,8 +62,15 @@ corto:
   `import`.
 - `web/app/welcome.tsx` — lo stesso collegamento nella schermata iniziale: senza, alla prima
   apertura, con la libreria vuota, alla pagina dentale non si arrivava.
-- `web/app/library-workspace.tsx` — le risposte del server lette in modo che un errore dica che
-  cosa è successo, invece del messaggio di Safari «The string did not match the expected pattern».
+- `web/app/library-workspace.tsx` — tre innesti: le risposte del server lette in modo che un
+  errore dica che cosa è successo, invece del messaggio di Safari «The string did not match the
+  expected pattern»; nell'app del Mac i pulsanti d'importazione aprono il pannello del sistema
+  invece di quello che vuole solo ZIP; `/?study=<id>` apre direttamente uno studio nel visore.
+
+I collegamenti nostri sono `<a>` normali, in `web/components/page-link.tsx`, e non `next/link`:
+in vinext 1.0.0-beta.5 la navigazione di `next/link` nella compilazione di produzione muore al
+clic con «e is not a function», e a schermo non succede niente. Era il primo clic di chi apriva
+l'app. OpenMRI non usa mai `next/link`, quindi il difetto toccava solo ciò che avevamo aggiunto.
 
 E i file nostri aggiunti là dentro, che non possono entrare in conflitto con niente:
 
@@ -71,7 +78,9 @@ E i file nostri aggiunti là dentro, che non possono entrare in conflitto con ni
 - `web/scripts/dental_panorama.py`, `web/tests/test_dental_panorama.py`, `web/lib/dental.ts`,
   `web/app/api/dental/**`, `web/app/dental/**` — la ricostruzione dentale.
 - `web/scripts/zip_folder.py`, `web/tests/test_zip_folder.py`, `web/lib/dental-import.ts` —
-  l'importazione da cartella.
+  l'importazione da cartella, o da file scelti uno per uno.
+- `web/lib/desktop.ts`, `web/components/page-link.tsx` — il ponte verso l'app del Mac, e i
+  collegamenti che navigano davvero.
 
 ### Una regola dell'originale che qui non vale
 
@@ -154,9 +163,12 @@ Pesa circa un gigabyte, ed è il prezzo di un'app che funziona uguale su ogni Ma
 
 Il guscio non tocca niente di OpenMRI. Avvia il motore su una porta libera, con la libreria in
 `~/Library/Application Support/OpenMRI Dental/library` e il registro in
-`~/Library/Logs/OpenMRI Dental/engine.log`; aggiunge il menu, **⌘O** per aprire una cartella con il
-pannello del Mac, e un ponte di una sola funzione — scegliere una cartella — che la pagina dentale
-usa quando c'è. Una cartella scelta così non si carica: il motore la legge dal disco.
+`~/Library/Logs/OpenMRI Dental/engine.log`; aggiunge il menu, **⌘O** per aprire un esame, e un
+ponte stretto verso la pagina: scegliere un esame nel pannello del Mac — **cartelle o file**,
+perché dentro la cartella dell'esame i `.dcm` devono potersi scegliere — e consegnarlo alla
+pagina dentale, che lo importa leggendolo dal disco. Ciò che si è scelto passa dal ponte e non
+dall'indirizzo: seicento percorsi sono cinquanta kilobyte, e Node rifiuta un indirizzo oltre i
+sedici.
 
 `desktop/prova-e2e.mjs` prova l'app intera come la userebbe una persona: avvio, cartella,
 importazione, panoramica, visore 3D, con una foto per passo. Su Linux lo stesso script costruisce

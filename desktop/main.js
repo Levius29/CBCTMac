@@ -194,21 +194,38 @@ function createWindow() {
   });
 }
 
-async function chooseFolder(window) {
+/**
+ * Il pannello del Mac per scegliere un esame: **cartelle o file**, anche più d'uno.
+ *
+ * La prima versione sceglieva solo cartelle, e dentro la cartella dell'esame i `.dcm` comparivano
+ * in grigio: chi li vedeva concludeva che non si apriva nessun file. Il pannello di OpenMRI, dal
+ * canto suo, voleva solo ZIP. Qui va bene tutto ciò che si ha in mano. Su Linux un pannello non
+ * può essere insieme di file e di cartelle, e Electron lo fa di sole cartelle.
+ */
+async function chooseExam(window) {
   const result = await dialog.showOpenDialog(window, {
     title: 'Open a CBCT',
-    message: 'Choose the folder with the DICOM files — a CD or USB stick works too.',
+    message: 'Choose the folder of the exam, or the DICOM files in it. A CD or USB stick works too.',
     buttonLabel: 'Open',
-    properties: ['openDirectory'],
+    properties: ['openFile', 'openDirectory', 'multiSelections'],
   });
-  return result.canceled || !result.filePaths.length ? '' : result.filePaths[0];
+  return result.canceled ? [] : result.filePaths;
 }
 
-/** ⌘O: si sceglie la cartella e la pagina dentale la riceve già scritta, pronta da importare. */
-async function openFolderFromMenu() {
-  if (!mainWindow || !origin) return;
-  const folder = await chooseFolder(mainWindow);
-  if (folder) mainWindow.loadURL(`${origin}/dental?folder=${encodeURIComponent(folder)}`);
+/**
+ * Ciò che si è scelto con ⌘O o con un pulsante d'importazione, in attesa che la pagina dentale lo
+ * ritiri. Non viaggia nell'indirizzo: chi apre la cartella e seleziona tutti i `.dcm` sceglie
+ * seicento percorsi, cinquanta kilobyte, e Node rifiuta un indirizzo oltre i sedici.
+ */
+let chosenExam = [];
+
+/** ⌘O e i pulsanti d'importazione: si sceglie, e la pagina dentale importa. */
+async function openExam(window) {
+  if (!window || window.isDestroyed() || !origin) return;
+  const paths = await chooseExam(window);
+  if (!paths.length) return;
+  chosenExam = paths;
+  window.loadURL(`${origin}/dental?import=chosen`);
 }
 
 function buildMenu() {
@@ -218,7 +235,7 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
-        { label: 'Open DICOM Folder…', accelerator: 'CmdOrCtrl+O', click: openFolderFromMenu },
+        { label: 'Open CBCT…', accelerator: 'CmdOrCtrl+O', click: () => openExam(mainWindow) },
         { label: 'Home', accelerator: 'CmdOrCtrl+Shift+H', click: () => origin && mainWindow?.loadURL(`${origin}/`) },
         { type: 'separator' },
         { label: 'Show Engine Log', click: () => shell.openPath(logFile) },
@@ -257,10 +274,25 @@ function stopEngine() {
   }, 3000).unref();
 }
 
-ipcMain.handle('openmri:choose-folder', (event) => {
-  // Solo le pagine del motore possono chiedere il pannello, non una pagina finita qui per caso.
-  if (!isOurs(event.senderFrame?.url || '')) return '';
-  return chooseFolder(BrowserWindow.fromWebContents(event.sender));
+// Solo le pagine del motore possono chiedere il pannello, non una pagina finita qui per caso.
+const fromEngine = (event) => isOurs(event.senderFrame?.url || '');
+
+ipcMain.handle('openmri:choose-exam', (event) => {
+  if (!fromEngine(event)) return [];
+  return chooseExam(BrowserWindow.fromWebContents(event.sender));
+});
+
+ipcMain.handle('openmri:open-exam', (event) => {
+  if (!fromEngine(event)) return;
+  return openExam(BrowserWindow.fromWebContents(event.sender));
+});
+
+// Si ritira una volta sola: ricaricare la pagina non deve importare due volte lo stesso esame.
+ipcMain.handle('openmri:take-chosen-exam', (event) => {
+  if (!fromEngine(event)) return [];
+  const paths = chosenExam;
+  chosenExam = [];
+  return paths;
 });
 
 if (!app.requestSingleInstanceLock()) {
