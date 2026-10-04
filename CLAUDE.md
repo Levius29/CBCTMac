@@ -80,7 +80,15 @@ npm run test:import           # le prove Python dell'import e della registrazion
 # se hai toccato Sources/ o Tests/ — la riserva
 for controllo in Tools/check-*.py; do python3 "$controllo" || break; done
 swift test
+
+# se hai toccato desktop/ o Tools/make-mac-app.sh — l'app, costruita e guidata per intero
+Tools/make-mac-app.sh
+xvfb-run -a node desktop/prova-e2e.mjs "OpenMRI Dental-linux" <cartella-dicom> <cartella-foto>
 ```
+
+La prova dell'app vuole `playwright-core` e, su Linux, `xvfb-run`; come si lancia sta in testa a
+`desktop/prova-e2e.mjs`. Le foto che scatta vanno **guardate**: un visore che parte e mostra una
+finestra nera passa ogni altro controllo.
 
 I ventisei controlli in `Tools/` girano **ovunque** — senza Xcode, senza rete e persino senza
 Swift — e sono l'unica verifica che copra il target dell'applicazione, che fuori da macOS non

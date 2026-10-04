@@ -53,19 +53,25 @@ serve, e si innesta nei loro nei punti più stretti possibile.
 
 ### Modifiche locali al tree copiato
 
-Due, e l'elenco va tenuto corto:
+Quattro, contate con `git diff` dal commit che ha copiato l'originale, e l'elenco va tenuto
+corto:
 
 - `web/.gitignore` — tolta l'eccezione `!/demo/jane-head-mri.zip`. Senza, un `git add -A` si
   porterebbe dentro i 46 MB dello studio demo per sempre.
 - `web/app/viewer.tsx` — un collegamento alla pagina dentale nella barra in alto, più il suo
-  `import`. È l'unico punto in cui l'interfaccia dell'originale nomina roba nostra; tutto il resto
-  della ricostruzione dentale sta in file nostri.
+  `import`.
+- `web/app/welcome.tsx` — lo stesso collegamento nella schermata iniziale: senza, alla prima
+  apertura, con la libreria vuota, alla pagina dentale non si arrivava.
+- `web/app/library-workspace.tsx` — le risposte del server lette in modo che un errore dica che
+  cosa è successo, invece del messaggio di Safari «The string did not match the expected pattern».
 
 E i file nostri aggiunti là dentro, che non possono entrare in conflitto con niente:
 
 - `web/.upstream-commit` — da quale commit dell'originale siamo partiti.
 - `web/scripts/dental_panorama.py`, `web/tests/test_dental_panorama.py`, `web/lib/dental.ts`,
   `web/app/api/dental/**`, `web/app/dental/**` — la ricostruzione dentale.
+- `web/scripts/zip_folder.py`, `web/tests/test_zip_folder.py`, `web/lib/dental-import.ts` —
+  l'importazione da cartella.
 
 ### Una regola dell'originale che qui non vale
 
@@ -121,7 +127,7 @@ denti stanno su una curva, e qualunque taglio piatto li attraversa di sbieco.
 - `web/app/dental/**` — la pagina: panoramica in alto, fetta assiale con la curva disegnata sopra,
   sezione trasversale, e i comandi che rifanno la ricostruzione.
 
-### L'importazione da cartella, e il pacchetto macOS
+### L'importazione da cartella
 
 Due cose che l'originale non fa, e che su un computer di studio pesano più di quanto sembri.
 
@@ -135,17 +141,27 @@ Due cose che l'originale non fa, e che su un computer di studio pesano più di q
   sta **già** sul computer: si incolla il percorso e il server la legge dal disco invece di
   farsela caricare. Per una cartella da un gigabyte è la strada svelta.
 
-### Il pacchetto macOS, tentato e messo da parte
+### L'app del Mac
 
-`Tools/make-mac-app.sh` costruisce un `OpenMRI Dental.app` che avvia il server e apre una finestra
-dedicata. **Sul Mac di prova non è partito**, e il perché non si sa ancora — serve
-`~/Library/Logs/OpenMRI Dental.log`. Finché non si sa, il README non lo propone: la strada buona
-resta `npm run up` e il browser.
+Il primo pacchetto avviava il server cercando Node e Python sul Mac, con il PATH quasi vuoto che il
+Finder dà alle applicazioni, e apriva Chrome se lo trovava. Sul Mac di chi lo usa non è mai
+partito, e nessuno ha mai saputo perché.
 
-Gli script restano perché il lavoro è fatto e il difetto è probabilmente piccolo — il PATH di
-un'applicazione lanciata dal Finder, o il permesso d'esecuzione perso nel clone. Quando arriva il
-registro si chiude in dieci minuti. Un'applicazione nativa vera — Electron, Tauri — è un'altra
-cosa ancora, e costa duecento megabyte o una catena di compilazione in Rust.
+Il secondo, `desktop/` più `Tools/make-mac-app.sh`, non cerca niente: dentro ci sono Electron per
+la finestra, Node per il motore, Python con pydicom, dcm2niix, numpy, scipy, SimpleITK e nibabel,
+e OpenMRI compilato. Ogni pezzo in una versione fissata, verificata con la sua impronta SHA-256.
+Pesa circa un gigabyte, ed è il prezzo di un'app che funziona uguale su ogni Mac.
+
+Il guscio non tocca niente di OpenMRI. Avvia il motore su una porta libera, con la libreria in
+`~/Library/Application Support/OpenMRI Dental/library` e il registro in
+`~/Library/Logs/OpenMRI Dental/engine.log`; aggiunge il menu, **⌘O** per aprire una cartella con il
+pannello del Mac, e un ponte di una sola funzione — scegliere una cartella — che la pagina dentale
+usa quando c'è. Una cartella scelta così non si carica: il motore la legge dal disco.
+
+`desktop/prova-e2e.mjs` prova l'app intera come la userebbe una persona: avvio, cartella,
+importazione, panoramica, visore 3D, con una foto per passo. Su Linux lo stesso script costruisce
+l'app per Linux, e la prova gira sotto `xvfb-run`; è così che è stata verificata, perché un Mac qui
+non c'è.
 
 **Il limite da sapere.** Il volume su cui si ricostruisce è quello che OpenMRI prepara
 all'importazione, ricampionato a un massimo di 320 voxel per asse: su una CBCT a campo grande

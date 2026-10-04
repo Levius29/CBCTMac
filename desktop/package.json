@@ -1,0 +1,9 @@
+{
+  "name": "openmri-dental",
+  "productName": "OpenMRI Dental",
+  "version": "1.0.0",
+  "description": "OpenMRI con la ricostruzione dentale, come applicazione del Mac.",
+  "main": "main.js",
+  "private": true,
+  "license": "MIT"
+}

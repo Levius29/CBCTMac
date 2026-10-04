@@ -29,6 +29,15 @@ import { Button } from '@/components/ui/button';
 
 type Job = { status: string; stage?: string; error?: string };
 
+// Dentro l'app del Mac la pagina ha un ponte verso il sistema: il pannello vero per le cartelle.
+// Una cartella scelta così non si carica — il motore la legge dal disco, come il percorso scritto
+// a mano — e su una CBCT da mezzo gigabyte è la differenza fra un attimo e minuti.
+declare global {
+  interface Window {
+    openmriDesktop?: { chooseFolder: () => Promise<string> };
+  }
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function api<T>(route: string, init?: RequestInit): Promise<T> {
@@ -49,9 +58,16 @@ const post = (payload: unknown) =>
 /** Quanti file viaggiano insieme: abbastanza per non aspettare, pochi per non ingolfare. */
 const IN_FLIGHT = 4;
 
-export default function FolderImport({ onDone }: { onDone: () => void }) {
+export default function FolderImport({
+  onDone,
+  initialFolder = '',
+}: {
+  onDone: () => void;
+  /** La cartella già scelta con ⌘O nell'app del Mac. */
+  initialFolder?: string;
+}) {
   const [chosen, setChosen] = useState<File[]>([]);
-  const [folder, setFolder] = useState('');
+  const [folder, setFolder] = useState(initialFolder);
   const [patient, setPatient] = useState('');
   const [stage, setStage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -65,6 +81,18 @@ export default function FolderImport({ onDone }: { onDone: () => void }) {
     directory.current?.setAttribute('webkitdirectory', '');
     directory.current?.setAttribute('directory', '');
   }, []);
+
+  async function chooseFolder() {
+    if (!window.openmriDesktop) {
+      directory.current?.click();
+      return;
+    }
+    const picked = await window.openmriDesktop.chooseFolder();
+    if (!picked) return;
+    setError('');
+    setChosen([]);
+    setFolder(picked);
+  }
 
   function pick(list: FileList | null) {
     setError('');
@@ -192,7 +220,7 @@ export default function FolderImport({ onDone }: { onDone: () => void }) {
         <Button
           variant="outline"
           disabled={busy}
-          onClick={() => directory.current?.click()}
+          onClick={() => void chooseFolder()}
         >
           <FolderOpen /> Choose folder…
         </Button>
@@ -215,7 +243,9 @@ export default function FolderImport({ onDone }: { onDone: () => void }) {
                 chosen.reduce((total, file) => total + file.size, 0) /
                 1024 ** 2
               ).toFixed(0)} MB`
-            : 'nothing chosen yet'}
+            : folder.trim()
+              ? `Folder: ${folder.trim()}`
+              : 'nothing chosen yet'}
         </span>
       </div>
 

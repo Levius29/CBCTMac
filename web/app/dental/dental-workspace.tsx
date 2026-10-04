@@ -191,7 +191,11 @@ function insertionIndex(points: number[][], x: number, y: number) {
   return best;
 }
 
-export default function DentalWorkspace() {
+export default function DentalWorkspace({
+  initialFolder = '',
+}: {
+  initialFolder?: string;
+}) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [studies, setStudies] = useState<Study[]>([]);
   const [studyId, setStudyId] = useState('');
@@ -205,7 +209,9 @@ export default function DentalWorkspace() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<number[][] | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
-  const [importing, setImporting] = useState(false);
+  // Dall'app del Mac si arriva qui con la cartella già scelta (⌘O): il pannello d'importazione
+  // nasce aperto, o la scelta resterebbe invisibile.
+  const [importing, setImporting] = useState(Boolean(initialFolder));
   const panorama = useRef<HTMLButtonElement>(null);
   /** Lo studio scelto, letto dentro `loadLibrary` senza rifare la funzione a ogni cambio. */
   const studyIdRef = useRef('');
@@ -444,6 +450,7 @@ export default function DentalWorkspace() {
 
       {importing ? (
         <FolderImport
+          initialFolder={initialFolder}
           onDone={() => {
             setImporting(false);
             setBuild(null);

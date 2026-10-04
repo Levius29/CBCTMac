@@ -48,4 +48,5 @@ __pycache__/
 
 ## Pacchetto macOS, costruito da Tools/make-mac-app.sh
 OpenMRI Dental.app/
+OpenMRI Dental-linux/
 *.iconset/
