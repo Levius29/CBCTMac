@@ -28,6 +28,9 @@ DICOMDIR
 TestData/
 Phantoms/
 !Tools/PhantomGenerator/**
+# Le fixture sintetiche delle prove, scritte da Tools/make-dicom-fixtures.py: nessun paziente,
+# 6 × 5 × 4 voxel. L'eccezione è stretta di proposito, e vale solo per quella cartella.
+!Tests/DICOMCoreTests/Fixtures/**
 
 ## macOS
 .DS_Store
